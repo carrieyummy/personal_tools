@@ -1,0 +1,41 @@
+# 路径以本配置文件所在目录为基准；支持 ~、%环境变量% 和 ${环境变量}。
+paths:
+  output_dir: "downloads"
+  chrome_profile_dir: "%LOCALAPPDATA%/BiliOriginalDownloader/chrome-profile"
+  # auto 使用 imageio-ffmpeg 自带的 FFmpeg；也可以填写 ffmpeg.exe 的完整路径。
+  ffmpeg: "auto"
+  max_title_length: 60
+
+auth:
+  # cookies：复用默认 Chrome 导出的登录态；chrome：使用独立 Chrome 用户目录登录。
+  mode: "cookies"
+  # 支持 *；Chrome 重复下载产生 (1) 等后缀时，自动读取最近导出的文件。
+  # 本目录对应用户指定的导出位置；也可以运行时用 --cookies 指定其他文件。
+  cookie_file: "cookies/bilibili-cookies*.json"
+
+network:
+  # 空字符串表示本工具直连，不使用系统/环境代理；需要代理时填写 http://地址:端口 或 socks5://地址:端口。
+  # 同时作用于专用 Chrome、B 站接口与视频下载，不修改系统代理设置。
+  proxy: ""
+
+browser:
+  channel: "chrome"
+  login_timeout_seconds: 300
+  poll_interval_seconds: 2
+  request_timeout_seconds: 30
+
+download:
+  # 从高到低依次比较；同档编码和音频沿用 yt-dlp 的质量排序。
+  format_sort: ["res", "fps", "hdr", "quality"]
+  format: "bv*+ba/b"
+  retries: 3
+  fragment_retries: 3
+  socket_timeout_seconds: 30
+  all_parts: false
+  # 下载全部分 P 成功后按顺序无损拼接；手动拼接不受此开关影响。
+  auto_merge_parts: true
+
+subtitles:
+  # all 表示全部语言；也可填写正则表达式，例如 ["zh.*", "ai-zh.*"]。
+  languages: ["all"]
+  include_ai: true

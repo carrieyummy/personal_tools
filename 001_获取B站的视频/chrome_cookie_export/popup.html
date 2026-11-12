@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>B 站登录态本机导出</title>
+  <style>
+    body { width: 320px; margin: 20px; font: 14px/1.6 system-ui, sans-serif; color: #253047; }
+    h1 { font-size: 18px; }
+    button { width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #087db8; color: white; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    #status { min-height: 44px; overflow-wrap: anywhere; }
+    small { color: #59657a; }
+  </style>
+</head>
+<body>
+  <h1>复用当前 Chrome 的 B 站登录</h1>
+  <p>请先确认当前 Chrome 已登录 B 站，然后点击导出。</p>
+  <button id="export" type="button">导出 B 站登录态到本机</button>
+  <p id="status" role="status" aria-live="polite"></p>
+  <small>文件名为 bilibili-cookies.json。请保存到 Python 工具目录的 cookies 文件夹；若目录不同，请修改 auth.cookie_file。文件包含登录凭据，请留在本机。此扩展仅申请 B 站 Cookie 权限，不发送网络请求。</small>
+  <script src="popup.js"></script>
+</body>
+</html>

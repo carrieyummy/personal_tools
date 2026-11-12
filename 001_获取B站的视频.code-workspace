@@ -1,0 +1,178 @@
+{
+    "folders": [
+        {
+            "name": "001_工具",
+            "path": "."
+        },
+        {
+            "path": "C:/Users/Administrator/.codex"
+        }
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe",
+        "python.terminal.activateEnvironment": false,
+        "python.testing.cwd": "${workspaceFolder:001_工具}/001_获取B站的视频",
+        "python.testing.unittestEnabled": true,
+        "python.testing.unittestArgs": [
+            // 输出每个测试用例的执行结果。
+            "-v",
+            // 从工具目录下的 tests 文件夹发现测试。
+            "-s", "tests",
+            // 以工具目录为导入根目录，供测试导入业务模块和共用测试资源路径。
+            "-t", "."
+        ]
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "B站：打开 Cookie 导出工具",
+                "detail": "在默认 Chrome 打开 chrome://extensions，开启开发者模式，加载打开的 chrome_cookie_export 文件夹，然后点击扩展导出 B 站登录态。",
+                "type": "process",
+                "command": "explorer.exe",
+                "args": ["${workspaceFolder:001_工具}/001_获取B站的视频/chrome_cookie_export"],
+                "problemMatcher": []
+            },
+            {
+                "label": "B站：准备环境",
+                "type": "process",
+                "command": "${config:python.defaultInterpreterPath}",
+                "args": [
+                    "-m", "pip", "install", "--isolated", "--proxy", "",
+                    "--index-url", "https://mirrors.aliyun.com/pypi/simple",
+                    "-r", "${workspaceFolder:001_工具}/001_获取B站的视频/requirements.txt"
+                ],
+                "options": {
+                    "cwd": "${workspaceFolder:001_工具}/001_获取B站的视频",
+                    "env": {
+                        "HTTP_PROXY": "",
+                        "HTTPS_PROXY": "",
+                        "ALL_PROXY": "",
+                        "PIP_PROXY": "",
+                        "NO_PROXY": "*",
+                        "PYTHONUTF8": "1"
+                    }
+                },
+                "problemMatcher": [],
+                "presentation": { "reveal": "always", "panel": "dedicated" }
+            }
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "B站：验证 Chrome 登录态",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:001_工具}/001_获取B站的视频/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_工具}/001_获取B站的视频",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
+                    "--config", "${workspaceFolder:001_工具}/001_获取B站的视频/config.yaml",
+                    // 仅验证配置的登录态，不下载视频。
+                    "--login-only"
+                ]
+            },
+            {
+                "name": "B站：查看画质与字幕",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:001_工具}/001_获取B站的视频/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_工具}/001_获取B站的视频",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
+                    "--config", "${workspaceFolder:001_工具}/001_获取B站的视频/config.yaml",
+                    // 启动时输入视频链接或 BV/AV 号，支持带 p 参数指定分 P；可重复传入 --url。
+                    "--url", "${input:bilibiliUrl}",
+                    // 仅查看可用画质、已选编码和字幕，不下载视频。
+                    "--list-formats"
+                ]
+            },
+            {
+                "name": "B站：下载当前分 P",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:001_工具}/001_获取B站的视频/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_工具}/001_获取B站的视频",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
+                    "--config", "${workspaceFolder:001_工具}/001_获取B站的视频/config.yaml",
+                    // 启动时输入视频链接或 BV/AV 号；链接中的 p 参数用于选择当前分 P。
+                    "--url", "${input:bilibiliUrl}"
+                ]
+            },
+            {
+                "name": "B站：下载全部分 P",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:001_工具}/001_获取B站的视频/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_工具}/001_获取B站的视频",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
+                    "--config", "${workspaceFolder:001_工具}/001_获取B站的视频/config.yaml",
+                    // 启动时输入视频链接或 BV/AV 号，作为下载目标。
+                    "--url", "${input:bilibiliUrl}",
+                    // 下载全部分 P，忽略链接中的 p 参数。
+                    "--all-parts"
+                ]
+            },
+            {
+                "name": "B站：拼接已下载分 P",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:001_工具}/001_获取B站的视频/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_工具}/001_获取B站的视频",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
+                    "--config", "${workspaceFolder:001_工具}/001_获取B站的视频/config.yaml",
+                    // 启动时输入已下载视频的 BV 号或普通 BV 链接；离线拼接分 P，无需登录。
+                    "--merge-video", "${input:bilibiliMergeId}"
+                ]
+            },
+            {
+                "name": "B站：补生成视频信息",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:001_工具}/001_获取B站的视频/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_工具}/001_获取B站的视频",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
+                    "--config", "${workspaceFolder:001_工具}/001_获取B站的视频/config.yaml",
+                    // 扫描配置的下载目录，迁移旧记录并补充视频信息；无需输入链接，不下载或拼接视频。
+                    "--refresh-metadata"
+                ]
+            }
+        ],
+        "inputs": [
+            {
+                "id": "bilibiliUrl",
+                "type": "promptString",
+                "description": "粘贴 B 站普通视频链接、b23.tv 短链接或 BV/AV 号（支持带 p 参数）"
+            },
+            {
+                "id": "bilibiliMergeId",
+                "type": "promptString",
+                "description": "输入已下载视频的 BV 号或普通 BV 视频链接"
+            }
+        ]
+    }
+}
