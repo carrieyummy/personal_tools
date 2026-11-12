@@ -32,8 +32,6 @@ download:
   fragment_retries: 3
   socket_timeout_seconds: 30
   all_parts: false
-  # 下载全部分 P 成功后按顺序无损拼接；手动拼接不受此开关影响。
-  auto_merge_parts: true
 
 subtitles:
   # all 表示全部语言；也可填写正则表达式，例如 ["zh.*", "ai-zh.*"]。

@@ -176,32 +176,40 @@ class DownloadTests(unittest.TestCase):
             tool.load_settings(config_path)
 
     def test_workspace_entries_match_script(self) -> None:
-        """验证带整行 JSONC 注释的工作区解释器、路径、测试发现目录及全部功能入口；无返回值。"""
+        """按配置的目录名称解析工作区变量，验证解释器、路径、测试发现目录及全部功能入口；无返回值。"""
         root = PROJECT_DIR.parent
-        content = (root / "001_工具.code-workspace").read_text(encoding="utf-8")
+        content = (root / "001_获取B站的视频.code-workspace").read_text(encoding="utf-8")
         workspace = json.loads("\n".join(line for line in content.splitlines() if not line.lstrip().startswith("//")))
+        root_folder = next(folder for folder in workspace["folders"] if (root / folder["path"]).resolve() == root)
+        workspace_variable = "${workspaceFolder:" + root_folder["name"] + "}"
         configurations = workspace["launch"]["configurations"]
         self.assertEqual(len(configurations), 6)
         self.assertTrue(Path(workspace["settings"]["python.defaultInterpreterPath"]).is_file())
         settings = workspace["settings"]
         self.assertTrue(settings["python.testing.unittestEnabled"])
-        test_cwd = Path(settings["python.testing.cwd"].replace("${workspaceFolder:001_工具}", str(root)))
+        test_cwd = Path(settings["python.testing.cwd"].replace(workspace_variable, str(root)))
         self.assertEqual(test_cwd.resolve(), PROJECT_DIR)
         test_arguments = settings["python.testing.unittestArgs"]
         self.assertEqual((test_cwd / test_arguments[test_arguments.index("-s") + 1]).resolve(), PROJECT_DIR / "tests")
         self.assertEqual((test_cwd / test_arguments[test_arguments.index("-t") + 1]).resolve(), PROJECT_DIR)
         for configuration in configurations:
             self.assertEqual(configuration["python"], "${config:python.defaultInterpreterPath}")
-            self.assertTrue(Path(configuration["program"].replace("${workspaceFolder:001_工具}", str(root))).is_file())
+            self.assertTrue(Path(configuration["program"].replace(workspace_variable, str(root))).is_file())
             arguments = configuration["args"]
             config = arguments[arguments.index("--config") + 1]
-            self.assertTrue(Path(config.replace("${workspaceFolder:001_工具}", str(root))).is_file())
-            parsed = tool.parse_args([value.replace("${workspaceFolder:001_工具}", str(root)).replace("${input:bilibiliUrl}", "BV1xx411c7mD").replace("${input:bilibiliMergeId}", "BV1xx411c7mD") for value in arguments])
+            self.assertTrue(Path(config.replace(workspace_variable, str(root))).is_file())
+            parsed = tool.parse_args([value.replace(workspace_variable, str(root)).replace("${input:bilibiliUrl}", "BV1xx411c7mD").replace("${input:bilibiliMergeId}", "BV1xx411c7mD").replace("${input:bilibiliMergeParts}", "1-5,8,10-12;10-12").replace("${input:bilibiliDownloadMergeParts}", "1-5,8,10-12;10-12") for value in arguments])
             self.assertEqual(parsed.login_only, configuration["name"] == "B站：验证 Chrome 登录态")
             self.assertEqual(parsed.list_formats, configuration["name"] == "B站：查看画质与字幕")
             self.assertEqual(parsed.all_parts, configuration["name"] == "B站：下载全部分 P")
             self.assertEqual(bool(parsed.merge_video), configuration["name"] == "B站：拼接已下载分 P")
             self.assertEqual(parsed.refresh_metadata, configuration["name"] == "B站：补生成视频信息")
+            if parsed.merge_video or parsed.all_parts:
+                self.assertEqual(parsed.merge_parts, "1-5,8,10-12;10-12")
+        merge_input = next(item for item in workspace["launch"]["inputs"] if item["id"] == "bilibiliMergeParts")
+        self.assertEqual(merge_input["default"], "")
+        download_input = next(item for item in workspace["launch"]["inputs"] if item["id"] == "bilibiliDownloadMergeParts")
+        self.assertEqual(download_input["default"], "")
         task = next(task for task in workspace["tasks"]["tasks"] if task["label"] == "B站：准备环境")
         self.assertIn("--isolated", task["args"])
         self.assertEqual(task["command"], "${config:python.defaultInterpreterPath}")
@@ -306,7 +314,7 @@ class DownloadTests(unittest.TestCase):
         """验证传输中断后不封装、不删除断点文件；无返回值。"""
         downloader = MagicMock()
         fmt = {"format_id": "video", "ext": "mp4", "url": "https://example.com/video", "vcodec": "avc1", "acodec": "none"}
-        partial = tool.video_folder(self.settings, "测试视频", "BV1xx411c7mD") / self.info["id"] / ".streams/0.video.mp4.part"
+        partial = tool.video_folder(self.settings, "测试视频", "BV1xx411c7mD") / ".streams" / self.info["id"] / "0.video.mp4.part"
 
         def interrupted(filename: str, info: dict) -> tuple[bool, bool]:
             """模拟 filename/info 的中断传输，写入部分数据并返回失败标志。"""
@@ -322,12 +330,21 @@ class DownloadTests(unittest.TestCase):
         mux.assert_not_called()
 
     def test_auto_merge_switch_and_partial_failure(self) -> None:
-        """验证全部下载成功且开关开启时才自动拼接；失败和关闭时保留分 P。"""
+        """验证命令行自动拼接默认关闭及显式开关，非空范围优先，并处理下载或拼接失败；无返回值。"""
         targets = [tool.VideoTarget(f"https://www.bilibili.com/video/BV1xx411c7mD?p={part}", part, part, 2) for part in (1, 2)]
-        for enabled, failed, expected_merges, expected_exit in ((True, False, 1, 0), (False, False, 0, 0), (True, True, 0, 2)):
-            with self.subTest(enabled=enabled, failed=failed):
-                settings = replace(self.settings, auto_merge_parts=enabled)
-                args = tool.parse_args(["--url", "BV1xx411c7mD", "--all-parts"])
+        cases = [(None, False, "", 0, 0, 0, 0), ("--auto-merge-parts", False, "", 0, 1, 0, 0),
+                 ("--auto-merge-parts", False, "   ", 0, 1, 0, 0), ("--no-auto-merge-parts", False, "", 0, 0, 0, 0),
+                 ("--auto-merge-parts", True, "", 0, 0, 0, 2), (None, False, "1,1;2,2", 0, 0, 1, 0),
+                 ("--no-auto-merge-parts", False, "1,1;2,2", 0, 0, 1, 0),
+                 ("--auto-merge-parts", False, "1,1;2,2", 2, 0, 1, 2),
+                 ("--no-auto-merge-parts", True, "1,1;2,2", 2, 0, 1, 2)]
+        for case_index, (merge_option, failed, selection, group_result, expected_merges, expected_groups, expected_exit) in enumerate(cases):
+            with self.subTest(merge_option=merge_option, failed=failed, selection=selection, group_result=group_result):
+                settings = replace(self.settings, output_dir=self.folder / str(case_index))
+                arguments = ["--url", "BV1xx411c7mD", "--all-parts", "--merge-parts", selection]
+                if merge_option is not None:
+                    arguments.append(merge_option)
+                args = tool.parse_args(arguments)
                 session = MagicMock()
                 session.__enter__.return_value = MagicMock()
                 downloader = MagicMock()
@@ -341,9 +358,12 @@ class DownloadTests(unittest.TestCase):
                     if failed and info["id"].endswith("p2"):
                         raise tool.ToolError("模拟失败")
                     return self.folder / info["id"], "test"
-                with patch.object(tool, "load_settings", return_value=settings), patch.object(tool, "resolve_ffmpeg", return_value="ffmpeg"), patch.object(tool, "authenticated_session", return_value=session), patch.object(tool, "ensure_login", return_value={"uname": "test"}), patch.object(tool, "resolve_targets", return_value=targets), patch.object(tool, "api_json", return_value={"data": {"bvid": "BV1xx411c7mD", "title": "投稿标题", "owner": {"mid": 1, "name": "test"}}}), patch.object(tool, "make_downloader", return_value=downloader), patch.object(tool, "list_subtitles", return_value=[]), patch.object(tool, "print_video_info"), patch.object(tool, "save_video", side_effect=save), patch.object(tool, "fetch_subtitles", return_value=[]), patch.object(tool, "merge_parts") as merge:
+                with patch.object(tool, "load_settings", return_value=settings), patch.object(tool, "resolve_ffmpeg", return_value="ffmpeg"), patch.object(tool, "authenticated_session", return_value=session), patch.object(tool, "ensure_login", return_value={"uname": "test"}), patch.object(tool, "resolve_targets", return_value=targets), patch.object(tool, "api_json", return_value={"data": {"bvid": "BV1xx411c7mD", "title": "投稿标题", "owner": {"mid": 1, "name": "test"}}}), patch.object(tool, "make_downloader", return_value=downloader), patch.object(tool, "list_subtitles", return_value=[]), patch.object(tool, "print_video_info"), patch.object(tool, "save_video", side_effect=save), patch.object(tool, "fetch_subtitles", return_value=[]), patch.object(tool, "merge_parts") as merge, patch.object(tool, "merge_groups", return_value=group_result) as groups:
                     self.assertEqual(tool.run(args), expected_exit)
                     self.assertEqual(merge.call_count, expected_merges)
+                    self.assertEqual(groups.call_count, expected_groups)
+                    if expected_groups:
+                        self.assertEqual(groups.call_args.args[-1], selection)
 
 
 class LosslessMuxTests(unittest.TestCase):
@@ -381,7 +401,8 @@ class LosslessMuxTests(unittest.TestCase):
                 result = subprocess.run([executable, "-hide_banner", "-loglevel", "error", "-i", str(path), "-map", "0:v:0", "-f", "framemd5", "-"], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 return [line.rsplit(",", 1)[-1].strip() for line in result.stdout.splitlines() if line and not line.startswith("#")]
-            expected = frames(manifests[0].parent / "片段'1.mp4") + frames(manifests[1].parent / "片段'2.mp4")
+            migrated_parts = {item["part"]: record.resolve_file(item) for item in record.data["files"] if item["kind"] == "part"}
+            expected = frames(migrated_parts[1]) + frames(migrated_parts[2])
             self.assertEqual(frames(merged), expected)
             with self.assertRaises(tool.ToolError):
                 tool.merge_parts(settings, executable, record)

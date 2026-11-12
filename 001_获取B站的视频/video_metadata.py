@@ -73,10 +73,10 @@ def probe_media(executable: str, path: Path) -> dict[str, Any]:
 class VideoInfo:
     """管理单个投稿的唯一记录；所有媒体路径均相对此文件，解析后必须位于配置下载目录中。"""
 
-    def __init__(self, output_dir: Path, folder: Path, bvid: str, title: str, total_parts: int | None = None) -> None:
-        """以 output_dir 为边界，在 folder 加载或初始化 bvid/title 投稿；total_parts 为已知总分 P 数，无返回值。"""
+    def __init__(self, output_dir: Path, folder: Path, bvid: str, title: str, total_parts: int | None = None, *, shared: bool = False) -> None:
+        """以 output_dir 为边界加载 folder 中的 bvid/title 投稿；total_parts 为总分 P 数，shared 表示合集共用目录，无返回值。"""
         self.output_dir = output_dir.resolve()
-        self.path = folder.resolve() / "video_info.json"
+        self.path = folder.resolve() / (f"{bvid}_video_info.json" if shared else "video_info.json")
         if not self.path.is_relative_to(self.output_dir):
             raise ToolError(f"信息文件超出下载目录：{self.path}")
         now = timestamp()
@@ -161,39 +161,73 @@ class VideoInfo:
         self.enrich_file(entry, executable)
         self.save()
 
-    def flatten_single_part(self) -> None:
-        """仅当投稿总分 P 数为 1 时将旧 p1 目录内容移至投稿目录并更新路径；冲突拒绝覆盖，保存失败回滚，返回 None。"""
-        if self.data.get("total_parts") != 1:
-            return
+    def flatten_parts(self) -> None:
+        """整理本投稿旧分 P 目录及单 P 断点流；冲突不覆盖，移动或保存失败回滚，返回 None。"""
         root = self.path.parent
-        source = root / f"{self.data['bvid']}_p1"
-        if not source.exists():
-            return
-        if not source.is_dir() or source.resolve() != source or not source.is_relative_to(self.output_dir):
-            raise ToolError(f"单分 P 迁移目录无效：{source}")
-        if any(item.get("kind") == "part" and item.get("part") != 1 for item in self.data["files"]):
-            raise ToolError("总分 P 数为 1，但记录包含其他分 P，无法迁移目录")
-        moves = [(child, root / child.name) for child in sorted(source.iterdir())]
+        bvid = self.data["bvid"]
+        pattern = re.compile(re.escape(bvid) + r"_p[1-9]\d*")
+        sources = {path for path in root.iterdir() if pattern.fullmatch(path.name)} if root.is_dir() else set()
+        for item in self.data["files"]:
+            if item.get("path"):
+                parent = self.resolve_file(item).parent
+                if pattern.fullmatch(parent.name) and parent.parent == self.output_dir:
+                    sources.add(parent)
+        moves: list[tuple[Path, Path]] = []
+        for source in sorted(sources):
+            if source.is_symlink() or source.is_junction() or not source.is_dir() or source.resolve() != source:
+                raise ToolError(f"分 P 迁移目录无效：{source}")
+            for child in sorted(source.iterdir()):
+                destination = root / ".streams" / source.name if child.name == ".streams" else root / child.name
+                moves.append((child, destination))
+        streams = root / ".streams"
+        if streams.exists() or streams.is_symlink() or streams.is_junction():
+            if streams.is_symlink() or streams.is_junction() or not streams.is_dir():
+                raise ToolError(f"断点流目录无效：{streams}")
+            children = list(streams.iterdir())
+            if any(path.is_symlink() or path.is_junction() for path in children):
+                raise ToolError(f"断点流目录包含链接，无法直接迁移：{streams}")
+            stream_pattern = re.compile(r"BV[0-9A-Za-z]{10}_p[1-9]\d*")
+            old_streams = [path for path in children if not (path.is_dir() and stream_pattern.fullmatch(path.name))]
+            if old_streams:
+                parts = {item.get("part") for item in self.data["files"] if item.get("kind") == "part"}
+                if self.data.get("total_parts") != 1 or parts - {1}:
+                    raise ToolError(f"旧断点流无法确定分 P，请检查：{streams}")
+                moves.extend((path, streams / f"{bvid}_p1" / path.name) for path in sorted(old_streams))
+        targets: set[str] = set()
         for old, new in moves:
-            if new.exists() or new.is_symlink():
-                raise ToolError(f"单分 P 目录迁移存在同名目标，不覆盖：{new}")
-            if old.is_symlink() or old.is_junction():
-                raise ToolError(f"单分 P 目录包含链接，无法直接迁移：{old}")
+            key = new.as_posix().casefold()
+            if any(key == target or key.startswith(target + "/") or target.startswith(key + "/") for target in targets) or new.exists() or new.is_symlink():
+                raise ToolError(f"分 P 目录迁移存在同名目标，不覆盖：{new}")
+            targets.add(key)
+            if old.is_symlink() or old.is_junction() or (old.is_dir() and any(p.is_symlink() or p.is_junction() for p in old.rglob("*"))):
+                raise ToolError(f"分 P 目录包含链接，无法直接迁移：{old}")
         replacements = []
         for item in self.data["files"]:
             if item.get("path"):
-                old = self.resolve_file(item)
-                if old.is_relative_to(source):
-                    replacements.append((item, (root / old.relative_to(source)).relative_to(root).as_posix()))
+                path = self.resolve_file(item)
+                for old, new in moves:
+                    if path == old or path.is_relative_to(old):
+                        replacements.append((item, (new / path.relative_to(old)).relative_to(root).as_posix()))
+                        break
         original = deepcopy(self.data)
         moved: list[tuple[Path, Path]] = []
+        created: list[Path] = []
         try:
             for old, new in moves:
+                missing = []
+                parent = new.parent
+                while not parent.exists():
+                    missing.append(parent)
+                    parent = parent.parent
+                for directory in reversed(missing):
+                    directory.mkdir()
+                    created.append(directory)
                 old.rename(new)
                 moved.append((old, new))
             for item, relative in replacements:
                 item["path"] = relative
-            self.save()
+            if moves:
+                self.save()
         except BaseException as exc:
             self.data = original
             for old, new in reversed(moved):
@@ -201,9 +235,14 @@ class VideoInfo:
                     new.rename(old)
                 except OSError as rollback_error:
                     exc.add_note(f"目录迁移回滚失败：{new} -> {old}：{rollback_error}")
+            for directory in reversed(created):
+                try:
+                    directory.rmdir()
+                except OSError as rollback_error:
+                    exc.add_note(f"迁移目录清理失败：{directory}：{rollback_error}")
             raise
-        # 非递归删除已搬空的目录；保留文件和断点流的原始内容及修改时间。
-        source.rmdir()
+        for source in sorted(sources):
+            source.rmdir()
 
     def refresh_local(self, executable: str) -> None:
         """用 executable 更新已登记文件并发现投稿目录内的正式 MP4/MKV；排除临时文件，保存结果，返回 None。"""
@@ -224,7 +263,11 @@ class VideoInfo:
                 continue
             if any(piece.startswith(".") for piece in relative.parts) or ".partial." in path.name:
                 continue
+            if self.path.name != "video_info.json" and (path.parent != self.path.parent or self.data["bvid"] not in path.stem):
+                continue
             match = re.fullmatch(re.escape(self.data["bvid"]) + r"_p(\d+)", path.parent.name)
+            if not match and path.parent == self.path.parent:
+                match = re.search(r"_" + re.escape(self.data["bvid"]) + r"_p(\d+)$", path.stem)
             part = int(match[1]) if match else None
             entry_id = f"{self.data['bvid']}_p{part}" if part else f"video:{relative.as_posix()}"
             kind = "part" if part else "video"
@@ -240,11 +283,115 @@ class VideoInfo:
         self.save()
 
 
-def open_video(output_dir: Path, bvid: str, title: str | None = None, total_parts: int | None = None) -> VideoInfo:
-    """在 output_dir 定位 bvid 已有投稿目录；无目录时以 title 创建记录对象，total_parts 为已知总数，返回 VideoInfo。"""
-    folders = sorted(path for path in output_dir.glob(f"*_{bvid}") if path.is_dir())
-    if len(folders) > 1:
+def find_video_folders(output_dir: Path, bvid: str) -> list[Path]:
+    """在 output_dir 及其分组目录内查找 bvid 投稿目录，跳过链接，返回排序后的路径列表。"""
+    return sorted(path for path in output_dir.rglob(f"*_{bvid}") if path.is_dir() and not path.is_symlink() and not path.is_junction())
+
+
+def move_to_collection(info: VideoInfo, folder: Path) -> VideoInfo:
+    """将 info 投稿迁入 folder 合集目录并独立保存记录；不覆盖目标，失败回滚文件和记录，返回 info。"""
+    if folder.is_symlink() or folder.is_junction():
+        raise ToolError(f"合集目录不能是链接：{folder}")
+    root, source = folder.resolve(), info.path.parent
+    if not root.is_relative_to(info.output_dir) or root == info.output_dir:
+        raise ToolError(f"合集目录超出下载目录：{root}")
+    if info.path.name != "video_info.json":
+        if source != root:
+            raise ToolError(f"{info.data['bvid']} 已在其他合集目录：{source}")
+        return info
+    if source == root or source.is_symlink() or source.is_junction() or not source.is_dir():
+        raise ToolError(f"投稿目录无效：{source}")
+    bvid = info.data["bvid"]
+    destination_record = root / f"{bvid}_video_info.json"
+    moves: list[tuple[Path, Path]] = []
+    for child in sorted(source.iterdir()):
+        if child.name == "video_info.json":
+            continue
+        if child.name == ".streams":
+            if child.is_symlink() or child.is_junction() or not child.is_dir():
+                raise ToolError(f"断点流目录无效：{child}")
+            for stream in sorted(child.iterdir()):
+                if not re.fullmatch(re.escape(bvid) + r"_p[1-9]\d*", stream.name):
+                    raise ToolError(f"断点流不属于投稿 {bvid}：{stream}")
+                moves.append((stream, root / ".streams" / stream.name))
+        else:
+            moves.append((child, root / child.name))
+    if destination_record.exists() or destination_record.is_symlink() or destination_record.with_name(destination_record.name + ".tmp").exists():
+        raise ToolError(f"合集记录已存在，不覆盖：{destination_record}")
+    targets: set[str] = set()
+    for old, new in moves:
+        key = new.as_posix().casefold()
+        if key in targets or new in (destination_record, destination_record.with_name(destination_record.name + ".tmp")) or new.exists() or new.is_symlink():
+            raise ToolError(f"合集目录存在同名目标，不覆盖：{new}")
+        targets.add(key)
+        if old.is_symlink() or old.is_junction() or (old.is_dir() and any(p.is_symlink() or p.is_junction() for p in old.rglob("*"))):
+            raise ToolError(f"投稿目录包含链接，无法迁移：{old}")
+    if (root / ".streams").is_symlink() or (root / ".streams").is_junction() or ((root / ".streams").exists() and not (root / ".streams").is_dir()):
+        raise ToolError(f"合集断点流目录无效：{root / '.streams'}")
+    original, original_path = deepcopy(info.data), info.path
+    replacements = []
+    for item in info.data["files"]:
+        if item.get("path"):
+            path = info.resolve_file(item)
+            for old, new in moves:
+                if path == old or path.is_relative_to(old):
+                    path = new / path.relative_to(old)
+                    break
+            replacements.append((item, path.relative_to(root, walk_up=True).as_posix()))
+    moved: list[tuple[Path, Path]] = []
+    created: list[Path] = []
+    try:
+        for old, new in moves:
+            missing = []
+            parent = new.parent
+            while not parent.exists():
+                missing.append(parent)
+                parent = parent.parent
+            for directory in reversed(missing):
+                directory.mkdir()
+                created.append(directory)
+            old.rename(new)
+            moved.append((old, new))
+        for item, relative in replacements:
+            item["path"] = relative
+        info.path = destination_record
+        info.save()
+        original_path.unlink(missing_ok=True)
+    except BaseException as exc:
+        info.data, info.path = original, original_path
+        try:
+            destination_record.unlink(missing_ok=True)
+        except OSError as rollback_error:
+            exc.add_note(f"合集记录回滚失败：{rollback_error}")
+        for old, new in reversed(moved):
+            try:
+                new.rename(old)
+            except OSError as rollback_error:
+                exc.add_note(f"合集文件回滚失败：{new} -> {old}：{rollback_error}")
+        for directory in reversed(created):
+            try:
+                directory.rmdir()
+            except OSError as rollback_error:
+                exc.add_note(f"合集目录清理失败：{directory}：{rollback_error}")
+        raise
+    streams = source / ".streams"
+    if streams.is_dir():
+        streams.rmdir()
+    source.rmdir()
+    return info
+
+
+def open_video(output_dir: Path, bvid: str, title: str | None = None, total_parts: int | None = None, *, shared_folder: Path | None = None) -> VideoInfo:
+    """在 output_dir 定位 bvid；无记录时按 title 创建，total_parts 为总数，shared_folder 为可选合集目录，返回 VideoInfo。"""
+    folders = find_video_folders(output_dir, bvid)
+    shared_records = sorted(path for path in output_dir.rglob(f"{bvid}_video_info.json") if path.is_file() and not path.is_symlink()) if output_dir.is_dir() else []
+    if len(folders) + len(shared_records) > 1:
         raise ToolError(f"{bvid} 存在多个投稿目录，请整理后重试：{folders}")
+    if shared_records:
+        path = shared_records[0]
+        if shared_folder is not None and path.parent.resolve() != shared_folder.resolve():
+            raise ToolError(f"{bvid} 已在其他合集目录：{path.parent}")
+        return VideoInfo(output_dir, path.parent, bvid, title or read_json(path).get("title", ""), total_parts, shared=True)
     if folders:
         folder = folders[0]
         title = title or folder.name[:-(len(bvid) + 1)]
@@ -252,18 +399,21 @@ def open_video(output_dir: Path, bvid: str, title: str | None = None, total_part
         if not title:
             raise ToolError(f"未找到 {bvid} 的投稿目录")
         # title 由下载入口沿用现有 safe_name 规则清理，迁移入口也必须先清理。
-        folder = output_dir / f"{title}_{bvid}"
-    return VideoInfo(output_dir, folder, bvid, title, total_parts)
+        folder = shared_folder if shared_folder is not None else output_dir / f"{title}_{bvid}"
+    return VideoInfo(output_dir, folder, bvid, title, total_parts, shared=not folders and shared_folder is not None)
 
 
 def discover_videos(output_dir: Path) -> tuple[list[str], list[str]]:
-    """发现 output_dir 的投稿目录与旧下载记录；返回 BV 号列表及损坏旧记录的错误列表。"""
+    """发现 output_dir 及分组目录内的投稿与旧下载记录；返回 BV 号列表及损坏旧记录的错误列表。"""
     ids: set[str] = set()
     errors: list[str] = []
-    for folder in output_dir.iterdir() if output_dir.is_dir() else []:
+    for folder in output_dir.rglob("*") if output_dir.is_dir() else []:
         match = re.search(r"_(BV[0-9A-Za-z]{10})$", folder.name)
-        if folder.is_dir() and match:
+        if folder.is_dir() and not folder.is_symlink() and not folder.is_junction() and match:
             ids.add(match[1])
+        shared = re.fullmatch(r"(BV[0-9A-Za-z]{10})_video_info\.json", folder.name)
+        if folder.is_file() and not folder.is_symlink() and shared:
+            ids.add(shared[1])
     for path in output_dir.rglob("download.json"):
         try:
             record = read_json(path)

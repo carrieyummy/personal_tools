@@ -1,7 +1,7 @@
 """下载 B 站登录账号可用的最高画质播放流和字幕，音视频只复制封装。
 
-入口参数由 parse_args 解释，运行配置从 config.yaml 读取。
-进程退出码：0 表示全部完成，1 表示配置或登录等启动失败，2 表示部分下载失败。
+入口参数及自动拼接开关由 parse_args 解释，其余运行配置从 config.yaml 读取。
+进程退出码：0 表示全部完成，1 表示配置或登录等启动失败，2 表示下载、拼接或信息更新存在失败。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import time
 from typing import Any, Iterator
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from video_metadata import VideoInfo, ToolError, atomic_text, discover_videos, migrate_legacy, open_video, read_json
+from video_metadata import VideoInfo, ToolError, atomic_text, discover_videos, find_video_folders, migrate_legacy, move_to_collection, open_video, read_json
 
 API_ROOT = "https://api.bilibili.com"
 HOME_URL = "https://www.bilibili.com/"
@@ -32,7 +32,7 @@ VIDEO_PATH = re.compile(r"^/video/(?P<id>BV[0-9A-Za-z]{10}|av[0-9]+)(?:/)?$", re
 
 @dataclass(frozen=True)
 class Settings:
-    """保存已校验的运行配置；路径均为展开环境变量后的绝对 Path。"""
+    """保存已校验的 YAML 配置；路径均为展开环境变量后的绝对 Path，自动拼接由命令行控制。"""
 
     output_dir: Path
     profile_dir: Path
@@ -51,7 +51,6 @@ class Settings:
     fragment_retries: int
     socket_timeout: float
     all_parts: bool
-    auto_merge_parts: bool
     subtitle_languages: list[str]
     include_ai: bool
 
@@ -112,7 +111,6 @@ def load_settings(path: Path) -> Settings:
             format_sort=download["format_sort"], format_selector=download["format"],
             retries=download["retries"], fragment_retries=download["fragment_retries"],
             socket_timeout=download["socket_timeout_seconds"], all_parts=download["all_parts"],
-            auto_merge_parts=download["auto_merge_parts"],
             subtitle_languages=subtitles["languages"], include_ai=subtitles["include_ai"],
         )
     except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
@@ -127,7 +125,7 @@ def load_settings(path: Path) -> Settings:
             raise ToolError(f"配置 {name} 必须为有效整数")
     if not 10 <= settings.max_title_length <= 80:
         raise ToolError("max_title_length 必须在 10 到 80 之间")
-    for name in ("all_parts", "auto_merge_parts", "include_ai"):
+    for name in ("all_parts", "include_ai"):
         if type(getattr(settings, name)) is not bool:
             raise ToolError(f"配置 {name} 必须为 true 或 false")
     for name in ("format_sort", "subtitle_languages"):
@@ -622,9 +620,9 @@ def video_folder(settings: Settings, title: str, video_id: str) -> Path:
     return settings.output_dir / video_stem(settings, title, video_id)
 
 
-def get_video_info(settings: Settings, bvid: str, title: str | None = None, total_parts: int | None = None) -> VideoInfo:
-    """按 settings 定位 bvid 唯一记录并迁移旧文件、单分 P 目录；title/total_parts 为已知投稿信息，返回 VideoInfo。"""
-    if title is None and not any(settings.output_dir.glob(f"*_{bvid}")):
+def get_video_info(settings: Settings, bvid: str, title: str | None = None, total_parts: int | None = None, *, shared_folder: Path | None = None) -> VideoInfo:
+    """按 settings 定位 bvid 并整理旧分 P；title/total_parts 为投稿信息，shared_folder 为可选合集目录，返回 VideoInfo。"""
+    if title is None and not find_video_folders(settings.output_dir, bvid):
         for path in settings.output_dir.rglob("download.json"):
             try:
                 record = read_json(path)
@@ -635,14 +633,43 @@ def get_video_info(settings: Settings, bvid: str, title: str | None = None, tota
             if re.fullmatch(re.escape(bvid) + r"_p\d+", str(record.get("id", ""))):
                 title = record.get("video_title") or re.split(r"\s+p\d+\s+", record["title"], maxsplit=1, flags=re.I)[0]
                 break
-    record = open_video(settings.output_dir, bvid, safe_name(title, settings.max_title_length) if title else None, total_parts)
+    record = open_video(settings.output_dir, bvid, safe_name(title, settings.max_title_length) if title else None, total_parts, shared_folder=shared_folder)
     migrate_legacy(record)
+    record.flatten_parts()
     if total_parts is not None:
         record.data["total_parts"] = total_parts
-    record.flatten_single_part()
     if title:
         record.data["title"] = title
     return record
+
+
+def prepare_collection(settings: Settings, metadata: dict[str, Any]) -> Path | None:
+    """根据原站 metadata 定位合集并整理已下载的成员；settings 控制目录，非合集返回 None，否则返回合集 Path。"""
+    season = metadata.get("ugc_season")
+    if season is None:
+        return None
+    if not isinstance(season, dict) or type(season.get("id")) is not int or season["id"] < 1 or not isinstance(season.get("title"), str) or not season["title"]:
+        raise ToolError("原站合集信息无效，无法确定保存目录")
+    season_id = season["id"]
+    matches = list(settings.output_dir.glob(f"*_合集{season_id}")) if settings.output_dir.is_dir() else []
+    if len(matches) > 1 or any(path.is_symlink() or path.is_junction() or not path.is_dir() for path in matches):
+        raise ToolError(f"合集 {season_id} 存在多个或无效目录：{matches}")
+    folder = matches[0] if matches else settings.output_dir / f"{safe_name(season['title'], settings.max_title_length)}_合集{season_id}"
+    sections = season.get("sections")
+    if not isinstance(sections, list):
+        raise ToolError("原站合集缺少成员列表，无法整理已有视频")
+    members = {metadata["bvid"]}
+    for section in sections:
+        if not isinstance(section, dict) or not isinstance(section.get("episodes"), list):
+            raise ToolError("原站合集成员列表无效")
+        for episode in section["episodes"]:
+            if not isinstance(episode, dict) or not re.fullmatch(r"BV[0-9A-Za-z]{10}", str(episode.get("bvid", ""))):
+                raise ToolError("原站合集成员缺少有效 BV 号")
+            members.add(episode["bvid"])
+    for bvid in sorted(members):
+        if find_video_folders(settings.output_dir, bvid):
+            move_to_collection(get_video_info(settings, bvid), folder)
+    return folder
 
 
 def update_source_info(record: VideoInfo, metadata: dict[str, Any]) -> None:
@@ -659,7 +686,7 @@ def update_source_info(record: VideoInfo, metadata: dict[str, Any]) -> None:
 
 
 def save_video(downloader: Any, info: dict[str, Any], settings: Settings, executable: str, video_title: str, total_parts: int) -> tuple[Path, str]:
-    """下载 info 并更新记录；settings/executable 控制封装，video_title/total_parts 为投稿标题和总数，单 P 直接存投稿目录，返回目录和前缀。"""
+    """下载 info 到投稿目录并更新记录；settings/executable 控制封装，video_title/total_parts 为投稿信息，返回目录和前缀。"""
     formats = chosen_formats(info)
     video_id = safe_name(str(info["id"]), 60)
     base_id = video_id.split("_p")[0]
@@ -667,7 +694,7 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
     record.data["total_parts"] = total_parts
     part = int(video_id.rsplit("_p", 1)[1])
     item = record.entry(video_id, part=part, title=info["title"])
-    folder = record.path.parent if total_parts == 1 else record.path.parent / video_id
+    folder = record.path.parent
     folder.mkdir(parents=True, exist_ok=True)
     stem = video_stem(settings, info["title"], video_id)
     signature = [{key: fmt.get(key) for key in ("format_id", "vcodec", "acodec", "width", "height", "fps")} for fmt in formats]
@@ -679,8 +706,8 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
             return existing.parent, str(item["stem"])
     item.update(title=info["title"], stem=stem, formats=signature, processing="stream copy", status="downloading", errors=[])
     record.save()
-    staging = folder / ".streams"
-    staging.mkdir(exist_ok=True)
+    staging = folder / ".streams" / video_id
+    staging.mkdir(parents=True, exist_ok=True)
     sources = []
     try:
         for index, fmt in enumerate(formats):
@@ -707,16 +734,63 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
         source.unlink(missing_ok=True)
     if not any(staging.iterdir()):
         staging.rmdir()
+        if not any(staging.parent.iterdir()):
+            staging.parent.rmdir()
     print(f"视频已保存（原编码，无重新编码）：{destination}")
     return folder, stem
 
 
-def merge_parts(settings: Settings, executable: str, record: VideoInfo) -> Path:
-    """根据 record 中的完成记录按序拼接；settings 控制命名，executable 指定 FFmpeg，更新记录并返回目标路径。"""
+def parse_merge_group(expression: str) -> list[int]:
+    """解析单组 expression（正整数、逗号及闭区间）；返回保留顺序和重复项的编号列表，非法或不足两段时报错。"""
+    parts = []
+    for token in expression.split(","):
+        match = re.fullmatch(r"([0-9]+)(?:\s*-\s*([0-9]+))?", token.strip())
+        if not match:
+            raise ToolError(f"分 P 表达式无效：{token!r}，请使用正整数、逗号和范围（例如 1-5,8）")
+        try:
+            first = int(match[1])
+            last = int(match[2]) if match[2] is not None else first
+        except ValueError as exc:
+            raise ToolError("分 P 编号过长，无法解析") from exc
+        if first < 1 or last < first:
+            raise ToolError(f"分 P 必须为正整数，范围起点不能大于终点：{token.strip()}")
+        parts.extend(range(first, last + 1))
+    if len(parts) < 2:
+        raise ToolError("每组至少需要两个片段，重复分 P 计入片段数量")
+    return parts
+
+
+def merge_sequence_name(parts: list[int]) -> str:
+    """将非空正整数列表 parts 转为文件名后缀；仅压缩相邻递增编号，返回保留顺序和重复项的 p 范围文本。"""
+    segments = []
+    first = last = parts[0]
+    for part in parts[1:]:
+        if part == last + 1:
+            last = part
+        else:
+            segments.append(f"p{first}" + (f"-{last}" if last != first else ""))
+            first = last = part
+    segments.append(f"p{first}" + (f"-{last}" if last != first else ""))
+    return "_".join(segments)
+
+
+def merge_parts(settings: Settings, executable: str, record: VideoInfo,
+                source_parts: list[int] | None = None, occurrence: int = 1) -> Path:
+    """按 record 拼接并返回目标 Path；settings 控制命名，executable 指定 FFmpeg。
+
+    source_parts 为至少两项的正整数顺序列表，保留重复；None 表示完整性校验后按序拼接全部分 P。
+    occurrence 为该显式序列在本批次的正整数出现次数，用于区分重复输出；成功后保存完整来源顺序。
+    """
+    if source_parts is not None and (len(source_parts) < 2 or any(type(part) is not int or part < 1 for part in source_parts)):
+        raise ToolError("每组至少需要两个片段，分 P 编号必须为正整数")
+    if type(occurrence) is not int or occurrence < 1:
+        raise ToolError("拼接序列的出现次数必须为正整数")
     video_id = record.data["bvid"]
     parts: dict[int, tuple[Path, dict[str, Any]]] = {}
     for item in record.data["files"]:
         if item.get("kind") != "part":
+            continue
+        if source_parts is not None and item.get("part") not in source_parts:
             continue
         match = re.fullmatch(re.escape(video_id) + r"_p(\d+)", item["id"])
         if not match or item.get("part") != int(match[1]):
@@ -730,17 +804,24 @@ def merge_parts(settings: Settings, executable: str, record: VideoInfo) -> Path:
         if part in parts:
             raise ToolError(f"第 {part} P 存在重复记录")
         parts[part] = (source, item)
-    if len(parts) < 2:
-        raise ToolError(f"{video_id} 至少需要两个已下载分 P 才能拼接")
-    total = record.data.get("total_parts")
-    if total is not None and (type(total) is not int or total < 1):
-        raise ToolError("下载记录中的分 P 总数不一致或无效")
-    if total is None:
-        print("旧下载记录没有总集数，无法确认最后一 P 是否已下载；将拼接目前连续的分 P。")
-        total = max(parts)
-    if sorted(parts) != list(range(1, total + 1)):
-        raise ToolError(f"分 P 不完整：需要 P1 至 P{total}，实际已有 {sorted(parts)}")
-    ordered = [parts[number] for number in sorted(parts)]
+    if source_parts is None:
+        if len(parts) < 2:
+            raise ToolError(f"{video_id} 至少需要两个已下载分 P 才能拼接")
+        total = record.data.get("total_parts")
+        if total is not None and (type(total) is not int or total < 1):
+            raise ToolError("下载记录中的分 P 总数不一致或无效")
+        if total is None:
+            print("旧下载记录没有总集数，无法确认最后一 P 是否已下载；将拼接目前连续的分 P。")
+            total = max(parts)
+        if sorted(parts) != list(range(1, total + 1)):
+            raise ToolError(f"分 P 不完整：需要 P1 至 P{total}，实际已有 {sorted(parts)}")
+        sequence = sorted(parts)
+    else:
+        missing = sorted(set(source_parts) - parts.keys())
+        if missing:
+            raise ToolError(f"所选分 P 尚未下载：{missing}")
+        sequence = source_parts
+    ordered = [parts[number] for number in sequence]
     def compatibility(record: dict[str, Any]) -> list[tuple[Any, ...]]:
         """提取 record 的编码和分辨率；返回用于比较的流参数列表。"""
         formats = record.get("formats")
@@ -754,8 +835,18 @@ def merge_parts(settings: Settings, executable: str, record: VideoInfo) -> Path:
     folder = record.path.parent
     folder.mkdir(parents=True, exist_ok=True)
     extension = ".mp4" if all(source.suffix.lower() == ".mp4" for source, _ in ordered) else ".mkv"
-    destination = folder / f"{video_stem(settings, title, video_id)}{extension}"
-    if destination.exists():
+    suffix = ""
+    if source_parts is not None:
+        suffix = "_" + merge_sequence_name(sequence) + (f"_{occurrence}" if occurrence > 1 else "")
+    # 序列后缀独立追加，不经过 video_stem 的标识截断，以免不同顺序映射到同名文件。
+    destination = folder / f"{video_stem(settings, title, video_id)}{suffix}{extension}"
+    try:
+        destination.stat()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise ToolError(f"拼接目标名称或路径无效，请检查长度和权限：{destination}：{exc}") from exc
+    else:
         raise ToolError(f"拼接文件已存在，请先检查或更名：{destination}")
     with tempfile.TemporaryDirectory(prefix=".merge-", dir=folder) as temporary:
         temporary_dir = Path(temporary)
@@ -769,16 +860,43 @@ def merge_parts(settings: Settings, executable: str, record: VideoInfo) -> Path:
             raise ToolError("拼接失败，原分 P 已保留：\n" + "\n".join(result.stderr.splitlines()[-10:]))
         if "non-monoton" in result.stderr.lower():
             print("FFmpeg 报告时间戳不连续，请检查拼接点的播放效果。")
-        output.replace(destination)
-    merged = record.entry(f"{video_id}:merged", "merged", title=title)
-    merged.update(formats=ordered[0][1]["formats"], processing="stream copy")
+        if destination.exists():
+            raise ToolError(f"拼接文件已存在，请先检查或更名：{destination}")
+        try:
+            output.rename(destination)
+        except OSError as exc:
+            raise ToolError(f"无法保存拼接结果，请检查目标名称、路径长度及权限：{destination}：{exc}") from exc
+    merged = record.entry(f"{video_id}:merged{suffix}", "merged", title=title)
+    merged.update(formats=ordered[0][1]["formats"], processing="stream copy", source_parts=list(sequence))
     record.complete(merged, destination, executable)
     print(f"分 P 已拼接（原编码）：{destination}")
     return destination
 
 
+def merge_groups(settings: Settings, executable: str, record: VideoInfo, expression: str) -> int:
+    """按 expression 的分号独立拼接各组并汇总；settings 控制命名、executable 指定 FFmpeg、record 为投稿记录，返回 0 或失败码 2。"""
+    occurrences: dict[tuple[int, ...], int] = {}
+    results = []
+    failed = 0
+    for index, group in enumerate(expression.split(";"), 1):
+        label = f"第 {index} 组 [{group.strip()}]"
+        try:
+            parts = parse_merge_group(group)
+            key = tuple(parts)
+            occurrences[key] = occurrences.get(key, 0) + 1
+            destination = merge_parts(settings, executable, record, parts, occurrences[key])
+            results.append(f"{label} 成功：{destination}")
+        except (OSError, ToolError) as exc:
+            failed += 1
+            results.append(f"{label} 失败：{exc}")
+    print(f"\n分组拼接完成：成功 {len(results) - failed} 组，失败 {failed} 组。")
+    for result in results:
+        print(result)
+    return 2 if failed else 0
+
+
 def refresh_metadata(settings: Settings, args: argparse.Namespace, executable: str) -> int:
-    """按 settings 迁移记录、整理单 P 目录并补生成信息；args 提供认证覆盖项，executable 用于文件探测，返回 0 或部分失败码 2。"""
+    """按 settings 迁移记录、整理分 P 目录并补生成信息；args 提供认证覆盖项，executable 用于文件探测，返回 0 或部分失败码 2。"""
     video_ids, failures = discover_videos(settings.output_dir)
     records = []
     for bvid in video_ids:
@@ -796,7 +914,7 @@ def refresh_metadata(settings: Settings, args: argparse.Namespace, executable: s
                     try:
                         metadata = api_json(context, "/x/web-interface/view", settings, {"bvid": record.data["bvid"]})["data"]
                         update_source_info(record, metadata)
-                        record.flatten_single_part()
+                        record.flatten_parts()
                     except Exception as exc:
                         record.data["errors"] = [f"原站信息获取失败：{exc}"]
                     record.save()
@@ -815,7 +933,7 @@ def refresh_metadata(settings: Settings, args: argparse.Namespace, executable: s
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """解析 argv（None 使用进程参数）；返回链接、配置及登录、下载、手动拼接或信息更新模式。"""
+    """解析 argv 字符串列表（None 使用进程参数）；返回模式、链接、配置及默认关闭的自动拼接开关。"""
     parser = argparse.ArgumentParser(description="B 站最高画质原编码下载；音视频仅无损封装，字幕独立保存")
     parser.add_argument("--url", action="append", help="普通投稿链接、短链接或 BV/AV 号；可重复指定")
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.yaml"), help="YAML 配置路径（默认脚本同目录）")
@@ -824,16 +942,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mode.add_argument("--login-only", action="store_true", help="仅验证配置的登录态；默认读取 Chrome 导出的 Cookie")
     mode.add_argument("--list-formats", action="store_true", help="仅查看可用画质、已选编码和字幕")
     mode.add_argument("--merge-video", metavar="BV号", help="离线拼接已下载的视频分 P，不需要登录")
+    parser.add_argument("--merge-parts", metavar="分组表达式", help="用于 --merge-video 或 --all-parts 下载；如 1-5,8,10-12;10-12，按输入顺序分组拼接")
     mode.add_argument("--refresh-metadata", action="store_true", help="批量迁移并补生成已有下载的 video_info.json，不下载或拼接视频")
     parser.add_argument("--all-parts", action="store_true", help="下载全部分 P，忽略链接中的 p 选择")
+    parser.add_argument("--auto-merge-parts", action=argparse.BooleanOptionalAction, default=False,
+                        help="下载全部分 P 成功后按顺序无损拼接（默认关闭）；非空 --merge-parts 优先，手动拼接不受影响")
     args = parser.parse_args(argv)
     if args.refresh_metadata and (args.url or args.all_parts):
         parser.error("--refresh-metadata 不能与 --url 或 --all-parts 同用")
+    if args.merge_parts is not None and not (args.merge_video or (args.all_parts and not (args.login_only or args.list_formats or args.refresh_metadata))):
+        parser.error("--merge-parts 只能与 --merge-video 或 --all-parts 下载同用")
     return args
 
 
 def run(args: argparse.Namespace) -> int:
-    """执行 args 指定的下载、拼接或信息更新模式；返回 0（完成）或 2（部分失败），启动错误交由 main 处理。"""
+    """执行 args 指定的模式及自动拼接开关；非空范围优先，返回 0（完成）或 2（部分失败），启动错误交由 main 处理。"""
     settings = load_settings(args.config.expanduser().resolve())
     if args.refresh_metadata:
         return refresh_metadata(settings, args, resolve_ffmpeg(settings, args.config.resolve().parent))
@@ -844,7 +967,10 @@ def run(args: argparse.Namespace) -> int:
             raise ToolError("手动拼接请输入已下载视频的 BV 号或普通 BV 视频链接")
         video_id = match["id"]
         executable = resolve_ffmpeg(settings, args.config.resolve().parent)
-        merge_parts(settings, executable, get_video_info(settings, video_id))
+        record = get_video_info(settings, video_id)
+        if args.merge_parts and args.merge_parts.strip():
+            return merge_groups(settings, executable, record, args.merge_parts)
+        merge_parts(settings, executable, record)
         return 0
     urls = args.url or []
     if not args.login_only and not urls:
@@ -873,7 +999,8 @@ def run(args: argparse.Namespace) -> int:
                     video_title = metadata["title"]
                     if not isinstance(video_title, str) or not video_title:
                         raise ToolError("投稿标题为空，无法创建视频目录")
-                    video_record = get_video_info(settings, metadata["bvid"], video_title, targets[0].total_parts)
+                    collection_folder = prepare_collection(settings, metadata)
+                    video_record = get_video_info(settings, metadata["bvid"], video_title, targets[0].total_parts, shared_folder=collection_folder)
                     update_source_info(video_record, metadata)
                     video_record.data["total_parts"] = targets[0].total_parts
                     for target in targets:
@@ -919,7 +1046,13 @@ def run(args: argparse.Namespace) -> int:
                     if isinstance(exc, KeyboardInterrupt):
                         raise
                     failures.append(f"{target.url}：{exc}")
-            if not args.list_formats and settings.auto_merge_parts and (args.all_parts or settings.all_parts) and len(targets) > 1:
+            if not args.list_formats and args.all_parts and args.merge_parts and args.merge_parts.strip():
+                try:
+                    if merge_groups(settings, executable, get_video_info(settings, metadata["bvid"]), args.merge_parts):
+                        failures.append(f"{url}：分组拼接存在失败，请查看上方各组结果")
+                except Exception as exc:
+                    failures.append(f"{url} 分组拼接：{exc}")
+            elif not args.list_formats and args.auto_merge_parts and (args.all_parts or settings.all_parts) and len(targets) > 1:
                 if len(downloaded) != len(targets):
                     failures.append(f"{url}：部分分 P 未下载完成，跳过自动拼接")
                 else:
