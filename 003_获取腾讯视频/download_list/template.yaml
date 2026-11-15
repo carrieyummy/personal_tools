@@ -1,0 +1,20 @@
+# 非必填备注，不影响下载
+date: 2026年11月14日22:46:43
+commit: '' 
+
+# 全局设置；下面各 download_list 任务的同名配置优先覆盖这里。
+quality: 1 # 每集单独排名：1 最高，2 次高；档位不存在时报失败，不降档。
+# all-parts: false # 可选：只下载链接指定集；未填写读取主配置 download.all_parts。
+
+# 保留列表顺序；优先派发当前剧集正片，空闲线程继续后续剧集。
+# title 仅用于日志备注，保存目录和文件名继续使用原站标题；url 必填。
+# 音质按主配置 audio 选择；普通与 VIP 选项超过配置阈值时在终端列出并等待选择。
+download_list:
+  - title: xx # 视频标题
+    url: xx
+  # - title: 
+  #   url:
+  # - title: 
+  #   url:
+  # - title: 
+  #   url:

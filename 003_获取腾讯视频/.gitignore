@@ -1,0 +1,11 @@
+# Python 运行缓存
+__pycache__/
+*.py[cod]
+
+# 运行时跨进程锁
+configs/.*.yaml.lock/
+configs/.*.yml.lock/
+
+# 本机研究样本与生成媒体、日志（不提交下载内容）
+research/hvn_samples/
+research/results/

@@ -1,0 +1,74 @@
+# 腾讯 URL 播放专项配置；接口参数是协议能力声明，不代表本机硬件验证结果。
+native:
+  # 安装根目录复用缓存专项配置，避免重复维护本机路径。
+  client_profile: 'native_cache.yaml'
+  user_library: 'UserData.dll'
+  user_library_sha256: 'ab4a76f9a346eff1d64ba8590f750a6dd8e97797a4471361fe5599b2d14d9936'
+  user_class_id: 'CA04979D-9ADA-4159-B5BE-7CD7449C50FE'
+  user_interface_id: '434B217A-8F93-4814-A5B1-C65C0D4F941D'
+  # UserData.dll 内嵌 IQQLiveUser 类型库的只读 UserDataJSON getter。
+  user_json_slot: 17
+  token_fields: [main_login, appid, openid, access_token, vuserid, vusession]
+playback:
+  # 原生 SDK 使用的编码版本号；与安装目录的产品版本号分别维护。
+  app_version: '51263917'
+  request_mode: proxy
+  endpoint: 'https://vd6.l.qq.com/proxyhttp'
+  ckey_profile: 'native_signing.yaml'
+  initial_definition: 'uhd'
+  query:
+    platform: '10204'
+    encryptVer: '4.2'
+    otype: 'ojson'
+    dtype: 3
+    sphls: 10
+    isHLS: 1
+    sphttps: 1
+    show1080p: 1
+    fhdswitch: 0
+    charge: 0
+    defnpayver: 1
+    sdtfrom: 'v2000'
+    host: 'v.qq.com'
+    referer: 'v.qq.com'
+    hevclv: 28
+    drm: 1032
+    spvideo: 4096
+    spsfrhdr: 100
+    spwm: 2
+    spau: 540
+    spaudio: 3328
+    clip: 4
+    spvvpay: 1
+    spav1: 15
+    spaudioeffectver: 5
+    enableaudioeffect: 1
+    # 实际运行客户端的 HEVC 能力及 MAX 清单控制，已完成同档原生签名/传输对照。
+    sphevcfps: 52776561313598
+    playctrl: 2306
+    spmasterm3u8: 3
+    spm3u8tag: 16
+  # 接口 fi 的数值质量指标，先比较尺寸/帧率，再比较增强和质量分。
+  ranking_fields: [pixels, vfps, videoenh, zqe, bandwidth]
+  success_codes: ['0.0']
+  authenticated_states: [1, 2, 3]
+  full_video_states: [2]
+  expired_http_codes: [401, 403, 410]
+  # 同一选定码流的 HTTP CDN 类型优先级；不切换画质、编码或音质。
+  # 原生 LTS 节点优先级靠后，普通 HTTP 下载优先使用标准 CDN。
+  delivery_priority: [12800, 2805, 2660]
+catalog:
+  page_template: 'https://v.qq.com/x/cover/{series_id}/{video_id}.html'
+  cover_template: 'https://v.qq.com/x/cover/{series_id}.html'
+  endpoint: 'https://pbaccess.video.qq.com/trpc.vector_layout.page_view.PageService/getPage'
+  query: {video_appid: '3000010', vversion_platform: '2', vversion_name: '8.5.96'}
+  page_params: {ad_wechat_authorization_status: '0', req_from: 'web_vsite', new_mark_label_enabled: '1', is_pc_new_detail_page: '0', is_from_web_flyflow: '1', lid: ''}
+  bypass_params: {caller_id: '3000010', platform_id: '2'}
+  main_scene: 'desk_detail'
+  operation_scene: 'operation'
+  episode_card: 'pc_web_episode_list'
+  introduction_card: 'pc_introduction'
+  max_pages: 200
+key:
+  # 对已选的同一文件和格式请求授权键；不改写文件名或伪造其他档位编号。
+  endpoint: 'https://vv.video.qq.com/getkey'

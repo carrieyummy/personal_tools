@@ -1,0 +1,4 @@
+PyYAML
+psutil
+# URL 下载使用运行中原生 SDK 签名；研究入口也复用此依赖。
+frida

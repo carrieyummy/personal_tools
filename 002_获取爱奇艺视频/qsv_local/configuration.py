@@ -95,7 +95,7 @@ def read_config(path: Path) -> dict:
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     if not isinstance(profile, dict):
         raise ValueError("native_profile 必须为 YAML 对象")
-    for name in ("dll_path", "cert_path"):
+    for name in ("dll_root", "cert_path"):
         profile[name] = resolve_path(profile[name], profile_path.parent)
     config["sdk"] = profile
     return config

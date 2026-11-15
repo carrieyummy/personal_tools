@@ -1,0 +1,68 @@
+{
+  "status": "process_crashed",
+  "exit_code": -1073740791,
+  "observation": "客户端更新后旧接口地址与新 DLL 指令不匹配；崩溃发生在首次还原阶段，根因未通过转储确认。",
+  "client_version": "11.190.8584.0",
+  "journal": {
+    "id": "9da0affea1cc4579ae00c88f50a11b9f",
+    "started": "2026-11-15T22:06:30+08:00",
+    "status": "running",
+    "entries": [
+      {
+        "video_id": "c4102g9a01t",
+        "title": "兰香如故_第01集",
+        "status": "running",
+        "stage": "extracting",
+        "detail": "还原 HVN 分片",
+        "progress": null,
+        "stages": {
+          "checking_source": 1.828
+        },
+        "resources": {
+          "source_check": {
+            "wait_seconds": 0.0,
+            "execution_seconds": 1.719
+          }
+        },
+        "_start": 91417.078,
+        "work_dir": "E:\\QLRestore\\work\\benchmark_f5h7shfa\\9da0affea1cc4579ae00c88f50a11b9f\\c56edc43341e4bde87336dab39e14f75"
+      },
+      {
+        "video_id": "r4100zvgz9i",
+        "title": "永夜星河_第01集",
+        "status": "running",
+        "stage": "checking_source",
+        "detail": "检查客户端下载状态和分片摘要",
+        "progress": null,
+        "stages": {},
+        "resources": {},
+        "_start": 91415.453,
+        "work_dir": "E:\\QLRestore\\work\\benchmark_f5h7shfa\\9da0affea1cc4579ae00c88f50a11b9f\\ecb1e36ccf1a416387ba87916f1c9e53"
+      },
+      {
+        "video_id": "z4100tbe06q",
+        "title": "永夜星河_第02集",
+        "status": "running",
+        "stage": "checking_source",
+        "detail": "检查客户端下载状态和分片摘要",
+        "progress": null,
+        "stages": {},
+        "resources": {},
+        "_start": 91415.64,
+        "work_dir": "E:\\QLRestore\\work\\benchmark_f5h7shfa\\9da0affea1cc4579ae00c88f50a11b9f\\9be1dc315429465faec2fa4a0896ec8d"
+      },
+      {
+        "video_id": "q41002croj9",
+        "title": "永夜星河_第03集",
+        "status": "running",
+        "stage": "checking_source",
+        "detail": "检查客户端下载状态和分片摘要",
+        "progress": null,
+        "stages": {},
+        "resources": {},
+        "_start": 91415.75,
+        "work_dir": "E:\\QLRestore\\work\\benchmark_f5h7shfa\\9da0affea1cc4579ae00c88f50a11b9f\\a629e781cb46426485c32bd224d05d24"
+      }
+    ]
+  }
+}

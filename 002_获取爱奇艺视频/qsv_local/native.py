@@ -1,25 +1,36 @@
-"""通过本机已校验的 SDK 处理 v5 授权；票据和密钥不写入日志。"""
+"""通过最新客户端 SDK 处理 v5 授权；票据和密钥不写入日志。"""
 
 import ctypes
-import hashlib
 import json
 import os
 from pathlib import Path
+import re
+
+
+def latest_dll(root: Path, name: str) -> Path:
+    """从 root 的数字版本子目录中选最新版的 name 文件；无版本目录或文件时抛错，返回 DLL 路径。
+
+    root 为已解析的客户端目录，name 为 DLL 文件名；版本号按各数字段比较，不回退到旧版本。
+    """
+    versions = [path for path in root.iterdir() if path.is_dir() and re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", path.name)]
+    if not versions:
+        raise FileNotFoundError(f"客户端目录中没有数字版本目录：{root}")
+    folder = max(versions, key=lambda path: (tuple(map(int, path.name.split("."))), path.name))
+    path = folder / name
+    if not path.is_file():
+        raise FileNotFoundError(f"最新客户端版本目录中不存在 DLL：{path}")
+    return path
 
 
 class NativeV5:
-    """持有设备和播放上下文；仅适配配置中 SHA256 对应的 Windows x64 DLL。"""
+    """持有设备和播放上下文；使用最新客户端 DLL 和配置中的函数位置。"""
 
     def __init__(self, profile: dict, ticket: bytes):
-        """加载 SDK；profile 提供 DLL、证书及函数 RVA，ticket 为 Base64 授权字节串。"""
+        """加载 SDK；profile 提供客户端目录、DLL 名称、证书及函数 RVA，ticket 为 Base64 授权字节串。"""
         self.device = None
         self.session = None
         self.directory = None
-        native = Path(profile["dll_path"])
-        with native.open("rb") as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        if digest != profile["dll_sha256"]:
-            raise ValueError("客户端 DLL 已变化，不能使用当前函数位置配置")
+        native = latest_dll(profile["dll_root"], profile["dll_name"])
         if ctypes.sizeof(ctypes.c_void_p) != 8:
             raise ValueError("需要 64 位 Python")
         self.directory = os.add_dll_directory(str(native.parent))
@@ -47,7 +58,7 @@ class NativeV5:
             raise
 
     def _bind(self, offset: int, result, *arguments):
-        """绑定函数；offset 为已校验 DLL 的 RVA，result/arguments 为 ctypes 类型；返回可调用函数。"""
+        """绑定函数；offset 为 DLL 的 RVA，result/arguments 为 ctypes 类型；返回可调用函数。"""
         return ctypes.CFUNCTYPE(result, *arguments)(self.dll._handle + offset)
 
     @staticmethod
@@ -57,7 +68,7 @@ class NativeV5:
             raise ValueError(f"SDK {operation} failed: {status}")
 
     def configure(self, descriptor: bytes) -> None:
-        """配置 TS 分段；descriptor 为 SDT 中以竖线结尾的完整 ASCII 描述符，字段差异由已校验 SDK 解释，无返回值。"""
+        """配置 TS 分段；descriptor 为 SDT 中以竖线结尾的完整 ASCII 描述符，字段差异由 SDK 解释，无返回值。"""
         if not descriptor.endswith(b"|") or b"\0" in descriptor:
             raise ValueError("无效的分段加密描述符")
         self._check(self.set_mode(self.session, 1, descriptor), "set_mode")

@@ -4,7 +4,6 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from qsv_local.native import NativeV5
 from qsv_local.transport import TransportDecoder, payload_offset, service_descriptor
 
 
@@ -66,14 +65,6 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(packet[3], 0x26)
         self.assertFalse(packet[1] & 0x40)
         self.assertEqual(payload_offset(packet), 188)
-
-    def test_changed_client_binary_is_rejected_before_loading(self):
-        """DLL 不匹配时必须在调用任何内部地址前失败；无参数，无返回值。"""
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "different.dll"
-            path.write_bytes(b"a different client build")
-            with self.assertRaisesRegex(ValueError, "DLL"):
-                NativeV5({"dll_path": str(path), "dll_sha256": "0" * 64}, b"")
 
     def test_clear_ts_is_processed_without_calling_decrypt(self):
         """合法明文 TS 按原内容处理并记录 clear 模式，仍须由正式工作流做完整解码；无参数或返回值。"""

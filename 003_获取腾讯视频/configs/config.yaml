@@ -1,0 +1,86 @@
+# 路径相对本配置文件解析；支持 ~ 和操作系统环境变量。
+# url：读取链接清单联网下载；download：还原客户端已完成下载的缓存。
+# URL 模式需保持一个已登录且 SDK 已初始化的腾讯播放器运行；先在客户端播放一集已授权正片。
+source: url
+default_list: '../download_list/download_list.yaml'
+playback_profile: 'native_playback.yaml'
+download:
+  # 每集单独排名，1 为最高；指定档位不可用时失败，不降档。
+  quality: 1
+  all_parts: true
+  threads: 4
+  retries: 3
+  refresh_attempts: 3
+audio:
+  prefer_vip: true
+  # 普通与 VIP 去重后的音质选项合计超过此数量时必须交互选择。
+  prompt_above: 2
+verification:
+  # 原生档位与实际码流允许的帧率差，兼容 59.94/60 等标称差异。
+  fps_tolerance: 0.1
+network:
+  # 空字符串强制直连，不继承环境代理。
+  proxy: ''
+  timeout_seconds: 30
+  max_response_bytes: 16000000
+  headers:
+    User-Agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/135.0.0.0 Safari/537.36'
+    Referer: 'https://v.qq.com/'
+# 腾讯视频客户端下载缓存的根目录。
+input_root: 'E:/QLDownload'
+# 腾讯视频客户端下载记录 XML，用于发现视频及检查下载状态。
+download_record: '~/AppData/Roaming/Tencent/QQLive/xml/0/QLDownload.xml'
+# 两个列表均为空时处理全部下载；非空时按视频 ID 或剧名精确匹配并取并集。
+selection:
+  # 要处理的视频 ID 列表；空列表表示不按此条件筛选。
+  video_ids: []
+  # 要处理的剧名列表；空列表表示不按此条件筛选。
+  series_names: []
+# 成品和运行记录输出目录；download 模式必须位于客户端下载根目录之外。
+output_path: 'Z:/003_电视剧'
+# 电视剧目录命名；title 为源站剧名，series_id 为 URL 的 cid 或下载记录中的 vbarid。
+# 两个占位符均须保留，目录名不能包含空白或路径分隔符；平台标记在模板中维护。
+naming:
+  series_template: '{title}_wetv_{series_id}'
+  episode_template: '{index:03d}_{title}_{quality}_{audio}_{video_id}'
+  max_title_length: 60
+# 中间文件工作目录，与输出目录独立；download 模式还须位于客户端下载根目录之外。
+work_dir: 'E:/QLRestore/work'
+# 本机客户端 DLL 及缓存接口的专项配置文件。
+native_profile: 'native_cache.yaml'
+# 用于封装和完整解码验证的 FFmpeg 可执行文件路径。
+ffmpeg_path: 'C:/ProgramData/miniconda3/envs/test_regression_py3.12/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe'
+# 完整解码设备可同时启用；GPU 使用 NVIDIA CUDA，不自动降级。
+decode_verification:
+  # 是否使用 CPU 进行完整解码验证；至少启用一个设备。
+  cpu: true
+  # 是否使用 GPU 进行完整解码验证；至少启用一个设备。
+  gpu: true
+# 最大在途剧集数；还原、封装、来源检查和发布各一个槽，每个启用设备各一个槽。
+max_in_flight: 4
+# 单个外部进程的超时时间，单位为秒，须为正整数。
+process_timeout_seconds: 3600
+# 文件读取、复制和哈希计算的缓冲区大小，单位为字节，须为正整数且小于 2^31。
+copy_buffer_bytes: 4194304
+# 解码结束时间与清单时长的最大允许差值（秒）。
+duration_tolerance_seconds: 2
+# 成功后是否保留还原的 TS；失败现场和验证日志始终保留。
+keep_intermediates: false
+# 本机页面和运行记录；文件名相对 output_path。
+logging:
+  # 本机进度页面监听端口；0 表示由系统分配端口。
+  port: 0
+  # 进度页面自动刷新的间隔，单位为秒，须大于 0。
+  refresh_interval_seconds: 2
+  # 采样和写入进度的间隔，单位为秒，须大于 0。
+  progress_interval_seconds: 1
+  # 运行状态记录文件名。
+  state_file: 'tencent_conversion_log.json'
+  # 离线报告文件名模板；实际文件名会附加时间和运行标识。
+  html_file: 'tencent_conversion_log.html'
+# 运行过程控制参数。
+runtime:
+  # 检查取消请求及轮询子进程的间隔，单位为秒，须大于 0。
+  cancel_poll_interval_seconds: 0.2
+  # 请求终止子进程后等待退出的时间，单位为秒，须大于 0。
+  process_terminate_timeout_seconds: 2

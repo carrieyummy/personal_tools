@@ -1,0 +1,142 @@
+# 研究入口只读客户端与播放接口；样本来自主配置的当前清单，不另写视频地址。
+config: 'config.yaml'
+report_dir: '../research/results'
+# 以清单中的 title 备注精确匹配；空字符串表示研究全部清单项。
+title: '花开锦绣'
+native_logs:
+  # 只提取协议能力参数与响应结构，不从日志提取或复用账号票据。
+  root: '~/AppData/Roaming/Tencent/QQLive/Log'
+  patterns: ['*PlayerSubProcess*.log', '*PCMPlayer*.log', '*CocosSubProcess*.log', '*[[]Main[]]*.log', '*[[]VN[]]*.log']
+  max_files: 10
+  max_bytes: 64000000
+  endpoints: [getinfo, getvinfo, getkey]
+  query_fields: [platform, appVer, appversion, newplatform, encryptVer, dtype, sphls, sphttps, defn, spvideo, sphevcfps, playctrl, drm, sdtfrom, spau, spaudio, spaudioeffectver, enableaudioeffect, spdltype, spwm, charge, defnpayver, fhdswitch, spmasterm3u8, spm3u8tag]
+native_observation:
+  process_names: [TMPThumbHD.exe, QQLive.exe]
+  module: libcurl.dll
+  curl_info_effective_url: 1048577
+  winhttp: {module: winhttp.dll, option_url: 34}
+  download_proxy:
+    module: DownloadProxy.dll
+    # 当前实际运行的 11.185.3264.0 导出接口已静态核对；升级须重新核对，不自动替换校验值。
+    sha256: '0807cbe0fda87f536a32284ac503911bc657ecc2f092242fe8b0ebe1a1fbdbe5'
+    exports:
+      TVKDLProxy_SendCgiRequest: {arguments: [0, 1]}
+      TVKDLProxy_SetClipInfo: {arguments: [2, 4]}
+  signing:
+    # DLL/ABI 与能力参数由 research.settings 从正式签名专项配置合并，仅保留观察结构。
+    string_arguments: [0, 1, 2, 3, 8, 9]
+    number_arguments: [4, 5, 7]
+    extra_argument: 6
+    extra_count_argument: 7
+    max_extra_count: 16
+    output_length_argument: 10
+    frame_widths: [2, 4, 8]
+    paired_frame_width: 4
+    frame_prefix_scan: 16
+    public_json_fields: [apv, cmd, lang, platform, ea, sdrp, spa, spenclv]
+    constant_modules: [TVKPlayer.dll, ThumbPlayer.dll, qimei.dll, QQLiveBase.dll]
+  watch_seconds: 120
+  max_events: 100
+  max_media_probes: 2
+  max_string_bytes: 65536
+  media_domains: [qq.com, smtcdns.com]
+native_key_probe:
+  delivery_variant: observed_proxy_native_capabilities
+  encrypt_version: '4.2'
+  definition: suhd
+# 将这些能力覆盖与正式请求分别对照；探测失败不修改正式参数。
+variants:
+  - name: legacy_capabilities
+    remove_query: [sphevcfps, playctrl, spmasterm3u8, spm3u8tag]
+    query: {}
+  - name: configured
+    query: {}
+  - name: extended_capabilities
+    query: {spvideo: 65535, spsfrhdr: 65535, spaudio: 65535}
+  - name: desktop_capabilities
+    query: {spvideo: 1044, spsfrhdr: 100, spaudio: 2372, platform: '10201'}
+  - name: native_drm_capabilities
+    query: {drm: 104, spaudioeffectver: 5, spaudio: 2372, spvideo: 65535}
+  - name: proxy_playback
+    endpoint: 'https://vd.l.qq.com/proxyhttp'
+    request_mode: proxy
+    query: {drm: 40}
+  - name: proxy_native_capabilities
+    endpoint: 'https://vd.l.qq.com/proxyhttp'
+    request_mode: proxy
+    query: {drm: 104, spvideo: 65535, spsfrhdr: 1000, spaudio: 2372}
+  - name: installed_windows_platform
+    query: {platform: '10204', drm: 104, spvideo: 5140, spsfrhdr: 100, spaudio: 2372}
+  - name: installed_desktop_platform
+    query: {platform: '60402', drm: 104, spvideo: 5140, spsfrhdr: 100, spaudio: 2372}
+  - name: documented_hevc_capabilities
+    query: {sphevcfps: 70368744177663, playctrl: 386, spmasterm3u8: 3, spm3u8tag: 67, spaudioeffectver: 5}
+runtime:
+  source_patterns: ['superplayer-txv-light\.js', '/assets/index-[A-Z][\w-]+\.js']
+  allowed_hosts: [vm.gtimg.cn, vfiles.gtimg.cn]
+  markers: [sphevcfps, suhd, spaudioeffectver, audiofilterparam, AudioEffectInfo, audioEffectController, getPage]
+  max_contexts: 3
+  context_chars: 200
+transfer_probe:
+  sample_bytes: 65536
+  timeout_seconds: 8
+  curl_path: 'C:/Windows/System32/curl.exe'
+  excluded_delivery_types: [2660]
+  delivery_variants:
+    - name: installed_product_version
+      # 对照误用 UserData DLL 目录的产品版本；它不是原生播放 SDK 的编码版本号。
+      native_app_version: true
+      query: {}
+    - name: configured_hls
+      query: {}
+    - name: basic_hls
+      remove_query: [spmasterm3u8, spm3u8tag]
+      query: {}
+    - name: direct_file
+      query: {dtype: 1, sphls: 0, isHLS: 0, spmasterm3u8: 0, spm3u8tag: 0}
+    - name: native_hls
+      query: {dtype: 3, sphls: 1, isHLS: 1, spmasterm3u8: 0, spm3u8tag: 0}
+    - name: current_web_api
+      endpoint: 'https://h5vv6.video.qq.com/getvinfo'
+      query: {platform: '10901'}
+    - name: browser_origin
+      headers: {Origin: 'https://v.qq.com', Accept: '*/*', Accept-Encoding: identity}
+      query: {}
+    - name: native_agent
+      headers: {User-Agent: QQLive}
+      query: {}
+    - name: environment_proxy
+      # 仅研究比较，元数据和媒体均使用同一显式代理；不修改正式主配置。
+      proxy_environment: HTTPS_PROXY
+      query: {}
+    - name: http_delivery
+      query: {sphttps: 0}
+    - name: unsplit_hls
+      query: {clip: 0}
+    - name: progressive_hls
+      query: {clip: 1}
+    - name: with_ad_segmentation
+      query: {spadseg: 3}
+    - name: native_media_session
+      # 仅比较原生会话 Cookie 是否是媒体传输缺项；不写票据原文。
+      media_cookie: {vuserid: vuserid, vusession: vusession}
+      query: {}
+    - name: web_media_session
+      media_cookie: {vqq_vuserid: vuserid, vqq_vusession: vusession}
+      query: {}
+    - name: observed_proxy_web_protocol
+      endpoint: 'https://vd6.l.qq.com/proxyhttp'
+      request_mode: proxy
+      query: {}
+    - name: observed_proxy_native_capabilities
+      endpoint: 'https://vd6.l.qq.com/proxyhttp'
+      request_mode: proxy
+      query: {spvideo: 4096, sphevcfps: 52776561313598, sphls: 10, spau: 540, spaudio: 3328, playctrl: 2306, drm: 1032, sdtfrom: v2000, defnpayver: 1, spm3u8tag: 16, spwm: 2}
+    - name: same_platform_media_context
+      media_context: [platform, sdtfrom]
+      query: {}
+    - name: same_file_media_context
+      media_context: [platform, sdtfrom]
+      media_keyid: true
+      query: {}

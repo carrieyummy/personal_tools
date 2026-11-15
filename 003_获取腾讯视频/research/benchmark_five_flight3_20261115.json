@@ -1,0 +1,3308 @@
+{
+  "selection": {
+    "video_ids": [
+      "c4102g9a01t",
+      "r4100zvgz9i",
+      "z4100tbe06q",
+      "q41002croj9",
+      "f4100rl6pdv"
+    ],
+    "series_names": []
+  },
+  "sample_ids": [
+    "c4102g9a01t",
+    "r4100zvgz9i",
+    "z4100tbe06q",
+    "q41002croj9",
+    "f4100rl6pdv"
+  ],
+  "sample_bytes": 5816808548,
+  "skipped": 0,
+  "max_in_flight": 3,
+  "decode_verification": {
+    "cpu": true,
+    "gpu": true
+  },
+  "system": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "logical_cpus": 28,
+    "input_root": "E:\\QLDownload",
+    "output_root": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧",
+    "work_root": "E:\\QLRestore\\work",
+    "ffmpeg": "C:\\ProgramData\\miniconda3\\envs\\test_regression_py3.12\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v9.0.2.exe",
+    "client_dll": "D:\\Program Files (x86)\\Tencent\\QQLive\\11.185.3264.0\\DownloadProxy.dll"
+  },
+  "sampling_interval_seconds": 3.0,
+  "measurement_notes": "CPU、内存、磁盘和网络为整机采样；磁盘和网络为累计计数；GPU 每行为利用率、显存利用率、解码器利用率和已用显存。资源持有时间可能嵌套，不能直接求和。",
+  "runs": [
+    {
+      "elapsed_seconds": 352.687,
+      "summary": {
+        "total": 5,
+        "completed": 4,
+        "reused": 0,
+        "failed": 1,
+        "interrupted": 0,
+        "skipped": 0
+      },
+      "error": null,
+      "journal": {
+        "id": "fd92b03771834fbe82254b1a34a6f26e",
+        "started": "2026-11-15T21:45:03+08:00",
+        "status": "warning",
+        "entries": [
+          {
+            "video_id": "c4102g9a01t",
+            "title": "兰香如故_第01集",
+            "status": "completed",
+            "stage": "publishing",
+            "detail": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\benchmark_x2tq9s7h\\兰香如故\\兰香如故_第01集.mp4",
+            "progress": 100.0,
+            "stages": {
+              "checking_source": 1.86,
+              "extracting": 8.546,
+              "muxing": 3.625,
+              "verifying": 108.5,
+              "checking": 3.954,
+              "publishing": 49.062
+            },
+            "resources": {
+              "source_check": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 9.625
+              },
+              "extract": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 8.437
+              },
+              "mux": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 3.313
+              },
+              "verification_gpu": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 108.39
+              },
+              "publish": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 48.796
+              }
+            },
+            "work_dir": "E:\\QLRestore\\work\\benchmark_lyp28pls\\fd92b03771834fbe82254b1a34a6f26e\\42ac849989ba4ce58e7c89515aa7112e",
+            "device": "gpu",
+            "output": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\benchmark_x2tq9s7h\\兰香如故\\兰香如故_第01集.mp4",
+            "verification": {
+              "device": "gpu",
+              "frames": 70314,
+              "duration_seconds": 2812.607979,
+              "exit_code": 0
+            },
+            "media": {
+              "duration_seconds": 2812.61,
+              "width": 3840,
+              "height": 2160,
+              "fps": 25.0,
+              "video_codec": "hevc",
+              "audio_codecs": [
+                "aac"
+              ],
+              "errors": []
+            },
+            "sha256": "a651d99d35fcbd5b43a3cdadab7cc6611905e6ef965aab47922c786ea9f8e341",
+            "legacy": false
+          },
+          {
+            "video_id": "r4100zvgz9i",
+            "title": "永夜星河_第01集",
+            "status": "completed",
+            "stage": "publishing",
+            "detail": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\benchmark_x2tq9s7h\\永夜星河\\永夜星河_第01集.mp4",
+            "progress": 100.0,
+            "stages": {
+              "checking_source": 4.828,
+              "extracting": 21.015,
+              "muxing": 5.219,
+              "verifying": 172.641,
+              "checking": 3.687,
+              "publishing": 61.391
+            },
+            "resources": {
+              "source_check": {
+                "wait_seconds": 3.219,
+                "execution_seconds": 8.765
+              },
+              "extract": {
+                "wait_seconds": 11.5,
+                "execution_seconds": 9.421
+              },
+              "mux": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 4.765
+              },
+              "verification_gpu": {
+                "wait_seconds": 91.156,
+                "execution_seconds": 81.36
+              },
+              "publish": {
+                "wait_seconds": 12.766,
+                "execution_seconds": 47.625
+              }
+            },
+            "work_dir": "E:\\QLRestore\\work\\benchmark_lyp28pls\\fd92b03771834fbe82254b1a34a6f26e\\9171bfffc558468a895920ecbf4d9d42",
+            "device": "gpu",
+            "output": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\benchmark_x2tq9s7h\\永夜星河\\永夜星河_第01集.mp4",
+            "verification": {
+              "device": "gpu",
+              "frames": 67718,
+              "duration_seconds": 2708.778646,
+              "exit_code": 0
+            },
+            "media": {
+              "duration_seconds": 2708.78,
+              "width": 3840,
+              "height": 1606,
+              "fps": 25.0,
+              "video_codec": "hevc",
+              "audio_codecs": [
+                "aac"
+              ],
+              "errors": []
+            },
+            "sha256": "ada4821d5d9584574397a67ff49950418d1acab7fb51a2e8ed002582d354209b",
+            "legacy": false
+          },
+          {
+            "video_id": "z4100tbe06q",
+            "title": "永夜星河_第02集",
+            "status": "completed",
+            "stage": "publishing",
+            "detail": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\benchmark_x2tq9s7h\\永夜星河\\永夜星河_第02集.mp4",
+            "progress": 100.0,
+            "stages": {
+              "checking_source": 3.344,
+              "extracting": 12.969,
+              "muxing": 3.031,
+              "verifying": 164.297,
+              "checking": 2.234,
+              "publishing": 35.203
+            },
+            "resources": {
+              "source_check": {
+                "wait_seconds": 1.422,
+                "execution_seconds": 6.812
+              },
+              "extract": {
+                "wait_seconds": 6.671,
+                "execution_seconds": 6.204
+              },
+              "mux": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 2.703
+              },
+              "verification_cpu": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 164.172
+              },
+              "publish": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 35.0
+              }
+            },
+            "work_dir": "E:\\QLRestore\\work\\benchmark_lyp28pls\\fd92b03771834fbe82254b1a34a6f26e\\00d7fe6cb10e491ebb42bb6ebc6589f1",
+            "device": "cpu",
+            "output": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\benchmark_x2tq9s7h\\永夜星河\\永夜星河_第02集.mp4",
+            "verification": {
+              "device": "cpu",
+              "frames": 66653,
+              "duration_seconds": 2666.176,
+              "exit_code": 0
+            },
+            "media": {
+              "duration_seconds": 2666.18,
+              "width": 3840,
+              "height": 1606,
+              "fps": 25.0,
+              "video_codec": "hevc",
+              "audio_codecs": [
+                "aac"
+              ],
+              "errors": []
+            },
+            "sha256": "8751407a15b51d56626e5460ce1ddba0f71c903b1e95841d5b7f0a0e19aca48f",
+            "legacy": false
+          },
+          {
+            "video_id": "q41002croj9",
+            "title": "永夜星河_第03集",
+            "status": "failed",
+            "stage": "verifying",
+            "detail": "PermissionError: [WinError 5] 拒绝访问。: '\\\\\\\\Z2PRO-W5SW\\\\sata11-185XXXX9924\\\\003_电视剧\\\\benchmark_x2tq9s7h\\\\.tencent_conversion_log.json.3c1e48b7f3404ea2a28106f16affc1a8.tmp' -> '\\\\\\\\Z2PRO-W5SW\\\\sata11-185XXXX9924\\\\003_电视剧\\\\benchmark_x2tq9s7h\\\\tencent_conversion_log.json'",
+            "progress": 95.57487882313124,
+            "stages": {
+              "checking_source": 1.672,
+              "extracting": 6.172,
+              "muxing": 2.609,
+              "verifying": 146.984
+            },
+            "resources": {
+              "source_check": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 1.563
+              },
+              "extract": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 6.032
+              },
+              "mux": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 2.297
+              },
+              "verification_cpu": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 146.86
+              }
+            },
+            "work_dir": "E:\\QLRestore\\work\\benchmark_lyp28pls\\fd92b03771834fbe82254b1a34a6f26e\\c7bae69433074b8aa9d73adc62d1e236",
+            "device": "cpu"
+          },
+          {
+            "video_id": "f4100rl6pdv",
+            "title": "永夜星河_第04集",
+            "status": "completed",
+            "stage": "publishing",
+            "detail": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\benchmark_x2tq9s7h\\永夜星河\\永夜星河_第04集.mp4",
+            "progress": 100.0,
+            "stages": {
+              "checking_source": 3.109,
+              "extracting": 8.469,
+              "muxing": 4.172,
+              "verifying": 76.125,
+              "checking": 2.422,
+              "publishing": 35.922
+            },
+            "resources": {
+              "source_check": {
+                "wait_seconds": 1.125,
+                "execution_seconds": 6.595
+              },
+              "extract": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 8.313
+              },
+              "mux": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 3.64
+              },
+              "verification_gpu": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 75.516
+              },
+              "publish": {
+                "wait_seconds": 0.0,
+                "execution_seconds": 35.656
+              }
+            },
+            "work_dir": "E:\\QLRestore\\work\\benchmark_lyp28pls\\fd92b03771834fbe82254b1a34a6f26e\\2429b7a9312e41cf9bd8343136570f90",
+            "device": "gpu",
+            "output": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\benchmark_x2tq9s7h\\永夜星河\\永夜星河_第04集.mp4",
+            "verification": {
+              "device": "gpu",
+              "frames": 64576,
+              "duration_seconds": 2583.082667,
+              "exit_code": 0
+            },
+            "media": {
+              "duration_seconds": 2583.08,
+              "width": 3840,
+              "height": 1606,
+              "fps": 25.0,
+              "video_codec": "hevc",
+              "audio_codecs": [
+                "aac"
+              ],
+              "errors": []
+            },
+            "sha256": "0a61de9a312d190de24ba870ac03d1a8e70c05bded077578bf08d68582b3bca7",
+            "legacy": false
+          }
+        ],
+        "summary": {
+          "total": 5,
+          "completed": 4,
+          "reused": 0,
+          "failed": 1,
+          "interrupted": 0,
+          "skipped": 0
+        },
+        "finished": "2026-11-15T21:50:56+08:00",
+        "elapsed_seconds": 352.266
+      },
+      "system_samples": [
+        {
+          "time": 1794750303.6524215,
+          "cpu_percent": 0.0,
+          "memory_percent": 72.9,
+          "disk": {
+            "read_count": 18063255,
+            "write_count": 18502917,
+            "read_bytes": 1433025027584,
+            "write_bytes": 1250770373120,
+            "read_time": 23745,
+            "write_time": 4225
+          },
+          "network": {
+            "bytes_sent": 108752149114,
+            "bytes_recv": 175692591138,
+            "packets_sent": 13645890,
+            "packets_recv": 122371348,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 17, 0, 6140"
+          ]
+        },
+        {
+          "time": 1794750306.766189,
+          "cpu_percent": 23.4,
+          "memory_percent": 72.9,
+          "disk": {
+            "read_count": 18069699,
+            "write_count": 18503068,
+            "read_bytes": 1435002848768,
+            "write_bytes": 1250776570368,
+            "read_time": 23749,
+            "write_time": 4225
+          },
+          "network": {
+            "bytes_sent": 108752282579,
+            "bytes_recv": 175692868289,
+            "packets_sent": 13646323,
+            "packets_recv": 122371863,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "1, 2, 0, 6332"
+          ]
+        },
+        {
+          "time": 1794750309.8665445,
+          "cpu_percent": 20.7,
+          "memory_percent": 73.9,
+          "disk": {
+            "read_count": 18072138,
+            "write_count": 18503258,
+            "read_bytes": 1435566969344,
+            "write_bytes": 1250868345344,
+            "read_time": 23750,
+            "write_time": 4225
+          },
+          "network": {
+            "bytes_sent": 108752333684,
+            "bytes_recv": 175692960378,
+            "packets_sent": 13646508,
+            "packets_recv": 122372049,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 2, 0, 6292"
+          ]
+        },
+        {
+          "time": 1794750312.9607341,
+          "cpu_percent": 14.4,
+          "memory_percent": 74.5,
+          "disk": {
+            "read_count": 18072159,
+            "write_count": 18503755,
+            "read_bytes": 1435567108096,
+            "write_bytes": 1251237493248,
+            "read_time": 23750,
+            "write_time": 4226
+          },
+          "network": {
+            "bytes_sent": 108752380231,
+            "bytes_recv": 175693050267,
+            "packets_sent": 13646648,
+            "packets_recv": 122372203,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 14, 0, 6170"
+          ]
+        },
+        {
+          "time": 1794750316.0471632,
+          "cpu_percent": 16.8,
+          "memory_percent": 74.9,
+          "disk": {
+            "read_count": 18072314,
+            "write_count": 18505319,
+            "read_bytes": 1435572967424,
+            "write_bytes": 1252534950400,
+            "read_time": 23750,
+            "write_time": 4226
+          },
+          "network": {
+            "bytes_sent": 108752442408,
+            "bytes_recv": 175693183632,
+            "packets_sent": 13646851,
+            "packets_recv": 122372440,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 1, 0, 6353"
+          ]
+        },
+        {
+          "time": 1794750319.144792,
+          "cpu_percent": 19.4,
+          "memory_percent": 76.6,
+          "disk": {
+            "read_count": 18072723,
+            "write_count": 18508765,
+            "read_bytes": 1435593099264,
+            "write_bytes": 1255049722368,
+            "read_time": 23750,
+            "write_time": 4226
+          },
+          "network": {
+            "bytes_sent": 108752477962,
+            "bytes_recv": 175693232833,
+            "packets_sent": 13646975,
+            "packets_recv": 122372556,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 100, 7148"
+          ]
+        },
+        {
+          "time": 1794750322.237861,
+          "cpu_percent": 22.9,
+          "memory_percent": 77.1,
+          "disk": {
+            "read_count": 18072907,
+            "write_count": 18510319,
+            "read_bytes": 1435605631488,
+            "write_bytes": 1256221403648,
+            "read_time": 23750,
+            "write_time": 4227
+          },
+          "network": {
+            "bytes_sent": 108752538263,
+            "bytes_recv": 175693318651,
+            "packets_sent": 13647290,
+            "packets_recv": 122372873,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 18, 99, 7124"
+          ]
+        },
+        {
+          "time": 1794750325.3273442,
+          "cpu_percent": 35.3,
+          "memory_percent": 79.0,
+          "disk": {
+            "read_count": 18075023,
+            "write_count": 18513640,
+            "read_bytes": 1436022823424,
+            "write_bytes": 1258248804864,
+            "read_time": 23752,
+            "write_time": 4227
+          },
+          "network": {
+            "bytes_sent": 108752792616,
+            "bytes_recv": 175693820634,
+            "packets_sent": 13648064,
+            "packets_recv": 122373791,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "10, 21, 99, 7485"
+          ]
+        },
+        {
+          "time": 1794750328.451164,
+          "cpu_percent": 46.6,
+          "memory_percent": 79.3,
+          "disk": {
+            "read_count": 18077516,
+            "write_count": 18514224,
+            "read_bytes": 1436447593472,
+            "write_bytes": 1258680621568,
+            "read_time": 23754,
+            "write_time": 4227
+          },
+          "network": {
+            "bytes_sent": 108752966112,
+            "bytes_recv": 175694694490,
+            "packets_sent": 13648839,
+            "packets_recv": 122374838,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 20, 99, 7358"
+          ]
+        },
+        {
+          "time": 1794750331.5866911,
+          "cpu_percent": 58.9,
+          "memory_percent": 79.1,
+          "disk": {
+            "read_count": 18078273,
+            "write_count": 18515022,
+            "read_bytes": 1436657192960,
+            "write_bytes": 1259263642112,
+            "read_time": 23755,
+            "write_time": 4227
+          },
+          "network": {
+            "bytes_sent": 108753087652,
+            "bytes_recv": 175695224532,
+            "packets_sent": 13649327,
+            "packets_recv": 122375453,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 17, 100, 7193"
+          ]
+        },
+        {
+          "time": 1794750334.702879,
+          "cpu_percent": 67.5,
+          "memory_percent": 80.2,
+          "disk": {
+            "read_count": 18079306,
+            "write_count": 18517904,
+            "read_bytes": 1436752453120,
+            "write_bytes": 1261408197120,
+            "read_time": 23756,
+            "write_time": 4228
+          },
+          "network": {
+            "bytes_sent": 108753204226,
+            "bytes_recv": 175695961477,
+            "packets_sent": 13650024,
+            "packets_recv": 122376457,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 17, 100, 7364"
+          ]
+        },
+        {
+          "time": 1794750337.8351343,
+          "cpu_percent": 51.1,
+          "memory_percent": 79.2,
+          "disk": {
+            "read_count": 18081888,
+            "write_count": 18518635,
+            "read_bytes": 1437177597952,
+            "write_bytes": 1261727824384,
+            "read_time": 23845,
+            "write_time": 4228
+          },
+          "network": {
+            "bytes_sent": 108753336201,
+            "bytes_recv": 175697423815,
+            "packets_sent": 13651043,
+            "packets_recv": 122378028,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 18, 99, 7309"
+          ]
+        },
+        {
+          "time": 1794750340.9496295,
+          "cpu_percent": 49.2,
+          "memory_percent": 78.7,
+          "disk": {
+            "read_count": 18082976,
+            "write_count": 18518988,
+            "read_bytes": 1437444911616,
+            "write_bytes": 1261821037056,
+            "read_time": 23854,
+            "write_time": 4228
+          },
+          "network": {
+            "bytes_sent": 108753436407,
+            "bytes_recv": 175697720214,
+            "packets_sent": 13651563,
+            "packets_recv": 122378679,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 21, 99, 7312"
+          ]
+        },
+        {
+          "time": 1794750344.08028,
+          "cpu_percent": 50.6,
+          "memory_percent": 78.5,
+          "disk": {
+            "read_count": 18083628,
+            "write_count": 18519143,
+            "read_bytes": 1437488046080,
+            "write_bytes": 1261859252736,
+            "read_time": 23855,
+            "write_time": 4228
+          },
+          "network": {
+            "bytes_sent": 108753550890,
+            "bytes_recv": 175698194065,
+            "packets_sent": 13652207,
+            "packets_recv": 122379510,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 21, 99, 7303"
+          ]
+        },
+        {
+          "time": 1794750347.174452,
+          "cpu_percent": 52.0,
+          "memory_percent": 78.7,
+          "disk": {
+            "read_count": 18083791,
+            "write_count": 18519333,
+            "read_bytes": 1437516795904,
+            "write_bytes": 1261893900800,
+            "read_time": 23855,
+            "write_time": 4228
+          },
+          "network": {
+            "bytes_sent": 108753625437,
+            "bytes_recv": 175698375123,
+            "packets_sent": 13652394,
+            "packets_recv": 122379766,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "10, 20, 100, 7456"
+          ]
+        },
+        {
+          "time": 1794750350.2889104,
+          "cpu_percent": 50.6,
+          "memory_percent": 78.5,
+          "disk": {
+            "read_count": 18083953,
+            "write_count": 18519495,
+            "read_bytes": 1437541173248,
+            "write_bytes": 1261938694656,
+            "read_time": 23855,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108753669797,
+            "bytes_recv": 175698422458,
+            "packets_sent": 13652520,
+            "packets_recv": 122379889,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "18, 20, 99, 7308"
+          ]
+        },
+        {
+          "time": 1794750353.4057844,
+          "cpu_percent": 41.0,
+          "memory_percent": 78.6,
+          "disk": {
+            "read_count": 18084250,
+            "write_count": 18519690,
+            "read_bytes": 1437586260480,
+            "write_bytes": 1261965425152,
+            "read_time": 23856,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108753704998,
+            "bytes_recv": 175698455330,
+            "packets_sent": 13652643,
+            "packets_recv": 122379999,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 20, 99, 7178"
+          ]
+        },
+        {
+          "time": 1794750356.519425,
+          "cpu_percent": 47.5,
+          "memory_percent": 78.4,
+          "disk": {
+            "read_count": 18084399,
+            "write_count": 18519834,
+            "read_bytes": 1437627750912,
+            "write_bytes": 1261990509056,
+            "read_time": 23856,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108753772702,
+            "bytes_recv": 175698566356,
+            "packets_sent": 13652824,
+            "packets_recv": 122380207,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 21, 99, 7437"
+          ]
+        },
+        {
+          "time": 1794750359.6355932,
+          "cpu_percent": 46.1,
+          "memory_percent": 78.3,
+          "disk": {
+            "read_count": 18084581,
+            "write_count": 18519927,
+            "read_bytes": 1437668056064,
+            "write_bytes": 1262012189184,
+            "read_time": 23856,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108753804766,
+            "bytes_recv": 175698604406,
+            "packets_sent": 13652917,
+            "packets_recv": 122380293,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 100, 7420"
+          ]
+        },
+        {
+          "time": 1794750362.7497845,
+          "cpu_percent": 45.6,
+          "memory_percent": 78.2,
+          "disk": {
+            "read_count": 18084931,
+            "write_count": 18520639,
+            "read_bytes": 1437715855872,
+            "write_bytes": 1262045039104,
+            "read_time": 23856,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754194326,
+            "bytes_recv": 175698714330,
+            "packets_sent": 13653272,
+            "packets_recv": 122380461,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 20, 99, 7235"
+          ]
+        },
+        {
+          "time": 1794750365.8606472,
+          "cpu_percent": 45.6,
+          "memory_percent": 78.2,
+          "disk": {
+            "read_count": 18085147,
+            "write_count": 18520738,
+            "read_bytes": 1437759288832,
+            "write_bytes": 1262062336512,
+            "read_time": 23856,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754232021,
+            "bytes_recv": 175698757881,
+            "packets_sent": 13653399,
+            "packets_recv": 122380580,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 100, 7441"
+          ]
+        },
+        {
+          "time": 1794750368.9790528,
+          "cpu_percent": 45.3,
+          "memory_percent": 78.2,
+          "disk": {
+            "read_count": 18085409,
+            "write_count": 18520832,
+            "read_bytes": 1437812197376,
+            "write_bytes": 1262078552576,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754274980,
+            "bytes_recv": 175698795165,
+            "packets_sent": 13653506,
+            "packets_recv": 122380678,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 7220"
+          ]
+        },
+        {
+          "time": 1794750372.0927143,
+          "cpu_percent": 49.2,
+          "memory_percent": 78.1,
+          "disk": {
+            "read_count": 18085555,
+            "write_count": 18521024,
+            "read_bytes": 1437844752384,
+            "write_bytes": 1262099405312,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754313746,
+            "bytes_recv": 175698846811,
+            "packets_sent": 13653629,
+            "packets_recv": 122380790,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 20, 99, 7218"
+          ]
+        },
+        {
+          "time": 1794750375.2075536,
+          "cpu_percent": 48.3,
+          "memory_percent": 78.3,
+          "disk": {
+            "read_count": 18085656,
+            "write_count": 18521106,
+            "read_bytes": 1437885399040,
+            "write_bytes": 1262110992896,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754356203,
+            "bytes_recv": 175698906892,
+            "packets_sent": 13653814,
+            "packets_recv": 122380944,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "10, 20, 100, 7483"
+          ]
+        },
+        {
+          "time": 1794750378.3268476,
+          "cpu_percent": 49.7,
+          "memory_percent": 78.3,
+          "disk": {
+            "read_count": 18085783,
+            "write_count": 18521204,
+            "read_bytes": 1437923655680,
+            "write_bytes": 1262128675328,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754397297,
+            "bytes_recv": 175698987749,
+            "packets_sent": 13653973,
+            "packets_recv": 122381102,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 19, 100, 7365"
+          ]
+        },
+        {
+          "time": 1794750381.4327862,
+          "cpu_percent": 47.4,
+          "memory_percent": 78.3,
+          "disk": {
+            "read_count": 18085932,
+            "write_count": 18521279,
+            "read_bytes": 1437954066944,
+            "write_bytes": 1262138341888,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754440038,
+            "bytes_recv": 175699054549,
+            "packets_sent": 13654104,
+            "packets_recv": 122381236,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 20, 99, 7167"
+          ]
+        },
+        {
+          "time": 1794750384.5574098,
+          "cpu_percent": 55.0,
+          "memory_percent": 78.2,
+          "disk": {
+            "read_count": 18086954,
+            "write_count": 18521400,
+            "read_bytes": 1437990669824,
+            "write_bytes": 1262152661504,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754596962,
+            "bytes_recv": 175699167565,
+            "packets_sent": 13654311,
+            "packets_recv": 122381502,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "17, 19, 99, 7448"
+          ]
+        },
+        {
+          "time": 1794750387.6593251,
+          "cpu_percent": 52.5,
+          "memory_percent": 78.1,
+          "disk": {
+            "read_count": 18087213,
+            "write_count": 18521548,
+            "read_bytes": 1438023405056,
+            "write_bytes": 1262161861120,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108754961379,
+            "bytes_recv": 175700387955,
+            "packets_sent": 13655517,
+            "packets_recv": 122383094,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 20, 99, 7402"
+          ]
+        },
+        {
+          "time": 1794750390.7643924,
+          "cpu_percent": 47.3,
+          "memory_percent": 77.9,
+          "disk": {
+            "read_count": 18087328,
+            "write_count": 18521852,
+            "read_bytes": 1438043898880,
+            "write_bytes": 1262172912128,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755091531,
+            "bytes_recv": 175700929558,
+            "packets_sent": 13656060,
+            "packets_recv": 122383755,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 21, 99, 7292"
+          ]
+        },
+        {
+          "time": 1794750393.872666,
+          "cpu_percent": 51.0,
+          "memory_percent": 78.7,
+          "disk": {
+            "read_count": 18087453,
+            "write_count": 18521937,
+            "read_bytes": 1438072012288,
+            "write_bytes": 1262182263296,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755134862,
+            "bytes_recv": 175701042455,
+            "packets_sent": 13656217,
+            "packets_recv": 122383934,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 21, 100, 7270"
+          ]
+        },
+        {
+          "time": 1794750396.9907985,
+          "cpu_percent": 47.4,
+          "memory_percent": 77.9,
+          "disk": {
+            "read_count": 18087639,
+            "write_count": 18522118,
+            "read_bytes": 1438103919104,
+            "write_bytes": 1262188263936,
+            "read_time": 23857,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755179324,
+            "bytes_recv": 175701139723,
+            "packets_sent": 13656361,
+            "packets_recv": 122384089,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 20, 100, 7361"
+          ]
+        },
+        {
+          "time": 1794750400.1081407,
+          "cpu_percent": 59.9,
+          "memory_percent": 78.0,
+          "disk": {
+            "read_count": 18088277,
+            "write_count": 18522403,
+            "read_bytes": 1438174731776,
+            "write_bytes": 1262197484032,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755267876,
+            "bytes_recv": 175702119452,
+            "packets_sent": 13656684,
+            "packets_recv": 122384945,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 21, 100, 7272"
+          ]
+        },
+        {
+          "time": 1794750403.2226117,
+          "cpu_percent": 54.5,
+          "memory_percent": 77.9,
+          "disk": {
+            "read_count": 18088454,
+            "write_count": 18522485,
+            "read_bytes": 1438209166336,
+            "write_bytes": 1262203677184,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755383985,
+            "bytes_recv": 175702937510,
+            "packets_sent": 13656939,
+            "packets_recv": 122385650,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 20, 100, 7180"
+          ]
+        },
+        {
+          "time": 1794750406.326137,
+          "cpu_percent": 44.0,
+          "memory_percent": 78.1,
+          "disk": {
+            "read_count": 18088559,
+            "write_count": 18522642,
+            "read_bytes": 1438245193728,
+            "write_bytes": 1262211484160,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755428258,
+            "bytes_recv": 175702977720,
+            "packets_sent": 13657035,
+            "packets_recv": 122385738,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 20, 99, 7224"
+          ]
+        },
+        {
+          "time": 1794750409.4194484,
+          "cpu_percent": 47.8,
+          "memory_percent": 77.7,
+          "disk": {
+            "read_count": 18088673,
+            "write_count": 18522746,
+            "read_bytes": 1438279959040,
+            "write_bytes": 1262233221632,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755493234,
+            "bytes_recv": 175703060177,
+            "packets_sent": 13657207,
+            "packets_recv": 122385922,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 100, 7171"
+          ]
+        },
+        {
+          "time": 1794750412.536484,
+          "cpu_percent": 48.2,
+          "memory_percent": 77.8,
+          "disk": {
+            "read_count": 18088791,
+            "write_count": 18522847,
+            "read_bytes": 1438314382336,
+            "write_bytes": 1262234814976,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755540998,
+            "bytes_recv": 175703136326,
+            "packets_sent": 13657343,
+            "packets_recv": 122386073,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 100, 7160"
+          ]
+        },
+        {
+          "time": 1794750415.627964,
+          "cpu_percent": 46.1,
+          "memory_percent": 78.3,
+          "disk": {
+            "read_count": 18088924,
+            "write_count": 18522970,
+            "read_bytes": 1438350970880,
+            "write_bytes": 1262237100544,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755626872,
+            "bytes_recv": 175703301492,
+            "packets_sent": 13657543,
+            "packets_recv": 122386299,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "13, 21, 99, 7396"
+          ]
+        },
+        {
+          "time": 1794750418.746899,
+          "cpu_percent": 52.1,
+          "memory_percent": 78.3,
+          "disk": {
+            "read_count": 18090206,
+            "write_count": 18523299,
+            "read_bytes": 1438398750208,
+            "write_bytes": 1262249503232,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108755697876,
+            "bytes_recv": 175703446546,
+            "packets_sent": 13657781,
+            "packets_recv": 122386531,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 21, 99, 7185"
+          ]
+        },
+        {
+          "time": 1794750421.856278,
+          "cpu_percent": 55.1,
+          "memory_percent": 78.0,
+          "disk": {
+            "read_count": 18090521,
+            "write_count": 18523555,
+            "read_bytes": 1438452428288,
+            "write_bytes": 1262256613888,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108756260162,
+            "bytes_recv": 175703568692,
+            "packets_sent": 13658288,
+            "packets_recv": 122386711,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 20, 99, 7146"
+          ]
+        },
+        {
+          "time": 1794750424.9683015,
+          "cpu_percent": 47.2,
+          "memory_percent": 78.2,
+          "disk": {
+            "read_count": 18090784,
+            "write_count": 18523719,
+            "read_bytes": 1438555194880,
+            "write_bytes": 1262259317248,
+            "read_time": 23891,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108756317421,
+            "bytes_recv": 175703716558,
+            "packets_sent": 13658463,
+            "packets_recv": 122386910,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 20, 99, 7404"
+          ]
+        },
+        {
+          "time": 1794750428.0806715,
+          "cpu_percent": 57.1,
+          "memory_percent": 76.3,
+          "disk": {
+            "read_count": 18092213,
+            "write_count": 18523920,
+            "read_bytes": 1439394190336,
+            "write_bytes": 1262266681856,
+            "read_time": 23892,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108756380112,
+            "bytes_recv": 175703810484,
+            "packets_sent": 13658617,
+            "packets_recv": 122387071,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 18, 99, 7103"
+          ]
+        },
+        {
+          "time": 1794750431.2006013,
+          "cpu_percent": 52.0,
+          "memory_percent": 76.5,
+          "disk": {
+            "read_count": 18093201,
+            "write_count": 18524042,
+            "read_bytes": 1440186915840,
+            "write_bytes": 1262270061056,
+            "read_time": 23892,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108756435848,
+            "bytes_recv": 175703903510,
+            "packets_sent": 13658785,
+            "packets_recv": 122387229,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 17, 99, 6977"
+          ]
+        },
+        {
+          "time": 1794750434.3124464,
+          "cpu_percent": 48.5,
+          "memory_percent": 78.2,
+          "disk": {
+            "read_count": 18093240,
+            "write_count": 18524193,
+            "read_bytes": 1440191026688,
+            "write_bytes": 1262273452544,
+            "read_time": 23892,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108756515303,
+            "bytes_recv": 175704015837,
+            "packets_sent": 13659062,
+            "packets_recv": 122387506,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 15, 99, 7220"
+          ]
+        },
+        {
+          "time": 1794750437.4338846,
+          "cpu_percent": 61.6,
+          "memory_percent": 80.8,
+          "disk": {
+            "read_count": 18093379,
+            "write_count": 18524323,
+            "read_bytes": 1440210109952,
+            "write_bytes": 1262277380608,
+            "read_time": 23892,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 108835997768,
+            "bytes_recv": 175704269367,
+            "packets_sent": 13659563,
+            "packets_recv": 122389618,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 13, 99, 7004"
+          ]
+        },
+        {
+          "time": 1794750440.5505192,
+          "cpu_percent": 55.6,
+          "memory_percent": 80.3,
+          "disk": {
+            "read_count": 18093664,
+            "write_count": 18524427,
+            "read_bytes": 1440238243328,
+            "write_bytes": 1262279903744,
+            "read_time": 23893,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 109057639245,
+            "bytes_recv": 175704652938,
+            "packets_sent": 13659784,
+            "packets_recv": 122393692,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "10, 14, 73, 7129"
+          ]
+        },
+        {
+          "time": 1794750443.6924143,
+          "cpu_percent": 51.0,
+          "memory_percent": 79.6,
+          "disk": {
+            "read_count": 18093873,
+            "write_count": 18524551,
+            "read_bytes": 1440261860864,
+            "write_bytes": 1262282521088,
+            "read_time": 23894,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 109273772325,
+            "bytes_recv": 175705013032,
+            "packets_sent": 13660000,
+            "packets_recv": 122397131,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 7097"
+          ]
+        },
+        {
+          "time": 1794750446.79996,
+          "cpu_percent": 58.4,
+          "memory_percent": 79.5,
+          "disk": {
+            "read_count": 18093958,
+            "write_count": 18524773,
+            "read_bytes": 1440279887360,
+            "write_bytes": 1262286481920,
+            "read_time": 23894,
+            "write_time": 4229
+          },
+          "network": {
+            "bytes_sent": 109490202835,
+            "bytes_recv": 175706382802,
+            "packets_sent": 13661107,
+            "packets_recv": 122402641,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 19, 98, 7167"
+          ]
+        },
+        {
+          "time": 1794750449.9236956,
+          "cpu_percent": 57.4,
+          "memory_percent": 78.3,
+          "disk": {
+            "read_count": 18094100,
+            "write_count": 18524880,
+            "read_bytes": 1440302456320,
+            "write_bytes": 1262289619456,
+            "read_time": 23894,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 109701987026,
+            "bytes_recv": 175707109324,
+            "packets_sent": 13661694,
+            "packets_recv": 122406600,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "5, 14, 76, 7090"
+          ]
+        },
+        {
+          "time": 1794750453.0512033,
+          "cpu_percent": 47.7,
+          "memory_percent": 77.6,
+          "disk": {
+            "read_count": 18094184,
+            "write_count": 18524967,
+            "read_bytes": 1440324369920,
+            "write_bytes": 1262290831872,
+            "read_time": 23894,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 109935825194,
+            "bytes_recv": 175707837809,
+            "packets_sent": 13662181,
+            "packets_recv": 122410458,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 19, 99, 7097"
+          ]
+        },
+        {
+          "time": 1794750456.1638894,
+          "cpu_percent": 51.0,
+          "memory_percent": 77.3,
+          "disk": {
+            "read_count": 18094268,
+            "write_count": 18525097,
+            "read_bytes": 1440343863808,
+            "write_bytes": 1262294424064,
+            "read_time": 23894,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110160805093,
+            "bytes_recv": 175708344176,
+            "packets_sent": 13662499,
+            "packets_recv": 122414569,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 17, 90, 7408"
+          ]
+        },
+        {
+          "time": 1794750459.277662,
+          "cpu_percent": 45.5,
+          "memory_percent": 76.8,
+          "disk": {
+            "read_count": 18094352,
+            "write_count": 18525273,
+            "read_bytes": 1440362516480,
+            "write_bytes": 1262299355648,
+            "read_time": 23894,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110273942358,
+            "bytes_recv": 175784960643,
+            "packets_sent": 13664737,
+            "packets_recv": 122467477,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 15, 99, 7182"
+          ]
+        },
+        {
+          "time": 1794750462.376729,
+          "cpu_percent": 57.2,
+          "memory_percent": 76.7,
+          "disk": {
+            "read_count": 18094877,
+            "write_count": 18525599,
+            "read_bytes": 1440419614720,
+            "write_bytes": 1262303648256,
+            "read_time": 23924,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110274653191,
+            "bytes_recv": 176030873840,
+            "packets_sent": 13671685,
+            "packets_recv": 122630846,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 13, 99, 7170"
+          ]
+        },
+        {
+          "time": 1794750465.4919977,
+          "cpu_percent": 57.3,
+          "memory_percent": 76.9,
+          "disk": {
+            "read_count": 18095010,
+            "write_count": 18525720,
+            "read_bytes": 1440443465728,
+            "write_bytes": 1262308252160,
+            "read_time": 23924,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110275279905,
+            "bytes_recv": 176271259922,
+            "packets_sent": 13678218,
+            "packets_recv": 122790439,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 19, 99, 7394"
+          ]
+        },
+        {
+          "time": 1794750468.6178374,
+          "cpu_percent": 51.7,
+          "memory_percent": 76.8,
+          "disk": {
+            "read_count": 18095096,
+            "write_count": 18525859,
+            "read_bytes": 1440461754368,
+            "write_bytes": 1262311873024,
+            "read_time": 23924,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110275932292,
+            "bytes_recv": 176525808112,
+            "packets_sent": 13685100,
+            "packets_recv": 122959414,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "12, 20, 99, 7275"
+          ]
+        },
+        {
+          "time": 1794750471.7251945,
+          "cpu_percent": 51.2,
+          "memory_percent": 76.6,
+          "disk": {
+            "read_count": 18095472,
+            "write_count": 18526138,
+            "read_bytes": 1440493165568,
+            "write_bytes": 1262316509696,
+            "read_time": 23925,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110276534885,
+            "bytes_recv": 176754629652,
+            "packets_sent": 13691350,
+            "packets_recv": 123111342,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 18, 99, 7114"
+          ]
+        },
+        {
+          "time": 1794750474.8440902,
+          "cpu_percent": 56.6,
+          "memory_percent": 76.8,
+          "disk": {
+            "read_count": 18095626,
+            "write_count": 18526335,
+            "read_bytes": 1440513167872,
+            "write_bytes": 1262319823360,
+            "read_time": 23925,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110277167354,
+            "bytes_recv": 176994779925,
+            "packets_sent": 13697961,
+            "packets_recv": 123270824,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 17, 99, 7292"
+          ]
+        },
+        {
+          "time": 1794750477.954758,
+          "cpu_percent": 49.0,
+          "memory_percent": 76.9,
+          "disk": {
+            "read_count": 18095718,
+            "write_count": 18526518,
+            "read_bytes": 1440534358528,
+            "write_bytes": 1262322448896,
+            "read_time": 23925,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110277704492,
+            "bytes_recv": 177184703374,
+            "packets_sent": 13703208,
+            "packets_recv": 123396969,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 18, 99, 7276"
+          ]
+        },
+        {
+          "time": 1794750481.066423,
+          "cpu_percent": 45.0,
+          "memory_percent": 76.6,
+          "disk": {
+            "read_count": 18100369,
+            "write_count": 18526847,
+            "read_bytes": 1441084256768,
+            "write_bytes": 1262327372288,
+            "read_time": 23928,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110277940324,
+            "bytes_recv": 177184819561,
+            "packets_sent": 13703465,
+            "packets_recv": 123397199,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 20, 99, 7167"
+          ]
+        },
+        {
+          "time": 1794750484.1871982,
+          "cpu_percent": 52.6,
+          "memory_percent": 77.5,
+          "disk": {
+            "read_count": 18102606,
+            "write_count": 18527006,
+            "read_bytes": 1441467503104,
+            "write_bytes": 1262363752960,
+            "read_time": 23929,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110278421988,
+            "bytes_recv": 177184946443,
+            "packets_sent": 13703955,
+            "packets_recv": 123397500,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 19, 99, 7133"
+          ]
+        },
+        {
+          "time": 1794750487.3173087,
+          "cpu_percent": 52.0,
+          "memory_percent": 79.5,
+          "disk": {
+            "read_count": 18102684,
+            "write_count": 18527356,
+            "read_bytes": 1441493559808,
+            "write_bytes": 1262580283904,
+            "read_time": 23929,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110278478998,
+            "bytes_recv": 177185011173,
+            "packets_sent": 13704088,
+            "packets_recv": 123397635,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 19, 99, 7201"
+          ]
+        },
+        {
+          "time": 1794750490.4252498,
+          "cpu_percent": 28.3,
+          "memory_percent": 75.8,
+          "disk": {
+            "read_count": 18109373,
+            "write_count": 18529559,
+            "read_bytes": 1442597584384,
+            "write_bytes": 1264168032768,
+            "read_time": 23934,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110278564177,
+            "bytes_recv": 177185127587,
+            "packets_sent": 13704299,
+            "packets_recv": 123397850,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 18, 99, 7183"
+          ]
+        },
+        {
+          "time": 1794750493.510426,
+          "cpu_percent": 48.9,
+          "memory_percent": 79.1,
+          "disk": {
+            "read_count": 18109455,
+            "write_count": 18529946,
+            "read_bytes": 1442608614912,
+            "write_bytes": 1264357489152,
+            "read_time": 23934,
+            "write_time": 4230
+          },
+          "network": {
+            "bytes_sent": 110296290466,
+            "bytes_recv": 177185251987,
+            "packets_sent": 13704604,
+            "packets_recv": 123398345,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 16, 99, 7147"
+          ]
+        },
+        {
+          "time": 1794750496.6292758,
+          "cpu_percent": 48.1,
+          "memory_percent": 80.0,
+          "disk": {
+            "read_count": 18109689,
+            "write_count": 18530337,
+            "read_bytes": 1442651186688,
+            "write_bytes": 1264554330624,
+            "read_time": 23934,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 110487129599,
+            "bytes_recv": 177185709778,
+            "packets_sent": 13705184,
+            "packets_recv": 123402356,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 7302"
+          ]
+        },
+        {
+          "time": 1794750499.7472198,
+          "cpu_percent": 47.1,
+          "memory_percent": 79.2,
+          "disk": {
+            "read_count": 18109897,
+            "write_count": 18530629,
+            "read_bytes": 1442701121024,
+            "write_bytes": 1264619088384,
+            "read_time": 23934,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 110712072320,
+            "bytes_recv": 177186059667,
+            "packets_sent": 13705379,
+            "packets_recv": 123406057,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 17, 99, 7165"
+          ]
+        },
+        {
+          "time": 1794750502.892575,
+          "cpu_percent": 50.1,
+          "memory_percent": 78.4,
+          "disk": {
+            "read_count": 18110128,
+            "write_count": 18530788,
+            "read_bytes": 1442751188992,
+            "write_bytes": 1264655751680,
+            "read_time": 23934,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 110923801031,
+            "bytes_recv": 177186429936,
+            "packets_sent": 13705588,
+            "packets_recv": 123409812,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 19, 99, 7126"
+          ]
+        },
+        {
+          "time": 1794750506.0140612,
+          "cpu_percent": 52.7,
+          "memory_percent": 78.0,
+          "disk": {
+            "read_count": 18110349,
+            "write_count": 18531069,
+            "read_bytes": 1442806388736,
+            "write_bytes": 1264690051584,
+            "read_time": 23934,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111144604505,
+            "bytes_recv": 177187876821,
+            "packets_sent": 13706595,
+            "packets_recv": 123414635,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 17, 89, 7428"
+          ]
+        },
+        {
+          "time": 1794750509.1317625,
+          "cpu_percent": 48.3,
+          "memory_percent": 74.9,
+          "disk": {
+            "read_count": 18113217,
+            "write_count": 18531265,
+            "read_bytes": 1443152412160,
+            "write_bytes": 1264739240448,
+            "read_time": 23936,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111358878618,
+            "bytes_recv": 177188832503,
+            "packets_sent": 13707406,
+            "packets_recv": 123418999,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 1, 0, 6307"
+          ]
+        },
+        {
+          "time": 1794750512.2480187,
+          "cpu_percent": 61.9,
+          "memory_percent": 75.0,
+          "disk": {
+            "read_count": 18118926,
+            "write_count": 18531496,
+            "read_bytes": 1445002450432,
+            "write_bytes": 1264768543232,
+            "read_time": 23939,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111359435180,
+            "bytes_recv": 177362208389,
+            "packets_sent": 13712560,
+            "packets_recv": 123534376,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 2, 0, 6136"
+          ]
+        },
+        {
+          "time": 1794750515.361955,
+          "cpu_percent": 54.3,
+          "memory_percent": 75.7,
+          "disk": {
+            "read_count": 18121326,
+            "write_count": 18531641,
+            "read_bytes": 1445045511680,
+            "write_bytes": 1264792959488,
+            "read_time": 23942,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111360055391,
+            "bytes_recv": 177594841507,
+            "packets_sent": 13718933,
+            "packets_recv": 123688865,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "1, 1, 0, 6393"
+          ]
+        },
+        {
+          "time": 1794750518.4934297,
+          "cpu_percent": 55.0,
+          "memory_percent": 75.3,
+          "disk": {
+            "read_count": 18122042,
+            "write_count": 18531795,
+            "read_bytes": 1445053516288,
+            "write_bytes": 1264817281536,
+            "read_time": 23942,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111360722659,
+            "bytes_recv": 177858680978,
+            "packets_sent": 13726083,
+            "packets_recv": 123864002,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "3, 16, 0, 6510"
+          ]
+        },
+        {
+          "time": 1794750521.6210856,
+          "cpu_percent": 51.3,
+          "memory_percent": 75.1,
+          "disk": {
+            "read_count": 18124043,
+            "write_count": 18531960,
+            "read_bytes": 1445293610496,
+            "write_bytes": 1264846191104,
+            "read_time": 24031,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111361373422,
+            "bytes_recv": 178111556295,
+            "packets_sent": 13732893,
+            "packets_recv": 124031883,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 1, 0, 6282"
+          ]
+        },
+        {
+          "time": 1794750524.7426412,
+          "cpu_percent": 51.5,
+          "memory_percent": 75.5,
+          "disk": {
+            "read_count": 18125222,
+            "write_count": 18532282,
+            "read_bytes": 1445300048896,
+            "write_bytes": 1264864336384,
+            "read_time": 24031,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111361804444,
+            "bytes_recv": 178240533754,
+            "packets_sent": 13736724,
+            "packets_recv": 124117652,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "1, 1, 0, 6482"
+          ]
+        },
+        {
+          "time": 1794750527.846267,
+          "cpu_percent": 57.0,
+          "memory_percent": 76.2,
+          "disk": {
+            "read_count": 18128102,
+            "write_count": 18532509,
+            "read_bytes": 1446090558464,
+            "write_bytes": 1264881117696,
+            "read_time": 24032,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111361993504,
+            "bytes_recv": 178240737983,
+            "packets_sent": 13737023,
+            "packets_recv": 124118007,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 18, 0, 6383"
+          ]
+        },
+        {
+          "time": 1794750530.9577105,
+          "cpu_percent": 61.5,
+          "memory_percent": 78.2,
+          "disk": {
+            "read_count": 18130654,
+            "write_count": 18532706,
+            "read_bytes": 1446681320960,
+            "write_bytes": 1264927652352,
+            "read_time": 24033,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111445906048,
+            "bytes_recv": 178240970100,
+            "packets_sent": 13737480,
+            "packets_recv": 124119627,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "4, 23, 0, 6165"
+          ]
+        },
+        {
+          "time": 1794750534.069083,
+          "cpu_percent": 56.5,
+          "memory_percent": 79.6,
+          "disk": {
+            "read_count": 18131435,
+            "write_count": 18533042,
+            "read_bytes": 1447115503616,
+            "write_bytes": 1265070914048,
+            "read_time": 24048,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111599319220,
+            "bytes_recv": 178241262137,
+            "packets_sent": 13737910,
+            "packets_recv": 124121911,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "4, 32, 0, 6152"
+          ]
+        },
+        {
+          "time": 1794750537.2101564,
+          "cpu_percent": 49.8,
+          "memory_percent": 80.0,
+          "disk": {
+            "read_count": 18131782,
+            "write_count": 18533485,
+            "read_bytes": 1447185248768,
+            "write_bytes": 1265384532480,
+            "read_time": 24050,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111763719769,
+            "bytes_recv": 178241724611,
+            "packets_sent": 13738427,
+            "packets_recv": 124125446,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "3, 2, 0, 6531"
+          ]
+        },
+        {
+          "time": 1794750540.324226,
+          "cpu_percent": 51.3,
+          "memory_percent": 80.3,
+          "disk": {
+            "read_count": 18132128,
+            "write_count": 18534856,
+            "read_bytes": 1447408210944,
+            "write_bytes": 1266407610880,
+            "read_time": 24051,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 111925922994,
+            "bytes_recv": 178242156637,
+            "packets_sent": 13738912,
+            "packets_recv": 124129130,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 2, 0, 6455"
+          ]
+        },
+        {
+          "time": 1794750543.4496408,
+          "cpu_percent": 52.3,
+          "memory_percent": 80.0,
+          "disk": {
+            "read_count": 18133087,
+            "write_count": 18536765,
+            "read_bytes": 1447449429504,
+            "write_bytes": 1267672754688,
+            "read_time": 24051,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 112126984171,
+            "bytes_recv": 178242531246,
+            "packets_sent": 13739360,
+            "packets_recv": 124132505,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 18, 99, 7181"
+          ]
+        },
+        {
+          "time": 1794750546.5578609,
+          "cpu_percent": 49.8,
+          "memory_percent": 79.5,
+          "disk": {
+            "read_count": 18133324,
+            "write_count": 18537120,
+            "read_bytes": 1447479723520,
+            "write_bytes": 1267808741888,
+            "read_time": 24052,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 112329940441,
+            "bytes_recv": 178242949211,
+            "packets_sent": 13739622,
+            "packets_recv": 124136170,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 18, 99, 7220"
+          ]
+        },
+        {
+          "time": 1794750549.6681185,
+          "cpu_percent": 51.9,
+          "memory_percent": 78.8,
+          "disk": {
+            "read_count": 18133556,
+            "write_count": 18537281,
+            "read_bytes": 1447507168256,
+            "write_bytes": 1267854289408,
+            "read_time": 24052,
+            "write_time": 4231
+          },
+          "network": {
+            "bytes_sent": 112532882189,
+            "bytes_recv": 178243326738,
+            "packets_sent": 13739882,
+            "packets_recv": 124140058,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 18, 97, 7354"
+          ]
+        },
+        {
+          "time": 1794750552.784137,
+          "cpu_percent": 49.5,
+          "memory_percent": 77.8,
+          "disk": {
+            "read_count": 18134105,
+            "write_count": 18537478,
+            "read_bytes": 1447548358144,
+            "write_bytes": 1267904481792,
+            "read_time": 24052,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112710532371,
+            "bytes_recv": 178248005963,
+            "packets_sent": 13740233,
+            "packets_recv": 124146137,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 20, 99, 7145"
+          ]
+        },
+        {
+          "time": 1794750555.8948696,
+          "cpu_percent": 57.9,
+          "memory_percent": 77.8,
+          "disk": {
+            "read_count": 18134266,
+            "write_count": 18537675,
+            "read_bytes": 1447568329728,
+            "write_bytes": 1267935996416,
+            "read_time": 24052,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112711163183,
+            "bytes_recv": 178479224915,
+            "packets_sent": 13746556,
+            "packets_recv": 124299645,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 7398"
+          ]
+        },
+        {
+          "time": 1794750559.022151,
+          "cpu_percent": 62.6,
+          "memory_percent": 77.7,
+          "disk": {
+            "read_count": 18134398,
+            "write_count": 18537816,
+            "read_bytes": 1447586656256,
+            "write_bytes": 1267966257664,
+            "read_time": 24052,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112711842349,
+            "bytes_recv": 178729813617,
+            "packets_sent": 13753295,
+            "packets_recv": 124466003,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 19, 99, 7188"
+          ]
+        },
+        {
+          "time": 1794750562.1338856,
+          "cpu_percent": 51.0,
+          "memory_percent": 77.6,
+          "disk": {
+            "read_count": 18134501,
+            "write_count": 18537953,
+            "read_bytes": 1447605501952,
+            "write_bytes": 1268001565184,
+            "read_time": 24052,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112712521082,
+            "bytes_recv": 178983840659,
+            "packets_sent": 13760204,
+            "packets_recv": 124634648,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 15, 99, 7190"
+          ]
+        },
+        {
+          "time": 1794750565.247873,
+          "cpu_percent": 59.0,
+          "memory_percent": 77.9,
+          "disk": {
+            "read_count": 18135388,
+            "write_count": 18538164,
+            "read_bytes": 1447782704640,
+            "write_bytes": 1268024941056,
+            "read_time": 24055,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112713359973,
+            "bytes_recv": 179206308390,
+            "packets_sent": 13766876,
+            "packets_recv": 124782766,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "16, 20, 99, 7139"
+          ]
+        },
+        {
+          "time": 1794750568.3624625,
+          "cpu_percent": 54.2,
+          "memory_percent": 78.6,
+          "disk": {
+            "read_count": 18137408,
+            "write_count": 18538431,
+            "read_bytes": 1447945618944,
+            "write_bytes": 1268051053056,
+            "read_time": 24055,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112714252297,
+            "bytes_recv": 179452434773,
+            "packets_sent": 13774799,
+            "packets_recv": 124946861,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 7074"
+          ]
+        },
+        {
+          "time": 1794750571.4729073,
+          "cpu_percent": 49.6,
+          "memory_percent": 78.0,
+          "disk": {
+            "read_count": 18141653,
+            "write_count": 18538648,
+            "read_bytes": 1448708079616,
+            "write_bytes": 1268072540672,
+            "read_time": 24058,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112714712263,
+            "bytes_recv": 179559051913,
+            "packets_sent": 13778288,
+            "packets_recv": 125017960,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 20, 99, 6844"
+          ]
+        },
+        {
+          "time": 1794750574.598934,
+          "cpu_percent": 48.8,
+          "memory_percent": 77.8,
+          "disk": {
+            "read_count": 18144429,
+            "write_count": 18539586,
+            "read_bytes": 1449246603264,
+            "write_bytes": 1268118989312,
+            "read_time": 24060,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112715002835,
+            "bytes_recv": 179559385380,
+            "packets_sent": 13778664,
+            "packets_recv": 125018437,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 18, 99, 6908"
+          ]
+        },
+        {
+          "time": 1794750577.710448,
+          "cpu_percent": 50.9,
+          "memory_percent": 78.7,
+          "disk": {
+            "read_count": 18145045,
+            "write_count": 18540431,
+            "read_bytes": 1449269785088,
+            "write_bytes": 1268152289792,
+            "read_time": 24060,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112715098817,
+            "bytes_recv": 179559516734,
+            "packets_sent": 13778820,
+            "packets_recv": 125018626,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 19, 99, 6641"
+          ]
+        },
+        {
+          "time": 1794750580.8303819,
+          "cpu_percent": 52.6,
+          "memory_percent": 77.6,
+          "disk": {
+            "read_count": 18145791,
+            "write_count": 18540644,
+            "read_bytes": 1449297863680,
+            "write_bytes": 1268167240192,
+            "read_time": 24061,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112715235588,
+            "bytes_recv": 179559768361,
+            "packets_sent": 13779098,
+            "packets_recv": 125018976,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 6802"
+          ]
+        },
+        {
+          "time": 1794750583.9597795,
+          "cpu_percent": 55.8,
+          "memory_percent": 78.0,
+          "disk": {
+            "read_count": 18147786,
+            "write_count": 18540955,
+            "read_bytes": 1449554987520,
+            "write_bytes": 1268185668096,
+            "read_time": 24149,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112715396860,
+            "bytes_recv": 179559988542,
+            "packets_sent": 13779470,
+            "packets_recv": 125019363,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 6739"
+          ]
+        },
+        {
+          "time": 1794750587.07147,
+          "cpu_percent": 57.7,
+          "memory_percent": 78.5,
+          "disk": {
+            "read_count": 18149114,
+            "write_count": 18541792,
+            "read_bytes": 1449878679552,
+            "write_bytes": 1268204657152,
+            "read_time": 24149,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112715538599,
+            "bytes_recv": 179561019929,
+            "packets_sent": 13779751,
+            "packets_recv": 125020186,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 20, 99, 6864"
+          ]
+        },
+        {
+          "time": 1794750590.178439,
+          "cpu_percent": 49.2,
+          "memory_percent": 77.6,
+          "disk": {
+            "read_count": 18150045,
+            "write_count": 18542007,
+            "read_bytes": 1449920278016,
+            "write_bytes": 1268217793024,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112715720893,
+            "bytes_recv": 179561280397,
+            "packets_sent": 13780032,
+            "packets_recv": 125020567,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 6775"
+          ]
+        },
+        {
+          "time": 1794750593.2966838,
+          "cpu_percent": 51.4,
+          "memory_percent": 77.9,
+          "disk": {
+            "read_count": 18150566,
+            "write_count": 18542278,
+            "read_bytes": 1449948490240,
+            "write_bytes": 1268229704192,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112716063265,
+            "bytes_recv": 179564614557,
+            "packets_sent": 13781772,
+            "packets_recv": 125023362,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 19, 99, 6770"
+          ]
+        },
+        {
+          "time": 1794750596.3923566,
+          "cpu_percent": 52.2,
+          "memory_percent": 77.9,
+          "disk": {
+            "read_count": 18150722,
+            "write_count": 18542520,
+            "read_bytes": 1449973362688,
+            "write_bytes": 1268244097536,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112716190618,
+            "bytes_recv": 179564813257,
+            "packets_sent": 13782056,
+            "packets_recv": 125023686,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 6990"
+          ]
+        },
+        {
+          "time": 1794750599.5016863,
+          "cpu_percent": 53.5,
+          "memory_percent": 77.9,
+          "disk": {
+            "read_count": 18150845,
+            "write_count": 18542787,
+            "read_bytes": 1449990865408,
+            "write_bytes": 1268262164992,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112716338739,
+            "bytes_recv": 179565193635,
+            "packets_sent": 13782564,
+            "packets_recv": 125024286,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 6837"
+          ]
+        },
+        {
+          "time": 1794750602.6156414,
+          "cpu_percent": 53.4,
+          "memory_percent": 78.0,
+          "disk": {
+            "read_count": 18151051,
+            "write_count": 18542933,
+            "read_bytes": 1450010387968,
+            "write_bytes": 1268269885952,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112716961591,
+            "bytes_recv": 179565430994,
+            "packets_sent": 13783139,
+            "packets_recv": 125024668,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "8, 19, 99, 6884"
+          ]
+        },
+        {
+          "time": 1794750605.7315273,
+          "cpu_percent": 54.0,
+          "memory_percent": 78.2,
+          "disk": {
+            "read_count": 18151187,
+            "write_count": 18543111,
+            "read_bytes": 1450034216960,
+            "write_bytes": 1268280900096,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112717101245,
+            "bytes_recv": 179565693233,
+            "packets_sent": 13783472,
+            "packets_recv": 125025079,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 15, 99, 6987"
+          ]
+        },
+        {
+          "time": 1794750608.8575923,
+          "cpu_percent": 52.8,
+          "memory_percent": 78.0,
+          "disk": {
+            "read_count": 18151363,
+            "write_count": 18543283,
+            "read_bytes": 1450062374400,
+            "write_bytes": 1268292405760,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112717224850,
+            "bytes_recv": 179565958088,
+            "packets_sent": 13783779,
+            "packets_recv": 125025442,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "10, 18, 99, 6991"
+          ]
+        },
+        {
+          "time": 1794750611.9558558,
+          "cpu_percent": 47.2,
+          "memory_percent": 78.0,
+          "disk": {
+            "read_count": 18151463,
+            "write_count": 18543427,
+            "read_bytes": 1450082779136,
+            "write_bytes": 1268299074048,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112717287729,
+            "bytes_recv": 179566097336,
+            "packets_sent": 13783991,
+            "packets_recv": 125025677,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "7, 18, 99, 6842"
+          ]
+        },
+        {
+          "time": 1794750615.053433,
+          "cpu_percent": 50.3,
+          "memory_percent": 78.1,
+          "disk": {
+            "read_count": 18151556,
+            "write_count": 18543711,
+            "read_bytes": 1450104301056,
+            "write_bytes": 1268324489728,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112717345995,
+            "bytes_recv": 179566221095,
+            "packets_sent": 13784182,
+            "packets_recv": 125025879,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "9, 19, 99, 7107"
+          ]
+        },
+        {
+          "time": 1794750618.1742058,
+          "cpu_percent": 52.1,
+          "memory_percent": 75.9,
+          "disk": {
+            "read_count": 18151681,
+            "write_count": 18543864,
+            "read_bytes": 1450132096512,
+            "write_bytes": 1268330834432,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112717427153,
+            "bytes_recv": 179566367354,
+            "packets_sent": 13784389,
+            "packets_recv": 125026114,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "1, 1, 0, 5973"
+          ]
+        },
+        {
+          "time": 1794750621.2737374,
+          "cpu_percent": 55.7,
+          "memory_percent": 76.1,
+          "disk": {
+            "read_count": 18151769,
+            "write_count": 18543977,
+            "read_bytes": 1450150610432,
+            "write_bytes": 1268333554176,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112717478358,
+            "bytes_recv": 179566477735,
+            "packets_sent": 13784527,
+            "packets_recv": 125026267,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "1, 1, 0, 5908"
+          ]
+        },
+        {
+          "time": 1794750624.3778548,
+          "cpu_percent": 51.4,
+          "memory_percent": 78.3,
+          "disk": {
+            "read_count": 18151858,
+            "write_count": 18544083,
+            "read_bytes": 1450168204800,
+            "write_bytes": 1268335606272,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112758391792,
+            "bytes_recv": 179567036488,
+            "packets_sent": 13785074,
+            "packets_recv": 125027846,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 2, 0, 5950"
+          ]
+        },
+        {
+          "time": 1794750627.490113,
+          "cpu_percent": 50.0,
+          "memory_percent": 78.5,
+          "disk": {
+            "read_count": 18151897,
+            "write_count": 18544210,
+            "read_bytes": 1450172706304,
+            "write_bytes": 1268338723328,
+            "read_time": 24150,
+            "write_time": 4232
+          },
+          "network": {
+            "bytes_sent": 112910943710,
+            "bytes_recv": 179568642245,
+            "packets_sent": 13786569,
+            "packets_recv": 125033449,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "5, 17, 0, 6023"
+          ]
+        },
+        {
+          "time": 1794750630.6141691,
+          "cpu_percent": 53.3,
+          "memory_percent": 78.4,
+          "disk": {
+            "read_count": 18152271,
+            "write_count": 18544984,
+            "read_bytes": 1450189717504,
+            "write_bytes": 1268351113728,
+            "read_time": 24150,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113094105682,
+            "bytes_recv": 179569459528,
+            "packets_sent": 13787210,
+            "packets_recv": 125038089,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "4, 2, 0, 5986"
+          ]
+        },
+        {
+          "time": 1794750633.719704,
+          "cpu_percent": 55.1,
+          "memory_percent": 77.4,
+          "disk": {
+            "read_count": 18152597,
+            "write_count": 18545078,
+            "read_bytes": 1450209472000,
+            "write_bytes": 1268353620480,
+            "read_time": 24151,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113305911665,
+            "bytes_recv": 179570409758,
+            "packets_sent": 13787846,
+            "packets_recv": 125041736,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "1, 2, 0, 5826"
+          ]
+        },
+        {
+          "time": 1794750636.8315024,
+          "cpu_percent": 47.1,
+          "memory_percent": 77.2,
+          "disk": {
+            "read_count": 18152633,
+            "write_count": 18545283,
+            "read_bytes": 1450213244928,
+            "write_bytes": 1268358937088,
+            "read_time": 24151,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113451567842,
+            "bytes_recv": 179571042237,
+            "packets_sent": 13788648,
+            "packets_recv": 125044986,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "3, 15, 0, 6043"
+          ]
+        },
+        {
+          "time": 1794750639.9565148,
+          "cpu_percent": 25.4,
+          "memory_percent": 73.4,
+          "disk": {
+            "read_count": 18152695,
+            "write_count": 18545503,
+            "read_bytes": 1450214240256,
+            "write_bytes": 1268364962304,
+            "read_time": 24151,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113689795538,
+            "bytes_recv": 179571669697,
+            "packets_sent": 13789206,
+            "packets_recv": 125049999,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "22, 38, 0, 6059"
+          ]
+        },
+        {
+          "time": 1794750643.039082,
+          "cpu_percent": 17.7,
+          "memory_percent": 73.0,
+          "disk": {
+            "read_count": 18152717,
+            "write_count": 18545671,
+            "read_bytes": 1450214601728,
+            "write_bytes": 1268368730624,
+            "read_time": 24151,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113813800000,
+            "bytes_recv": 179672241851,
+            "packets_sent": 13792564,
+            "packets_recv": 125118837,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "3, 29, 0, 5794"
+          ]
+        },
+        {
+          "time": 1794750646.1372428,
+          "cpu_percent": 18.1,
+          "memory_percent": 73.5,
+          "disk": {
+            "read_count": 18152737,
+            "write_count": 18545937,
+            "read_bytes": 1450224576000,
+            "write_bytes": 1268372134400,
+            "read_time": 24151,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113814529670,
+            "bytes_recv": 179935577757,
+            "packets_sent": 13800253,
+            "packets_recv": 125294048,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "2, 1, 0, 6159"
+          ]
+        },
+        {
+          "time": 1794750649.228315,
+          "cpu_percent": 15.4,
+          "memory_percent": 73.4,
+          "disk": {
+            "read_count": 18152742,
+            "write_count": 18546024,
+            "read_bytes": 1450224731648,
+            "write_bytes": 1268383578624,
+            "read_time": 24151,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113815233795,
+            "bytes_recv": 180205328309,
+            "packets_sent": 13807704,
+            "packets_recv": 125473248,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "6, 3, 0, 6041"
+          ]
+        },
+        {
+          "time": 1794750652.3090777,
+          "cpu_percent": 13.3,
+          "memory_percent": 72.9,
+          "disk": {
+            "read_count": 18152761,
+            "write_count": 18546209,
+            "read_bytes": 1450225006080,
+            "write_bytes": 1268385520128,
+            "read_time": 24151,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113815917023,
+            "bytes_recv": 180469880855,
+            "packets_sent": 13815157,
+            "packets_recv": 125648903,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "5, 17, 0, 5899"
+          ]
+        },
+        {
+          "time": 1794750655.398051,
+          "cpu_percent": 17.6,
+          "memory_percent": 73.6,
+          "disk": {
+            "read_count": 18152779,
+            "write_count": 18546368,
+            "read_bytes": 1450227396096,
+            "write_bytes": 1268388338176,
+            "read_time": 24151,
+            "write_time": 4233
+          },
+          "network": {
+            "bytes_sent": 113816382805,
+            "bytes_recv": 180639003694,
+            "packets_sent": 13820146,
+            "packets_recv": 125761283,
+            "errin": 0,
+            "errout": 0,
+            "dropin": 0,
+            "dropout": 0
+          },
+          "gpu": [
+            "1, 1, 0, 6046"
+          ]
+        }
+      ]
+    }
+  ]
+}

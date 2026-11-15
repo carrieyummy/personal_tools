@@ -1,0 +1,165 @@
+{
+    "folders": [
+        {
+            "name": "003_获取腾讯视频",
+            "path": "D:/VSCode/personal_tools/003_获取腾讯视频"
+        },
+        {
+            "name": "personal_tools",
+            "path": "."
+        },
+        {
+            "path": "C:/Users/Administrator/.codex"
+        },
+        {
+            "path": "E:/QLDownload"
+        },
+        {
+            "path": "Z:/003_电视剧"
+        }
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe",
+        "python.terminal.activateEnvironment": true,
+        "python.testing.cwd": "${workspaceFolder:003_获取腾讯视频}",
+        "python.testing.unittestEnabled": true,
+        "python.testing.unittestArgs": [
+            // 输出每个测试用例的执行结果。
+            "-v",
+            // 从工具目录下的 tests 文件夹发现测试。
+            "-s", "tests",
+            // 以工具目录为导入根目录，供测试导入业务模块和共用测试资源路径。
+            "-t", "."
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "腾讯视频：按配置下载或还原",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:003_获取腾讯视频}/decode.py",
+                "cwd": "${workspaceFolder:003_获取腾讯视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：source 选择 URL 清单下载或缓存还原；画质、音质、目录和并发读取主 YAML。
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/config.yaml"
+                ]
+            },
+            {
+                "name": "腾讯视频：研究画质与音质接口",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:003_获取腾讯视频}/research/playback_probe.py",
+                "cwd": "${workspaceFolder:003_获取腾讯视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：目标来自当前清单；研究参数和脱敏报告目录在专项 YAML 中维护。
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/playback_research.yaml"
+                ]
+            },
+            {
+                "name": "腾讯视频：验收 URL 单集下载",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "module": "tests.verify_playback",
+                "cwd": "${workspaceFolder:003_获取腾讯视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/config.yaml",
+                    // 必填：当前清单的零基序号，可随清单调整；不写死具体视频编号。
+                    "--item", "${input:tencentPlaybackItem}",
+                    "--report-dir", "${workspaceFolder:003_获取腾讯视频}/research/results"
+                    // 可选：完整下载、解码、发布并再次验证复用；不传时只查询接口和清单。
+                    // , "--full-download"
+                ]
+            },
+            {
+                "name": "腾讯视频：URL 成品设备补验",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "module": "tests.verify_url_output",
+                "cwd": "${workspaceFolder:003_获取腾讯视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/config.yaml",
+                    // 必填：已成功发布单集的全片验收报告；按主配置补验尚未使用的启用设备。
+                    "--report", "${input:tencentVerifiedPlaybackReport}",
+                    "--report-dir", "${workspaceFolder:003_获取腾讯视频}/research/results"
+                ]
+            },
+            {
+                "name": "腾讯视频：研究原生播放签名",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:003_获取腾讯视频}/research/probe_native_key.py",
+                "cwd": "${workspaceFolder:003_获取腾讯视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/playback_research.yaml"
+                    // 可选：显式指定已核对的播放器 SDK 进程；省略时按正式配置自动匹配。
+                    // , "--pid", "${input:tencentPlaybackObserverPid}"
+                    // 可选：仅核对签名结构；同时省略 --pid 时测试独立加载 DLL 的初始化依赖。
+                    // , "--local-only"
+                ]
+            },
+            {
+                "name": "腾讯视频：观察客户端播放请求",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:003_获取腾讯视频}/research/observe_native_playback.py",
+                "cwd": "${workspaceFolder:003_获取腾讯视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/playback_research.yaml",
+                    // 必填：只观察已核对安装目录及用途的腾讯主进程或播放器进程；不会自动启动客户端。
+                    "--pid", "${input:tencentPlaybackObserverPid}"
+                ]
+            },
+            {
+                "name": "腾讯视频：验收 HVN 缓存读取",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "module": "tests.verify_cache",
+                "cwd": "${workspaceFolder:003_获取腾讯视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：读取真实样本和 DLL 适配；检查分块一致性、错误头、缺片和截断。
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/config.yaml"
+                ]
+            }
+        ],
+        "inputs": [
+            {
+                "id": "tencentPlaybackItem",
+                "type": "promptString",
+                "description": "输入当前 download_list 条目的零基序号；按实际清单选择"
+            },
+            {
+                "id": "tencentVerifiedPlaybackReport",
+                "type": "promptString",
+                "description": "输入 verify_playback --full-download 生成的单集报告绝对路径"
+            },
+            {
+                "id": "tencentPlaybackObserverPid",
+                "type": "promptString",
+                "description": "输入已核对的腾讯客户端进程 PID；观察结束会自动分离"
+            }
+        ]
+    }
+}

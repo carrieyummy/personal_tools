@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "runs": [
+    {
+      "id": "42782a57df4d46d58baa2be9e0639e4e",
+      "started": "2026-11-15T21:29:32+08:00",
+      "status": "completed",
+      "entries": [
+        {
+          "video_id": "z4100tbe06q",
+          "title": "z4100tbe06q",
+          "status": "skipped",
+          "stage": "",
+          "detail": "客户端未确认此 HLS 资源下载完成",
+          "progress": null,
+          "stages": {}
+        },
+        {
+          "video_id": "f4100rl6pdv",
+          "title": "f4100rl6pdv",
+          "status": "skipped",
+          "stage": "",
+          "detail": "客户端未确认此 HLS 资源下载完成",
+          "progress": null,
+          "stages": {}
+        },
+        {
+          "video_id": "f4100gu8muj",
+          "title": "f4100gu8muj",
+          "status": "skipped",
+          "stage": "",
+          "detail": "客户端未确认此 HLS 资源下载完成",
+          "progress": null,
+          "stages": {}
+        },
+        {
+          "video_id": "l4100htiszw",
+          "title": "l4100htiszw",
+          "status": "skipped",
+          "stage": "",
+          "detail": "客户端未确认此 HLS 资源下载完成",
+          "progress": null,
+          "stages": {}
+        },
+        {
+          "video_id": "x4100u64jry",
+          "title": "x4100u64jry",
+          "status": "skipped",
+          "stage": "",
+          "detail": "客户端未确认此 HLS 资源下载完成",
+          "progress": null,
+          "stages": {}
+        },
+        {
+          "video_id": "q4100isebjb",
+          "title": "q4100isebjb",
+          "status": "skipped",
+          "stage": "",
+          "detail": "客户端未确认此 HLS 资源下载完成",
+          "progress": null,
+          "stages": {}
+        },
+        {
+          "video_id": "z4100ner3bb",
+          "title": "z4100ner3bb",
+          "status": "skipped",
+          "stage": "",
+          "detail": "客户端未确认此 HLS 资源下载完成",
+          "progress": null,
+          "stages": {}
+        },
+        {
+          "video_id": "x4100e15jzi",
+          "title": "x4100e15jzi",
+          "status": "skipped",
+          "stage": "",
+          "detail": "客户端未确认此 HLS 资源下载完成",
+          "progress": null,
+          "stages": {}
+        },
+        {
+          "video_id": "c4102g9a01t",
+          "title": "兰香如故_第01集",
+          "status": "completed",
+          "stage": "publishing",
+          "detail": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\_benchmark_codex_baseline_20261115\\兰香如故\\兰香如故_第01集.mp4",
+          "progress": 100.0,
+          "stages": {
+            "checking_source": 2.375,
+            "extracting": 12.203,
+            "muxing": 5.063,
+            "verifying": 192.656,
+            "checking": 9.766,
+            "publishing": 200.578
+          },
+          "work_dir": "E:\\QLRestore\\benchmark_codex_baseline_20261115\\42782a57df4d46d58baa2be9e0639e4e\\c8882cce49e342b18d5e6b8a8d342d1a",
+          "device": "gpu",
+          "output": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\_benchmark_codex_baseline_20261115\\兰香如故\\兰香如故_第01集.mp4",
+          "verification": {
+            "device": "gpu",
+            "frames": 70314,
+            "duration_seconds": 2812.607979,
+            "exit_code": 0
+          },
+          "media": {
+            "duration_seconds": 2812.61,
+            "width": 3840,
+            "height": 2160,
+            "fps": 25.0,
+            "video_codec": "hevc",
+            "audio_codecs": [
+              "aac"
+            ],
+            "errors": []
+          },
+          "sha256": "a651d99d35fcbd5b43a3cdadab7cc6611905e6ef965aab47922c786ea9f8e341",
+          "legacy": false
+        },
+        {
+          "video_id": "r4100zvgz9i",
+          "title": "永夜星河_第01集",
+          "status": "completed",
+          "stage": "publishing",
+          "detail": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\_benchmark_codex_baseline_20261115\\永夜星河\\永夜星河_第01集.mp4",
+          "progress": 100.0,
+          "stages": {
+            "checking_source": 6.375,
+            "extracting": 20.797,
+            "muxing": 4.64,
+            "verifying": 314.641,
+            "checking": 3.141,
+            "publishing": 72.609
+          },
+          "work_dir": "E:\\QLRestore\\benchmark_codex_baseline_20261115\\42782a57df4d46d58baa2be9e0639e4e\\48fc57a374774cd287740b79192fd4d9",
+          "device": "cpu",
+          "output": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\_benchmark_codex_baseline_20261115\\永夜星河\\永夜星河_第01集.mp4",
+          "verification": {
+            "device": "cpu",
+            "frames": 67718,
+            "duration_seconds": 2708.778646,
+            "exit_code": 0
+          },
+          "media": {
+            "duration_seconds": 2708.78,
+            "width": 3840,
+            "height": 1606,
+            "fps": 25.0,
+            "video_codec": "hevc",
+            "audio_codecs": [
+              "aac"
+            ],
+            "errors": []
+          },
+          "sha256": "ada4821d5d9584574397a67ff49950418d1acab7fb51a2e8ed002582d354209b",
+          "legacy": false
+        },
+        {
+          "video_id": "q41002croj9",
+          "title": "永夜星河_第03集",
+          "status": "completed",
+          "stage": "publishing",
+          "detail": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\_benchmark_codex_baseline_20261115\\永夜星河\\永夜星河_第03集.mp4",
+          "progress": 100.0,
+          "stages": {
+            "checking_source": 3.813,
+            "extracting": 37.578,
+            "muxing": 170.484,
+            "verifying": 76.344,
+            "checking": 17.766,
+            "publishing": 116.031
+          },
+          "work_dir": "E:\\QLRestore\\benchmark_codex_baseline_20261115\\42782a57df4d46d58baa2be9e0639e4e\\b8d7e2fe5e674309a09513cea6ee6086",
+          "device": "gpu",
+          "output": "\\\\Z2PRO-W5SW\\sata11-185XXXX9924\\003_电视剧\\_benchmark_codex_baseline_20261115\\永夜星河\\永夜星河_第03集.mp4",
+          "verification": {
+            "device": "gpu",
+            "frames": 60128,
+            "duration_seconds": 2405.162646,
+            "exit_code": 0
+          },
+          "media": {
+            "duration_seconds": 2405.16,
+            "width": 3840,
+            "height": 1606,
+            "fps": 25.0,
+            "video_codec": "hevc",
+            "audio_codecs": [
+              "aac"
+            ],
+            "errors": []
+          },
+          "sha256": "914708c6fd4f162197af7e7c8d232c11f0a5c308fd3c18279a7f9e8e9a13d65c",
+          "legacy": false
+        }
+      ],
+      "summary": {
+        "total": 11,
+        "completed": 3,
+        "reused": 0,
+        "failed": 0,
+        "interrupted": 0,
+        "skipped": 8
+      },
+      "finished": "2026-11-15T21:36:46+08:00"
+    }
+  ]
+}

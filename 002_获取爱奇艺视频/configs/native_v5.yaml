@@ -1,12 +1,20 @@
-# 该适配配置只适用于此 SHA256 对应的本机 x64 客户端 DLL。
-# 客户端升级导致校验值变化时必须重新分析函数签名和位置，不能只改校验值。
-dll_path: 'D:\Program Files\IQIYI Video\LStyle\14.9.0.10269\mctoplayer.dll'
-dll_sha256: '47f669d197025b03ba77c782c35dc5eeed81434b33627719d12710da3f9d34df'
+# 客户端版本目录的父目录；按版本号选取最新目录。
+dll_root: 'D:\Program Files\IQIYI Video\LStyle'
+# 最新版本目录中的客户端 DLL 文件名。
+dll_name: 'mctoplayer.dll'
+# 客户端证书文件路径。
 cert_path: 'C:\Users\Public\QiYi\drmq_config\cert'
+# 以下函数位置基于现有客户端分析；升级后若不兼容，需重新分析并修改。
 rva:
+  # 分配设备或播放上下文的函数 RVA。
   allocate: 0x10a0
+  # 释放上下文的函数 RVA。
   release: 0x1110
+  # 设置客户端证书的函数 RVA。
   set_certificate: 0x1450
+  # 设置播放授权的函数 RVA。
   set_license: 0x18c0
+  # 设置分段处理模式的函数 RVA。
   set_mode: 0x2880
+  # 解密媒体数据的函数 RVA。
   decrypt: 0x20c0

@@ -9,7 +9,7 @@
 - Windows x64、64 位 Python；项目默认使用 Python 3.12 环境。
 - QSV 容器版本 2、授权版本 5，视频段连续，带独立 `amp4` 音轨。
 - 单节目 TS 中唯一的 AVC/H.264 或 HEVC/H.265 视频轨；按分段标记处理加密或明文内容。
-- 本机客户端 DLL 必须与 [本机适配配置](configs/native_v5.yaml) 中登记的 SHA-256、函数位置匹配，并具有可用证书和有效授权。
+- 自动加载 [本机适配配置](configs/native_v5.yaml) 中客户端目录下最新版本的 DLL；函数位置需与 DLL 兼容，并具有可用证书和有效授权。客户端升级后若接口不兼容，需重新分析并调整配置。
 
 其他容器或授权版本、非连续视频段、TS 包级加密及不支持的流结构会明确报错。研究目录中的其他格式资料不代表已接入正式转换。
 
@@ -35,7 +35,7 @@ python -m pip install -r ".\requirements.txt"
 1. `input_root` 指向本机客户端下载目录；`input_path` 选择要扫描的子目录。
 2. `download_guard.database_path` 指向该客户端实际使用的下载状态数据库，其记录名称、完成状态和 XML 编码与配置一致。
 3. `output_path` 和 `work_dir` 指向可写目录，并留有成品、中间媒体所需空间。
-4. `native_profile` 指向适用的本机适配 YAML；在该文件中核对 DLL 和证书路径。
+4. `native_profile` 指向适用的本机适配 YAML；在该文件中核对客户端目录、DLL 文件名和证书路径。
 5. `ffmpeg_path` 指向可运行的 FFmpeg；按设备能力设置 `decode_verification.cpu` 和 `decode_verification.gpu`。
 
 所有路径、设备开关、缓冲大小、超时和日志参数均以实际 YAML 为准，本文不复制配置中的机器路径和参数值。
@@ -64,7 +64,7 @@ python ".\decode_qsv.py" --help
 | `input_path` | 目录列表。空列表扫描整个输入根目录；非空时扫描所选目录及其子目录，重叠选择自动去重。相对路径以 `input_root` 为基准，解析后必须位于根目录内且已存在；不接受单文件或通配符。 |
 | `output_path` | 成品根目录，保留源文件相对 `input_root` 的目录层级。 |
 | `work_dir` | 批次工作根目录，按每次运行、每个视频分开保存中间媒体、日志及报告。 |
-| `native_profile` | 本机适配 YAML 路径；其内部 `dll_path`、`cert_path` 相对该适配文件解析。 |
+| `native_profile` | 本机适配 YAML 路径；其内部 `dll_root`、`cert_path` 相对该适配文件解析。程序按数字版本号选择 `dll_root` 下最新版本目录中的 `dll_name`，缺少 DLL 时不回退旧版本。 |
 | `ffmpeg_path` | FFmpeg 可执行文件路径，用于封装、完整解码验证和媒体信息读取。 |
 
 `--config` 的相对路径以命令执行目录为基准。主配置中的上述路径及 `download_guard.database_path`，除 `input_path` 外，相对路径均以主配置文件所在目录为基准。路径支持 `~`，不会自动展开 `$env:...`、`%...%` 等环境变量；YAML 中建议使用单引号或正斜杠表示 Windows 路径。
@@ -198,7 +198,7 @@ python ".\tests\accept_verification.py" --config ".\configs\config.yaml" --bench
 | --- | --- |
 | 没有匹配的 QSV，或出现等待下载条目 | 检查 `input_root`、`input_path`、客户端下载记录及同名临时文件；磁盘上有文件并不代表客户端确认完成。 |
 | 下载数据库缺失、XML 解码失败或记录无效 | 核对 `download_guard` 的实际路径、记录名称、完成状态及编码；程序不猜测编码或修复客户端数据库。 |
-| 提示客户端 DLL 已变化 | 核对 `native_profile`。客户端升级后需重新分析函数签名和位置，不能只修改 SHA-256。 |
+| 最新客户端版本目录缺少 DLL，或升级后 SDK 调用异常 | 核对 `native_profile` 中客户端目录和 DLL 文件名；接口不兼容时需重新分析函数签名和位置。 |
 | `SDK certificate/license failed` | 核对适配配置中的证书及客户端本机授权是否有效。 |
 | CUDA 初始化或视频硬解失败 | 检查 `gpu_probe.log`、视频现场的 `decode.log`、FFmpeg、NVIDIA 驱动及对应格式硬解能力，或显式改用 CPU 配置。 |
 | 封装、完整解码、帧数或超时失败 | 查看该视频工作目录的 `report.json`、`mux.log`、`decode.log` 和 `decode_progress.log`；结合实际媒体检查输入结构及主配置中的超时和缓冲限制。 |
