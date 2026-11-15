@@ -1,0 +1,84 @@
+{
+    "folders": [
+        {
+            "name": "004_获取优酷视频",
+            "path": "D:/VSCode/personal_tools/004_获取优酷视频"
+        },
+        {
+            "name": "personal_tools",
+            "path": "."
+        },
+        {
+            "path": "C:/Users/Administrator/.codex"
+        },
+        {
+            "path": "E:/qycache"
+        }
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe",
+        "python.terminal.activateEnvironment": true,
+        "python.testing.cwd": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k",
+        "python.testing.unittestEnabled": true,
+        "python.testing.unittestArgs": [
+            // 输出每个测试用例的执行结果。
+            "-v",
+            // 从独立研究目录下的 tests 文件夹发现测试。
+            "-s", "tests",
+            // 以研究目录为导入根目录，供测试导入 lib 模块。
+            "-t", "."
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "优酷研究：检查当前客户端与登录态",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：客户端、样本清单、原生接口与输出路径均读取此 YAML。
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    // 必填：只读检查客户端版本及 Cookie 名称，不导出凭据值。
+                    "--action", "snapshot"
+                ]
+            },
+            {
+                "name": "优酷研究：现有 SVIP 会话查询清晰度",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：接口及各组播放器参数全部读取研究 YAML，不在工作区复制。
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    // 必填：仅请求优酷官方接口，记录脱敏流元数据，不下载或解密视频。
+                    "--action", "online"
+                ]
+            },
+            {
+                "name": "优酷研究：定位客户端接口调用证据",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：源码范围、搜索词和截取长度读取研究 YAML。
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    "--action", "source"
+                ]
+            }
+        ]
+    }
+}

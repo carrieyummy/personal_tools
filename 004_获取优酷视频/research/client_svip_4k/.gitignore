@@ -1,0 +1,16 @@
+# Python 运行缓存
+__pycache__/
+*.py[cod]
+
+# 每次运行的本机路径、版本和脱敏诊断
+reports/latest/
+
+# 原始会话、接口响应和媒体样本只留本地
+private/
+*.har
+*.ykv
+*.ykvfolder/
+*.mp4
+*.ts
+*.m3u8
+Cookies*
