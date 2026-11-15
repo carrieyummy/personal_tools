@@ -1,0 +1,133 @@
+{
+    "folders": [
+        {
+            "name": "005_获取芒果视频",
+            "path": "D:/VSCode/personal_tools/005_获取芒果视频"
+        },
+        {
+            "name": "personal_tools",
+            "path": "."
+        },
+        {
+            "path": "C:/Users/Administrator/.codex"
+        },
+        { 
+            // 下载路径 好像不是缓存路径
+            "path": "E:/MGTV/MGTVPCC/MgtvVideos"
+        }
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe",
+        "python.terminal.activateEnvironment": true,
+        "python.testing.cwd": "${workspaceFolder:005_获取芒果视频}",
+        "python.testing.unittestEnabled": true,
+        "python.testing.unittestArgs": [
+            // 输出每个测试用例的执行结果。
+            "-v",
+            // 从工具目录下的 tests 文件夹发现测试。
+            "-s", "tests",
+            // 以工具目录为导入根目录，供测试导入业务模块和共用测试资源路径。
+            "-t", "."
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "芒果下载：YAML批量最高画质",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:005_获取芒果视频}/download_mgtv.py",
+                "cwd": "${workspaceFolder:005_获取芒果视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:005_获取芒果视频}/configs/config.yaml",
+                    // 清单任务/全局参数优先于主配置，quality 按每集独立排名。
+                    "--url", "${workspaceFolder:005_获取芒果视频}/download_list/download_list.yaml"
+                    // 可选：--all-parts 整剧；--no-all-parts 仅链接集，显式覆盖清单范围。
+                ]
+            },
+            {
+                "name": "芒果下载：交互输入链接",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:005_获取芒果视频}/download_mgtv.py",
+                "cwd": "${workspaceFolder:005_获取芒果视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": ["--config", "${workspaceFolder:005_获取芒果视频}/configs/config.yaml"]
+            },
+            {
+                "name": "芒果下载：检查客户端登录态",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:005_获取芒果视频}/download_mgtv.py",
+                "cwd": "${workspaceFolder:005_获取芒果视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": ["--config", "${workspaceFolder:005_获取芒果视频}/configs/config.yaml", "--login-only"]
+            },
+            {
+                "name": "芒果下载：查看清单逐集画质",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:005_获取芒果视频}/download_mgtv.py",
+                "cwd": "${workspaceFolder:005_获取芒果视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": ["--config", "${workspaceFolder:005_获取芒果视频}/configs/config.yaml", "--url", "${workspaceFolder:005_获取芒果视频}/download_list/download_list.yaml", "--list-formats"]
+            },
+            {
+                "name": "芒果研究：原生播放接口",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:005_获取芒果视频}/research/playback_probe.py",
+                "cwd": "${workspaceFolder:005_获取芒果视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：专项配置，读取目标链接、本机登录态位置与原生请求参数。
+                    "--config", "${workspaceFolder:005_获取芒果视频}/configs/playback_research.yaml",
+                    // 必填：只探测播放接口并输出脱敏画质摘要，不操作客户端界面。
+                    "--phase", "api"
+                ]
+            },
+            {
+                "name": "芒果研究：客户端结构检查",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:005_获取芒果视频}/research/playback_probe.py",
+                "cwd": "${workspaceFolder:005_获取芒果视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：专项配置，定义客户端文件位置和静态检查范围。
+                    "--config", "${workspaceFolder:005_获取芒果视频}/configs/playback_research.yaml",
+                    // 必填：只读检查文件结构，不加载或执行客户端 DLL。
+                    "--phase", "inspect"
+                ]
+            },
+            {
+                "name": "芒果验收：链接解析芒臻完整清单",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:005_获取芒果视频}/tests/verify_playback_api.py",
+                "cwd": "${workspaceFolder:005_获取芒果视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：按专项配置验证全部链接、完整清单及抽样分片解码。
+                    "--config", "${workspaceFolder:005_获取芒果视频}/configs/playback_research.yaml"
+                ]
+            }
+        ]
+    }
+}

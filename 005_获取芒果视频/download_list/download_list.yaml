@@ -1,0 +1,21 @@
+# 非必填备注，不影响下载
+date: 2026年11月14日22:46:43
+commit: '' 
+
+# 全局设置；下面各 download_list 任务的同名配置优先覆盖这里。
+quality: 1 # 每集单独排名：1 为账号可获取的最高档，2 为次高档；排名不存在时报该集失败，不降档。
+# all-parts: false # 可选：仅下载链接指定一集；未填写时读取主配置 download.all_parts。
+
+# 保留列表与集序顺序；当前剧集派发完后，空闲线程继续后续剧集。
+# title 仅用于日志备注，保存目录和文件名继续使用原站标题；url 必填。
+download_list:
+  - title: 今天是太阳雨 # 视频标题 手动填写 不一定是实际的剧集名字
+    url: https://www.mgtv.com/b/817372/24795111.html
+  - title: 水龙吟
+    url: https://www.mgtv.com/b/613743/23658804.html
+  - title: 耀眼
+    url: https://www.mgtv.com/b/763701/24399268.html
+  # - title: 
+  #   url:
+  # - title: 
+  #   url:

@@ -1,0 +1,24 @@
+# 只读请求对比；临时改动仅作用于内存配置，不写回正式配置。
+variants:
+  - name: video_introduction_hdr
+    query: {videoIntroduction: 'FFF212224'}
+  - name: video_introduction_sdr
+    query: {videoIntroduction: 'FFF111111'}
+  - name: video_format
+    query: {videoFormat: 'H265'}
+  - name: introduction_hdr
+    query: {introduction: 'FFF212224'}
+  - name: initial_selected
+    query: {initDefinition: '101'}
+  - name: hdts_original
+    query: {hdts: 'h264,h265'}
+  - name: no_sdrm
+    query: {sdrm: '0'}
+  - name: no_drm_type
+    query: {drmType: '0'}
+  - name: filtered
+    query: {_filter: 'true'}
+  - name: h265_local
+    query: {localVideoFormat: 'H265'}
+  - name: local_codec
+    query: {localCodec: 'h265'}

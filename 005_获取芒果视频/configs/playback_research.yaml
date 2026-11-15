@@ -1,0 +1,134 @@
+# 路径中的环境变量由研究脚本显式展开；相对路径以本工具目录为基准。
+paths:
+  client_data: '${APPDATA}/MGTV/MGTVPCC'
+  client_install: 'D:/Program Files (x86)/MGTVPCC'
+  report_dir: 'research/results'
+  client_log: 'logs/mgtv.dat'
+  user_data: 'dat/user.dat'
+  global_data: 'dat/global.dat'
+  global_user_key: 'key_userinfo'
+  device_config_prefix: 'deviceConfig-'
+
+targets:
+  # 第一项是已通过客户端播放的样本；第二项用于验证无需界面切集。
+  - 'https://www.mgtv.com/b/817372/24795111.html'
+  - 'https://www.mgtv.com/b/817372/24789534.html'
+
+network:
+  proxy: ''
+  timeout_seconds: 20
+  max_response_bytes: 2000000
+  headers:
+    User-Agent: 'Mozilla/5.0'
+    Referer: 'https://www.mgtv.com/'
+
+web_api:
+  enabled: false
+  video_endpoint: 'https://pcweb.api.mgtv.com/player/video'
+  source_endpoint: 'https://tinker.glb.mgtv.com/player/getSource'
+  client_number: '1030'
+  client_version: '0.3.0301'
+  video_type: 'pch5'
+  source_query:
+    _support: '10000000'
+    auth_mode: '1'
+    cxid: ''
+    supportMse: '1'
+    src: 'intelmgtv'
+    abroad: '0'
+    allowedRC: '1'
+
+native_api:
+  source_endpoint: 'https://mobile-stream.api.mgtv.com/v1/video/source'
+  query:
+    videoId: '{video_id}'
+    uuid: '{user_uuid}'
+    ticket: '{ticket}'
+    appVersion: '8.0.9.0'
+    _support: '10000000'
+    platform: '1'
+    resVersion: '8.0.9.0'
+    clipId: '{clip_id}'
+    plId: ''
+    playType: '1'
+    drmType: '6'
+    sdrm: '1'
+    initDefinition: '1'
+    localDefinition: '101'
+    _filter: 'false'
+    hdts: 'h264,h265'
+  # 仅声明此前真实片段已验证可解码的 H.264 SDR 1080P 能力，不声明 HDR 能力。
+  exdef:
+    version: '3'
+    support: '1'
+    screen_hdr_type: '0'
+    h264:
+      support: '1'
+      hdr:
+        support: '0'
+      sdr:
+        max_def: '1920x1080'
+        max_def_fps: '25'
+
+selection:
+  quality_name: '芒臻视听'
+
+catalog_api:
+  endpoint: 'https://pcc.api.mgtv.com/video/download'
+  query:
+    clipId: '{clip_id}'
+    appVersion: '{app_version}'
+    dataType: '1'
+    definitionType: '4'
+
+verification:
+  sample_positions: [0.0, 0.5, 1.0]
+  ffmpeg_path: 'C:/ProgramData/miniconda3/envs/test_regression_py3.12/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe'
+  decode_timeout_seconds: 60
+  sample_limit_bytes: 30000000
+  duration_tolerance_seconds: 2
+
+auth_probe:
+  enabled: false
+  endpoint: 'https://nuc.api.mgtv.com/CheckTicket'
+  query:
+    ticket: '{ticket}'
+    uuid: '{user_uuid}'
+    platform: '1'
+
+native_caps:
+  host: '${SystemRoot}/SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+  helper: 'research/query_player_caps.ps1'
+  dll: 'ImgoPlayer.dll'
+  expected_sha256: '8b792d35705e9d42f9a821a2a15955215f33e9cd82918d458b01baf05847f138'
+  initialize: true
+  initialize_export: '?ImgoGlobalInit@@YAXXZ'
+  hdts_export: '?ImgoGetHDTS@@YAXW4PlayMode@@PAD@Z'
+  exdef_export: '?ImgoGetExtDef@@YAXW4PlayMode@@PAD@Z'
+  modes: [0, 1]
+  buffer_bytes: 65536
+  timeout_seconds: 40
+  output_marker: 'MGTV_CAPS_RESULT='
+
+disassembly:
+  binary: 'pluginForTV/player.dll'
+  anchors: ['/v1/video/source']
+  bytes_before: 12000
+  bytes_after: 500
+  max_references: 4
+  symbols: []
+  additional_jobs:
+    - binary: 'mgCommon.dll'
+      anchors: []
+      symbols: ['^\?getTicket@MgtvAppStorage', '^\?jsonObjectToQueryString@StringUtil', '^\?getDid@SystemUtil']
+      bytes_after: 2000
+
+inspection:
+  log_names: ['mgtv.dat', 'web.dat', 'service.dat', 'p2p.dat']
+  binaries: ['mgCommon.dll', 'common.dll', 'DownloadManager.dll', 'EasyDataSource.dll', 'ImgoPlayer.dll', 'pluginForTV/player.dll', 'pluginForTV/login.dll', 'pluginForTV/webres.dll', 'qcefview.dll', '芒果TV.exe']
+  max_endpoints_per_log: 40
+  binary_string_patterns:
+    - '(?i)/(?:v[0-9]+/)?(?:video|player)/[A-Za-z0-9_/]+'
+    - '[A-Za-z_][A-Za-z0-9_:]{0,90}(?:GetSource|GetVideo|Layer1|1stLayer|Ticket|ticket|UserAgent|userAgent|HttpHeader|signParam|tk2)[A-Za-z0-9_:]{0,70}'
+  context_anchors: ['/v1/video/source', 'Layer1stReqHandler', 'CheckTicket']
+  context_bytes: 2400

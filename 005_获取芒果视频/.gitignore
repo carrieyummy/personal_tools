@@ -1,0 +1,8 @@
+# Python 运行缓存。
+__pycache__/
+*.py[cod]
+
+# 本机研究过程产生的报告、媒体及临时数据。
+research/results/
+research/private/
+outputs/

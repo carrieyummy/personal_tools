@@ -1,0 +1,58 @@
+# 原生 HTTP 接口协议档案。正常下载不加载客户端 DLL。
+# 能力声明面向原码流归档，不受当前显示器是否开启 HDR 限制；最高档实际以服务端授权响应为准。
+playback:
+  selection_parameter: localDefinition
+  endpoint: 'https://mobile-stream.api.mgtv.com/v1/video/source'
+  query:
+    videoId: '{video_id}'
+    clipId: '{clip_id}'
+    ticket: '{ticket}'
+    uuid: '{user_uuid}'
+    appVersion: '8.0.9.0'
+    resVersion: '8.0.9.0'
+    platform: '1'
+    _support: '10000000'
+    _filter: 'false'
+    plId: ''
+    playType: '1'
+    drmType: '6'
+    sdrm: '1'
+    initDefinition: '1'
+    hdts: 'h264,h265,av01'
+  exdef:
+    version: '3'
+    support: '1'
+    sceen_size: '7680x4320'
+    sceen_fps: '120'
+    screen_hdr_type: '3'
+    support_wanos: '1'
+    support_3da: '1'
+    h264:
+      support: '1'
+      hdr: {support: '1', hdr_type: '3', bit_depth: '10', max_def: '7680x4320', max_def_fps: '120'}
+      sdr: {max_def: '7680x4320', max_def_fps: '120'}
+    h265:
+      support: '1'
+      hdr: {support: '1', hdr_type: '3', bit_depth: '10', max_def: '7680x4320', max_def_fps: '120'}
+      sdr: {max_def: '7680x4320', max_def_fps: '120'}
+    av01:
+      support: '1'
+      hdr: {support: '1', hdr_type: '3', bit_depth: '10', max_def: '7680x4320', max_def_fps: '120'}
+      sdr: {max_def: '7680x4320', max_def_fps: '120'}
+catalog:
+  endpoint: 'https://pcc.api.mgtv.com/video/download'
+  query:
+    clipId: '{clip_id}'
+    appVersion: '8.0.9.0'
+    dataType: '1'
+    definitionType: '4'
+  page_parameter: 'page'
+dispatch:
+  # 优先使用原生接口内嵌清单；缺失时仅调度同一具体源，不改用其他画质或编码。
+  scheme: 'https'
+  success_states: ['ok']
+status:
+  success_codes: [200]
+  authentication_http_codes: [401]
+  expired_http_codes: [401, 403, 410, 617]
+  valid_ticket_states: [1]

@@ -1,0 +1,69 @@
+# 正式下载配置。相对路径以本文件所在目录为基准；环境变量由程序显式展开。
+# 初始值与参考项目当时的 output_path 相同，此后芒果独立维护。
+output_path: 'Z:/003_电视剧'
+work_dir: 'E:/MGTV/download_work'
+default_list: '../download_list/download_list.yaml'
+native_profile: 'native_playback.yaml'
+ffmpeg_path: 'C:/ProgramData/miniconda3/envs/test_regression_py3.12/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe'
+
+auth:
+  # 只读客户端已有登录态；过期后需在客户端重新登录，程序不操作界面。
+  user_data: '${APPDATA}/MGTV/MGTVPCC/dat/user.dat'
+  probe_url: 'https://www.mgtv.com/b/817372/24795111.html'
+
+network:
+  # 空值强制直连，不继承系统或环境代理；支持 http/https 代理地址。
+  proxy: ''
+  timeout_seconds: 30
+  max_json_bytes: 8000000
+  headers:
+    User-Agent: 'Mozilla/5.0'
+    Referer: 'https://www.mgtv.com/'
+
+download:
+  # 各集分别排名：1 为账号可获取的最高档，缺少指定排名时报错，不自动降档。
+  quality: 1
+  all_parts: true
+  threads: 5
+  retries: 3
+  refresh_attempts: 3
+  buffer_bytes: 1048576
+  keep_intermediates: false
+
+pipeline:
+  mux_slots: 1
+  publish_slots: 1
+  # 包含正在下载、等待封装/验证/发布的全部任务，队列达到上限时暂停接纳。
+  max_in_flight: 8
+
+decode_verification:
+  # 每个启用后端独占一个验证槽；失败不切换后端，至少启用一个。
+  cpu: true
+  gpu: true
+
+verification:
+  timeout_seconds: 1200
+  duration_tolerance_seconds: 2
+
+naming:
+  max_title_length: 60
+  max_filename_length: 200
+  series_template: '{title}_mgtv{clip_id}'
+  episode_template: '{index:03d}_{title}_{quality}_{video_id}'
+  timestamp_format: '%y%m%d_%H%M%S'
+
+logging:
+  state_file: 'mgtv_download_log.json'
+  html_file: 'mgtv_download_log.html'
+  index_file: 'mgtv_video_info.json'
+  lock_file: '.mgtv_download.lock'
+  work_lock_file: '.mgtv_work.lock'
+  port: 0
+  refresh_interval_seconds: 2
+  progress_interval_seconds: 1
+  write_retries: 5
+  write_retry_interval_seconds: 0.2
+
+runtime:
+  cancel_poll_interval_seconds: 0.1
+  process_terminate_timeout_seconds: 2
