@@ -1,7 +1,10 @@
 """验证实时日志服务、JSON 持久化、历史导入及不可变离线快照。"""
 
 from contextlib import redirect_stderr
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import replace
+from datetime import datetime
 from io import StringIO
 import json
 from pathlib import Path
@@ -13,11 +16,15 @@ import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import unquote, urlencode
+from uuid import uuid4
+
+import yaml
 
 from bilibili_downloader.activity_log import HtmlLog
 from bilibili_downloader.config import load_settings
 from bilibili_downloader.errors import ToolError
-from tests import PROJECT_DIR
+from tests import CONFIG_PATH
 
 
 class ActivityLogTests(unittest.TestCase):
@@ -28,13 +35,75 @@ class ActivityLogTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.settings = replace(load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root,
-                                log_refresh_interval=0.1, log_write_retry_interval=0.001)
-        self.enterContext(redirect_stderr(StringIO()))
+        self.settings = replace(load_settings(CONFIG_PATH), output_dir=self.root,
+                                log_refresh_interval=0.1, log_write_retry_interval=0.001,
+                                log_final_state_timeout=0.6, cancel_poll_interval=0.01)
+        self.stderr = StringIO()
+        self.enterContext(redirect_stderr(self.stderr))
 
     def read(self) -> dict:
         """读取隔离目录的持久化 JSON；返回结构化日志，无参数。"""
         return json.loads((self.root / self.settings.log_state_filename).read_text(encoding='utf-8'))
+
+    def poll_state(self, journal: HtmlLog, client_id: str, *, final: bool = False) -> dict:
+        """以 client_id 模拟网页轮询 journal；final 为 True 时等到终态，返回收到的状态，超时使测试失败。"""
+        deadline = time.monotonic() + 5
+        while True:
+            with urlopen(journal.url + 'api/state?' + urlencode({'client_id': client_id}), timeout=5) as response:
+                state = json.load(response)
+            if not final or state['closed']:
+                return state
+            if time.monotonic() >= deadline:
+                self.fail('日志未发布最终状态')
+            time.sleep(0.01)
+
+    def acknowledge_state(self, journal: HtmlLog, client_id: str, state: dict) -> None:
+        """模拟 client_id 网页显示 journal 的 state 后确认其中运行及版本；HTTP 错误向调用方抛出，无返回值。"""
+        query = urlencode({'client_id': client_id, 'run_id': state['runs'][-1]['id'], 'revision': state['revision']})
+        with urlopen(journal.url + 'api/ack?' + query, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+
+    def test_close_waits_for_every_page_to_acknowledge_final_state(self) -> None:
+        """验证终态可持续拉取，旧版本或错误运行确认无效，全部页面确认后才关闭；无参数及返回值。"""
+        journal = self.enterContext(HtmlLog(self.settings, '下载视频'))
+        activity = journal.add('下载', '最后一集', part='P12', status='processing')
+        first, second = uuid4().hex, uuid4().hex
+        previous = self.poll_state(journal, first)
+        self.poll_state(journal, second)
+        activity.update('completed', detail='视频及字幕处理完成')
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            closing = executor.submit(journal.__exit__, None, None, None)
+            state = self.poll_state(journal, first, final=True)
+            self.assertEqual(state['runs'][-1]['entries'][0]['status'], 'completed')
+            for invalid in (previous, {**state, 'revision': state['revision'] - 1},
+                            {**state, 'runs': [{'id': '其他运行'}]}):
+                with self.subTest(invalid=invalid['revision']), self.assertRaises(HTTPError) as error:
+                    self.acknowledge_state(journal, first, invalid)
+                self.assertEqual(error.exception.code, 409)
+            self.assertFalse(closing.done())
+            self.acknowledge_state(journal, first, state)
+            self.assertFalse(closing.done())
+            state = self.poll_state(journal, second, final=True)
+            self.acknowledge_state(journal, second, state)
+            closing.result(timeout=5)
+        self.assertFalse(journal.server.thread.is_alive())
+        self.assertNotIn('等待网页确认最终状态超时', self.stderr.getvalue())
+
+    def test_unresponsive_page_times_out_without_changing_final_result(self) -> None:
+        """模拟网页拉取后关闭，验证中断终态先落盘且等待达到配置上限后退出；无参数及返回值。"""
+        journal = self.enterContext(HtmlLog(self.settings, '下载视频'))
+        journal.add('下载', '最后一集', part='P12', status='processing')
+        self.poll_state(journal, uuid4().hex)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            started = time.monotonic()
+            error = KeyboardInterrupt('用户中止')
+            closing = executor.submit(journal.__exit__, type(error), error, None)
+            closing.result(timeout=self.settings.log_final_state_timeout + 5)
+            self.assertGreaterEqual(time.monotonic() - started, self.settings.log_final_state_timeout)
+        self.assertEqual(self.read()['runs'][-1]['entries'][0]['status'], 'interrupted')
+        self.assertTrue(journal.snapshot_path.is_file())
+        self.assertFalse(journal.server.thread.is_alive())
+        self.assertIn('等待网页确认最终状态超时', self.stderr.getvalue())
 
     def test_progress_is_live_throttled_and_state_changes_are_immediate(self) -> None:
         """验证进度节流、状态落盘及 API 从内存读取，无返回值。"""
@@ -119,7 +188,8 @@ class ActivityLogTests(unittest.TestCase):
         """验证中断关闭后迟到回调不会改写终态或文件，HTTP 服务不再监听；无返回值。"""
         journal = HtmlLog(self.settings, '下载视频')
         activity = journal.add('下载', '测试', status='downloading')
-        journal.__exit__(KeyboardInterrupt, KeyboardInterrupt('用户中止'), None)
+        with patch.object(journal.server.condition, 'wait', side_effect=AssertionError('没有网页时不应等待')):
+            journal.__exit__(KeyboardInterrupt, KeyboardInterrupt('用户中止'), None)
         previous = journal.path.read_bytes()
         snapshot = journal.snapshot_path.read_bytes()
         activity.update('downloading', detail='迟到更新')
@@ -177,6 +247,43 @@ class ActivityLogTests(unittest.TestCase):
             HtmlLog(self.settings, '下载视频')
         self.assertEqual(path.read_text(encoding='utf-8'), 'invalid')
 
+    def test_snapshot_timestamp_handles_existing_files_and_browser_exports(self) -> None:
+        """冻结本地导出时间，验证磁盘重名、浏览器多次导出和自动快照共用递增序号且保留旧报告；无返回值。"""
+        frozen = datetime(2026, 11, 15, 13, 48, 20).astimezone()
+        stem = f'{Path(self.settings.log_filename).stem}_{frozen:%y%m%d_%H%M%S}'
+        previous = self.root / (stem + '.html')
+        previous.write_bytes(b'existing report')
+        with patch('bilibili_downloader.activity_log.datetime') as current_datetime:
+            current_datetime.now.return_value = frozen
+            with HtmlLog(self.settings, '下载视频') as journal:
+                for index in (1, 2):
+                    with urlopen(journal.url + 'snapshot', timeout=5) as response:
+                        disposition = unquote(response.headers['Content-Disposition'])
+                        self.assertTrue(disposition.endswith(f'{stem}_{index:02d}.html'), disposition)
+                        self.assertIn('const live = false', response.read().decode('utf-8'))
+            self.assertEqual(journal.snapshot_path.name, stem + '_03.html')
+        self.assertEqual(previous.read_bytes(), b'existing report')
+
+    def test_snapshot_creation_race_preserves_external_report(self) -> None:
+        """模拟选名后被其他进程抢先创建，验证独占写入换序号重试且保留竞争文件；无返回值。"""
+        with HtmlLog(self.settings, '下载视频') as journal:
+            original_open = Path.open
+            competing = []
+
+            def open_snapshot(path: Path, *args: object, **kwargs: object) -> object:
+                """第一次 HTML 独占打开时创建外部报告；path/args/kwargs 透传真实打开方法，返回文件对象。"""
+                if path.suffix == '.html' and args and args[0] == 'x' and not competing:
+                    competing.append(path)
+                    with original_open(path, 'x', encoding='utf-8') as stream:
+                        stream.write('external report')
+                return original_open(path, *args, **kwargs)
+
+            with patch.object(Path, 'open', open_snapshot):
+                journal.export_snapshot()
+            self.assertEqual(competing[0].read_text(encoding='utf-8'), 'external report')
+            self.assertNotEqual(journal.snapshot_path, competing[0])
+            self.assertTrue(journal.snapshot_path.is_file())
+
     def test_transfer_average_excludes_resume_and_gaps_between_streams(self) -> None:
         """验证已有断点不计入本次字节，音视频速度按有效传输时长累计，最终样本不受节流限制；无返回值。"""
         with HtmlLog(self.settings, '下载视频') as journal:
@@ -230,18 +337,24 @@ class ActivityLogTests(unittest.TestCase):
             self.assertEqual(journal.data['runs'][0]['entries'][0]['id'], identity)
 
     def test_logging_config_validation(self) -> None:
-        """验证日志文件、服务端口、重试次数及间隔约束；无返回值。"""
-        original = (PROJECT_DIR / 'config.yaml').read_text(encoding='utf-8')
+        """基于实际 YAML 修改非法值，验证日志文件、端口、重试及终态等待约束；无参数及返回值。"""
+        original = yaml.safe_load(CONFIG_PATH.read_text(encoding='utf-8'))
         config = self.root / 'config.yaml'
-        cases = [('html_file: "download_log.html"', 'html_file: "../bad.html"'),
-                 ('state_file: "download_log.json"', 'state_file: "bad.json/extra"'),
-                 ('port: 0', 'port: 65536'), ('write_retries: 5', 'write_retries: -1'),
-                 ('write_retry_interval_seconds: 0.2', 'write_retry_interval_seconds: 0')]
-        for old, new in cases:
-            with self.subTest(new=new):
-                config.write_text(original.replace(old, new), encoding='utf-8')
+        cases = [('html_file', '../bad.html'), ('state_file', 'bad.json/extra'),
+                 ('port', 65536), ('write_retries', -1), ('write_retry_interval_seconds', 0)]
+        cases.extend(('final_state_timeout_seconds', value) for value in (0, -1, True, 'invalid', float('inf'), float('nan')))
+        for key, value in cases:
+            with self.subTest(key=key, value=value):
+                invalid = deepcopy(original)
+                invalid['logging'][key] = value
+                config.write_text(yaml.safe_dump(invalid, allow_unicode=True), encoding='utf-8')
                 with self.assertRaises(ToolError):
                     load_settings(config)
+        missing = deepcopy(original)
+        del missing['logging']['final_state_timeout_seconds']
+        config.write_text(yaml.safe_dump(missing, allow_unicode=True), encoding='utf-8')
+        with self.assertRaises(ToolError):
+            load_settings(config)
 
     def test_chrome_tabs_poll_without_opening_persistent_files_and_export_offline(self) -> None:
         """验证桌面树形层级、筛选、指标、跨刷新选择与折叠，以及多标签页及不可变离线快照；无返回值。"""
@@ -313,7 +426,17 @@ class ActivityLogTests(unittest.TestCase):
                 self.assertEqual(exported.read_bytes(), previous)
                 page.set_viewport_size({'width': 1280, 'height': 900})
                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 1280)
+                last = journal.add('下载', '机器学习：线性回归', task='任务 2 · BV1yy411c7mD', part='P12', status='processing')
+                for tab in (page, other):
+                    tab.wait_for_function("(id) => currentData.runs.at(-1).entries.some(entry => entry.id === id && entry.status === 'processing')", arg=last.entry['id'])
+                last.update('completed', detail='最后一集处理完成')
+                # 延迟第二个标签页下一次轮询，验证第一个标签页确认后仍继续服务第二个页面。
+                other.evaluate('clearTimeout(timer); timer = setTimeout(refresh, interval * 3)')
                 journal.__exit__(None, None, None)
-                page.wait_for_function("document.getElementById('connection').textContent.includes('连接已断开') || document.getElementById('connection').textContent.includes('运行已结束')")
+                for tab in (page, other):
+                    self.assertTrue(tab.evaluate('currentData.closed'))
+                    self.assertEqual(tab.evaluate('(id) => currentData.runs.at(-1).entries.find(entry => entry.id === id).status', last.entry['id']), 'completed')
+                    self.assertIn('运行已结束 · 当前为最终状态', tab.locator('#connection').inner_text())
+                self.assertNotIn('等待网页确认最终状态超时', self.stderr.getvalue())
             finally:
                 browser.close()

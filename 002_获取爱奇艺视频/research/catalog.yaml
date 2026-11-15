@@ -1,0 +1,24 @@
+purpose: 保存 v5 适配调研材料；正式转换只使用 configs/config.yaml 及其 native_profile。
+format_methods: formats.yaml
+license_probe:
+  script: ../tests/probe_native_v5.py
+  arguments:
+  - --config
+  - ../configs/config.yaml
+  path_base: 本 catalog.yaml 所在目录；探测脚本复用正式业务模块，不使用历史 JSON 配置。
+archive:
+  directory: archive
+  purpose: 早期 v3/v5 探测配置与旧字节码，仅保留调研记录；不是运行配置。
+reference_repositories:
+- path: third_party/bbtsdecrypt
+  origin: https://github.com/ReiDoBrega/bbtsdecrypt.git
+  revision: f467b2c1513f5e1a9fcc1387fd64c54ec8856a57
+- path: third_party/monalisa_v3
+  origin: https://github.com/Ooo0xffooO/monalisa_v3.git
+  revision: 185789a62964b2b96f9e84745b9e0e8675ee1944
+- path: third_party/pymonalisa
+  origin: https://github.com/ReiDoBrega/pymonalisa.git
+  revision: 7d2d87238038bb870fe5458b4452097840ce86db
+- path: third_party/QSV-Decrypt
+  origin: https://github.com/Acooldog/QSV-Decrypt.git
+  revision: 028716b0146c2e110b5b73c5218d222d15871717

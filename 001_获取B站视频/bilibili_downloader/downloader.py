@@ -23,7 +23,11 @@ from .storage import replace_file_transaction
 
 
 def make_downloader(context: Any, settings: Settings) -> Any:
-    """根据 settings 创建 yt-dlp，并从登录 context 注入内存 Cookie；返回需由调用者关闭的下载器。"""
+    """按 settings 的格式、HTTP 分块及网络配置创建 yt-dlp，从登录 context 注入内存 Cookie。
+
+    context 为认证 HTTP 会话或已登录浏览器上下文；settings 为已校验配置。
+    返回需由调用者关闭的下载器，分块大小直接读取配置，不在代码中另设默认值。
+    """
     from yt_dlp import YoutubeDL
 
     if isinstance(context, auth.AuthenticatedHttpSession):
@@ -34,6 +38,7 @@ def make_downloader(context: Any, settings: Settings) -> Any:
     downloader = YoutubeDL({
         "format": settings.format_selector, "format_sort": settings.format_sort,
         "noplaylist": True, "retries": settings.retries, "fragment_retries": settings.fragment_retries,
+        "http_chunk_size": settings.http_chunk_size,
         "socket_timeout": settings.socket_timeout, "continuedl": True, "overwrites": False,
         "skip_unavailable_fragments": False,
         "quiet": True, "noprogress": True,
@@ -51,18 +56,23 @@ def make_downloader(context: Any, settings: Settings) -> Any:
 
 def save_video(downloader: Any, info: dict[str, Any], settings: Settings, executable: str,
                video_title: str, total_parts: int, *, source_cid: int, prepared: bool = False,
-               cancel_event: Event | None = None, activity: Activity | None = None) -> tuple[Path, str]:
+               cancel_event: Event | None = None, activity: Activity | None = None,
+               size_tracker: media.StreamSizes | None = None) -> tuple[Path, str]:
     """保存 info 选中的原始流；settings/executable 控制路径和封装，video_title/total_parts 描述投稿。
 
     source_cid 为本次查询的正整数内容 ID；只有版本和格式一致才复用，未知旧版本需要显式建立基线。
     prepared 表示主线程已经整理记录，工作线程只读写当前布局；cancel_event 请求中止并保留当前版本断点。
     activity 为可选 HTML 日志条目，记录复用、封装及最终文件位置。
-    返回媒体目录和文件前缀，记录读改写按 BV 加锁，下载、封装和媒体探测均在锁外执行。
+    size_tracker 为可选的所选流大小计量器，供调用方下载回调修正完整文件长度，不记录额外请求。
+    返回媒体目录和文件前缀，记录按 BV/季来源标识加锁；番剧同时核对 EP 身份，下载、封装和探测在锁外执行。
     """
     check_cancel(cancel_event)
     if type(source_cid) is not int or source_cid < 1:
         raise ToolError('下载来源 CID 必须为正整数')
     formats = media.chosen_formats(info)
+    size_tracker = size_tracker if size_tracker is not None else media.StreamSizes(formats)
+    if activity:
+        activity.update(**size_tracker.expected())
     video_id = naming.safe_name(str(info['id']), 60)
     bvid = video_id.split('_p')[0]
     part = int(video_id.rsplit('_p', 1)[1])
@@ -95,7 +105,8 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
         if ':fmt' in item['id']:
             base_stem += '_fmt' + variant[:12]
         stem = naming.quality_stem(base_stem, record.quality_suffix(quality), record.mix_quality)
-        if item['status'] == 'completed' and item.get('source_cid') == source_cid and item['formats'] == signature:
+        if (item['status'] == 'completed' and item.get('source_cid') == source_cid and item['formats'] == signature
+                and item.get('episode_id') == info.get('episode_id')):
             candidate = record.resolve_file(item)
             if candidate.is_file() and candidate.stat().st_size:
                 existing, stem = candidate, str(item['stem'])
@@ -106,19 +117,24 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
             record.save()
     if existing is not None:
         library.complete_video(settings, bvid, video_id, quality, existing, executable, source_cid=source_cid, variant=variant, part=part)
+        info.update(saved_path=str(existing), actual_size_bytes=existing.stat().st_size)
         if activity:
-            activity.update('reused', path=str(existing), detail='来源 CID、本地文件及格式一致，跳过重复传输')
-        print(f'视频已完成，跳过下载：{existing}')
+            activity.update('reused', path=str(existing), actual_size_bytes=info['actual_size_bytes'],
+                            detail='来源 CID、本地文件及格式一致，跳过重复传输')
+        print(f'视频已完成，跳过下载：{existing} · 实际大小 {media.format_size(info["actual_size_bytes"])}')
         return existing.parent, stem
     staging_root = folder / '.streams' / video_id
     if record.mix_quality:
         staging_root /= f'qn{quality.code}' if quality.code is not None else 'legacy'
+    if info.get('episode_id') is not None:
+        staging_root /= f"ep{info['episode_id']}"
     staging = staging_root / provenance.stream_version(source_cid, signature)
     staging.mkdir(parents=True, exist_ok=True)
     sources = []
     try:
         for index, fmt in enumerate(formats):
             check_cancel(cancel_event)
+            size_tracker.start(index)
             extension = naming.safe_name(str(fmt.get('ext', 'bin')), 10)
             format_id = naming.safe_name(str(fmt.get('format_id', index)), 40)
             source = staging / f'{index}.{format_id}.{extension}'
@@ -138,6 +154,9 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
             check_cancel(cancel_event)
             if not success or not source.is_file() or not source.stat().st_size:
                 raise ToolError(f'原始流下载未完成：{source.name}；重新运行可续传')
+            size_tracker.progress({'status': 'finished', 'downloaded_bytes': source.stat().st_size})
+            if activity:
+                activity.update(**size_tracker.expected())
             sources.append(source)
         check_cancel(cancel_event)
         if activity:
@@ -150,6 +169,10 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
             expected = {page['part']: page['cid'] for page in current.data.get('current_parts', [])}
             if expected and expected.get(part) != source_cid:
                 raise ToolError(f'第 {part} P 来源在下载期间变化，请重新运行')
+            if info.get('episode_id') is not None:
+                page = next((page for page in current.data.get('current_parts', []) if page['part'] == part), None)
+                if page is None or page['episode_id'] != info['episode_id']:
+                    raise ToolError(f'第 {part} P 剧集身份在下载期间变化，请重新运行')
             item = current.entry(video_id, part=part, quality=quality, variant=variant)
             if any(other['id'] != item['id'] and other.get('path') and current.resolve_file(other) == destination
                    for other in current.data['files']):
@@ -164,13 +187,17 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
                 item.update(title=info['title'], stem=stem, base_stem=base_stem, mix_quality=current.mix_quality, formats=signature,
                             format_variant=variants.variant_id(signature), processing='stream copy',
                             source_cid=source_cid, content_fingerprint=fingerprint, errors=[])
+                if info.get('episode_id') is not None:
+                    item.update(episode_id=info['episode_id'], season_id=info['season_id'],
+                                bvid=info.get('bvid'), aid=info['aid'], source_url=info['webpage_url'])
                 current.record_file(item, destination)
                 current.save()
 
             replace_file_transaction(current.output_dir, output, destination, current.index_paths, commit)
         library.complete_video(settings, bvid, video_id, quality, destination, executable, source_cid=source_cid, variant=variant, part=part)
+        info.update(saved_path=str(destination), actual_size_bytes=destination.stat().st_size)
         if activity:
-            activity.update(path=str(destination), detail='视频已保存，正在处理字幕')
+            activity.update(path=str(destination), actual_size_bytes=info['actual_size_bytes'], detail='视频已保存，正在处理字幕')
     except (Exception, KeyboardInterrupt) as exc:
         try:
             with library.video_transaction(settings, bvid) as current:
@@ -187,11 +214,13 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
     cleanup = [staging, staging.parent, staging.parent.parent]
     if record.mix_quality:
         cleanup.append(staging.parent.parent.parent)
+    if info.get('episode_id') is not None:
+        cleanup.append(staging_root.parent.parent if not record.mix_quality else staging_root.parent.parent.parent)
     for directory in cleanup:
         try:
             directory.rmdir()
         except OSError:
             # 其他分P可能刚创建断点目录，非空或已被清理均不影响本分P完成。
             pass
-    print(f'视频已保存（原编码，无重新编码）：{destination}')
+    print(f'视频已保存（原编码，无重新编码）：{destination} · 实际大小 {media.format_size(info["actual_size_bytes"])}')
     return folder, stem

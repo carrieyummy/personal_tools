@@ -19,7 +19,7 @@ from unittest.mock import patch, MagicMock
 from bilibili_downloader import config, runtime
 from bilibili_downloader.activity_log import HtmlLog
 from bilibili_downloader.errors import DownloadCancelled
-from tests import PROJECT_DIR
+from tests import CONFIG_PATH, PROJECT_DIR
 
 
 def process_alive(pid: int) -> bool:
@@ -56,7 +56,7 @@ class CancellationTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root)
+        self.settings = replace(config.load_settings(CONFIG_PATH), output_dir=self.root)
 
     def run_worker(self, mode: str, url: str = 'http://127.0.0.1/') -> None:
         """启动 mode/URL 场景，发送中断并断言进程、日志及媒体子进程均正确收尾；无返回值。"""

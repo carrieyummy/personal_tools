@@ -12,14 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dataclasses import replace
 from bilibili_downloader import application, auth, config, runtime, scheduler
 from bilibili_downloader.errors import check_cancel
-from tests import PROJECT_DIR, fake_auth_snapshot
+from tests import CONFIG_PATH, fake_auth_snapshot
 import download_bilibili as cli
 
 
 def main() -> int:
     """读取测试目录、场景和本地 URL，运行真实入口并记录剩余线程；返回 CLI 退出码，无参数。"""
     root, mode, url = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-    settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=root,
+    settings = replace(config.load_settings(CONFIG_PATH), output_dir=root,
                        log_refresh_interval=0.1, cancel_poll_interval=0.05)
 
     def operation(args: object, settings: config.Settings, journal: object) -> int:

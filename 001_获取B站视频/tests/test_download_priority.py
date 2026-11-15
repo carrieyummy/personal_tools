@@ -13,7 +13,7 @@ from yt_dlp import YoutubeDL
 from bilibili_downloader import config, errors, library, media, metadata, models, quality, variants
 from bilibili_downloader import merge as merging
 from bilibili_downloader.merged_records import MergedVideoInfo
-from tests import PROJECT_DIR
+from tests import CONFIG_PATH
 from tests import test_batch_download as batch
 from tests.test_video_quality import sample_info
 
@@ -204,7 +204,7 @@ class PriorityConfigAndSelectionTests(unittest.TestCase):
 
     def test_real_selector_uses_common_codec_without_exceeding_ceiling(self) -> None:
         """验证真实选流可在同档换用共有编码，并在分辨率不同时选择较低兼容档；无返回值。"""
-        settings = config.load_settings(PROJECT_DIR / 'config.yaml')
+        settings = config.load_settings(CONFIG_PATH)
         with YoutubeDL({'quiet': True, 'no_warnings': True, 'format': settings.format_selector,
                         'format_sort': settings.format_sort}) as downloader:
             catalogs = {}
@@ -223,7 +223,7 @@ class PriorityConfigAndSelectionTests(unittest.TestCase):
 
     def test_priority_required_and_enum_checked(self) -> None:
         """验证priority合法值、空值、错误类型及缺项；读取当前配置构造隔离文件，不依赖用户具体配置值。"""
-        original = (PROJECT_DIR / 'config.yaml').read_text(encoding='utf-8')
+        original = CONFIG_PATH.read_text(encoding='utf-8')
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.yaml'
             for value in ('quality', 'merge', '', 'true', '[]', 'bad'):
@@ -240,8 +240,8 @@ class PriorityConfigAndSelectionTests(unittest.TestCase):
 
     def test_real_ffmpeg_merges_explicit_overlapping_variants(self) -> None:
         """用真实短视频验证同P不同尺寸版本按组精确拼接，输出逐帧哈希和来源顺序保持一致；无返回值。"""
-        settings = config.load_settings(PROJECT_DIR / 'config.yaml')
-        executable = media.resolve_ffmpeg(settings, PROJECT_DIR)
+        settings = config.load_settings(CONFIG_PATH)
+        executable = media.resolve_ffmpeg(settings, CONFIG_PATH.parent)
         bvid, q = 'BV1xx411c7mD', models.Quality(80, '1080P')
         with tempfile.TemporaryDirectory() as directory:
             settings = replace(settings, output_dir=Path(directory) / 'downloads')

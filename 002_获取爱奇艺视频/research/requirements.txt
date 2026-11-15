@@ -1,0 +1,6 @@
+-r ../requirements.txt
+
+# 仅供历史格式和本机 DLL 分析；正式转换依赖项目根目录的 requirements.txt。
+pycryptodomex
+pefile
+capstone

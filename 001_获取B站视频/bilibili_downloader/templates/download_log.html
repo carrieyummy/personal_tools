@@ -11,9 +11,10 @@ input[type=search] { padding:9px 12px; width:360px; border:1px solid #cad4e1; bo
 .export { padding:8px 13px; background:#1a579e; color:white; border-radius:6px; text-decoration:none; }
 .run { background:white; margin-bottom:18px; border:1px solid #dce3ed; border-radius:9px; } .run-summary { padding:14px 18px; font-weight:600; cursor:pointer; background:#eaf0f8; border-radius:9px; } .run-content { padding:16px; }
 .overview { display:grid; grid-template-columns:minmax(200px,1fr) minmax(200px,1fr) auto; gap:32px; align-items:center; margin-bottom:16px; } .overview-time { font-size:22px; font-weight:600; }
-.table-wrap { overflow-x:auto; border:1px solid #dce3ed; border-radius:7px; } table { width:100%; min-width:1000px; border-collapse:collapse; text-align:left; table-layout:fixed; }
+.table-wrap { overflow-x:auto; border:1px solid #dce3ed; border-radius:7px; } table { width:100%; min-width:1180px; border-collapse:collapse; text-align:left; table-layout:fixed; }
 th { color:#607086; white-space:nowrap; font-size:12px; font-weight:400; } th,td { padding:9px 12px; border-bottom:1px solid #e6ebf2; vertical-align:middle; overflow-wrap:anywhere; } tr:last-child td { border-bottom:0; }
-th:nth-child(1) { width:29%; } th:nth-child(2) { width:11%; } th:nth-child(3) { width:24%; } th:nth-child(4) { width:12%; } th:nth-child(5) { width:13%; } th:nth-child(6) { width:11%; }
+th:nth-child(1) { width:27%; } th:nth-child(2) { width:9%; } th:nth-child(3) { width:21%; } th:nth-child(4) { width:10%; } th:nth-child(5) { width:11%; } th:nth-child(6) { width:10%; } th:nth-child(7) { width:12%; }
+.size-cell { font-variant-numeric:tabular-nums; font-size:12px; } .size-summary { margin-top:8px; font-variant-numeric:tabular-nums; }
 .task-row { background:#eaf0f8; } .phase-row td { padding:6px 26px; color:#607086; font-size:12px; background:#fafbfd; } .entry-row td:first-child { padding-left:42px; } .entry-row.selected { background:#f0f6ff; }
 .text-button { padding:0; border:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; } .text-button:hover { color:#166ab8; } button:focus-visible,a:focus-visible { outline:2px solid #166ab8; outline-offset:3px; }
 .muted,small { color:#607086; font-size:12px; } small { display:block; } .number,.duration { font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -30,10 +31,11 @@ th:nth-child(1) { width:29%; } th:nth-child(2) { width:11%; } th:nth-child(3) { 
 </style>
 </head><body>
 <h1>B 站任务进度</h1><p class="intro" id="connection"></p><div id="storage" class="notice" hidden></div>
-<div class="toolbar"><input type="search" id="search" placeholder="搜索任务、标题、BV 号、分 P 或错误原因" aria-label="搜索日志"><label><input type="checkbox" id="errors"> 只看失败、中断和提示</label><a class="export" id="export" href="/snapshot">导出 HTML</a></div>
+<div class="toolbar"><input type="search" id="search" placeholder="搜索任务、标题、BV/ss/ep 号、分 P 或错误原因" aria-label="搜索日志"><label><input type="checkbox" id="errors"> 只看失败、中断和提示</label><a class="export" id="export" href="/snapshot">导出 HTML</a></div>
 <main id="runs"></main><script id="download-log-data" type="application/json"><!--DATA--></script>
 <script>
 const live = __LIVE__;
+const clientId = __CLIENT_ID__;
 const labels = __LABELS__;
 const interval = __INTERVAL_MS__;
 const search = document.getElementById('search'), errors = document.getElementById('errors'), runs = document.getElementById('runs'), connection = document.getElementById('connection');
@@ -79,6 +81,7 @@ function entryProgress(entry) {
 function groupTasks(run) {
   const groups = new Map();
   run.entries.forEach(function(entry) { const key = entry.task || entry.id; if(!groups.has(key)) groups.set(key,{key:run.id+':'+key,title:entry.title,task:entry.task,parent:null,children:[]}); const group = groups.get(key); if(entry.kind === '任务') { group.parent = entry; group.title = entry.title; } else group.children.push(entry); });
+  groups.forEach(function(group,key) { group.sizeSummary = run.task_sizes && run.task_sizes[key]; });
   return Array.from(groups.values());
 }
 // 汇总 group 状态；执行中的合并覆盖父任务的等待状态；返回状态键。
@@ -134,7 +137,7 @@ function showDetail(run, group, entry, host) {
   selectedEntries.set(run.id,entry.id); const panel = node('section',undefined,'detail-panel'); panel.dataset.entryId = entry.id;
   const heading = node('div',undefined,'detail-heading'); heading.append(node('h2',group.title+' / '+(entry.part || entry.kind)),badge(entry.status)); panel.append(heading);
   const grid = node('div',undefined,'detail-grid');
-  const fields = [['开始时间',dateTime(entry.active_started)],['更新时间',dateTime(entry.updated)],['结束时间',dateTime(entry.finished)],['已耗时',elapsedElement(entry.active_started,entry.finished)],['平均速度',speed(entry.average_speed_bps)],['预计剩余',duration(entry.eta_seconds)],[entry.kind === '合并' ? '已输出 / 源数据总量' : '当前流已下载 / 总量',bytes(entry.current_bytes)+' / '+bytes(entry.total_bytes)],[entry.kind === '合并' ? '输出吞吐量计时' : '有效传输耗时',duration(entry.metric_seconds)],['画质',entry.quality || '—']];
+  const fields = [['开始时间',dateTime(entry.active_started)],['更新时间',dateTime(entry.updated)],['结束时间',dateTime(entry.finished)],['已耗时',elapsedElement(entry.active_started,entry.finished)],['平均速度',speed(entry.average_speed_bps)],['预计剩余',duration(entry.eta_seconds)],[entry.kind === '合并' ? '已输出 / 源数据总量' : '当前流已下载 / 总量',bytes(entry.current_bytes)+' / '+bytes(entry.total_bytes)],[entry.kind === '合并' ? '输出吞吐量计时' : '有效传输耗时',duration(entry.metric_seconds)],['画质',entry.quality || '—'],['整文件预计大小',entry.expected_size_text || '未知'],['实际文件大小',entry.actual_size_text || '未知']];
   fields.forEach(function(field) { const item = node('div'), value = node('div',undefined,'detail-value number'); value.append(typeof field[1] === 'string' ? document.createTextNode(field[1]) : field[1]); item.append(node('div',field[0],'muted'),value); grid.append(item); }); panel.append(grid);
   const bar = entryProgress(entry); bar.className = 'detail-progress'; panel.append(bar,node('p',entry.detail,'detail-message'),node('small',entry.kind === '合并' ? '平均速度为输出吞吐量；百分比按已处理媒体时间计算。' : '平均速度仅计算本次传输字节，排除已有断点；当前流进度不代表整个分 P 已完成。'));
   if(entry.groups && entry.groups.length) panel.append(node('p','用于拼接组：'+entry.groups.join('；')));
@@ -148,7 +151,7 @@ function appendEntry(body, run, group, entry, host) {
   if(attention.has(entry.status) && entry.detail) { const reason = node('small',entry.detail,'error-summary'); reason.title = entry.detail; title.append(reason); }
   const state = node('td'); state.append(badge(entry.status,entry.kind === '合并' && entry.status === 'pending' ? '等待分 P' : null)); const bar = node('td'); bar.append(entryProgress(entry)); const spent = node('td'); spent.append(elapsedElement(entry.active_started,entry.finished));
   const average = node('td',speed(entry.average_speed_bps),'number'); if(entry.kind === '合并') average.append(node('small','处理吞吐量'));
-  row.append(title,state,bar,spent,average,node('td',duration(entry.eta_seconds),'duration')); body.append(row);
+  row.append(title,state,bar,spent,average,node('td',duration(entry.eta_seconds),'duration'),node('td',entry.file_size_text || '未知','size-cell')); body.append(row);
 }
 // 渲染 data 内存快照；force 表示本地筛选或折叠，保留运行、任务展开状态及滚动位置；无返回值。
 function render(data, force) {
@@ -161,8 +164,9 @@ function render(data, force) {
     description.append(node('p','任务 '+groups.length+' · 进行中 '+groups.filter(function(group) { return !terminal.has(groupStatus(group)); }).length+' · 需关注 '+groups.filter(function(group) { return attention.has(groupStatus(group)); }).length),node('p',run.detail || '下载与合并分别统计','muted'));
     const downloads = run.entries.filter(function(entry) { return entry.kind === '下载'; }), merges = run.entries.filter(function(entry) { return entry.kind === '合并'; }), totals = node('div');
     if(downloads.length) { const ready = downloads.filter(successful).length; totals.append(progress('分 P 已就绪',ready*100/downloads.length,'',downloadCount(downloads))); } if(merges.length) totals.append(node('small','合并完成 '+merges.filter(successful).length+'/'+merges.length+' 组'));
+    const sizeTotal = node('div',undefined,'size-summary'); sizeTotal.append(node('small','目标视频总大小 · 去重，含复用'),node('p',run.size_summary ? run.size_summary.text : '未知','run-size-total')); totals.append(sizeTotal);
     const elapsed = node('div'), clock = elapsedElement(run.started,run.finished); clock.classList.add('overview-time'); elapsed.append(node('p','运行总耗时','muted'),clock); overview.append(description,totals,elapsed); content.append(overview);
-    const wrapper = node('div',undefined,'table-wrap'), table = node('table'), head = node('thead'), headings = node('tr'); ['任务 / 阶段 / 项目','状态','进度','已耗时','平均速度','预计剩余'].forEach(function(title) { headings.append(node('th',title)); }); head.append(headings); table.append(head);
+    const wrapper = node('div',undefined,'table-wrap'), table = node('table'), head = node('thead'), headings = node('tr'); ['任务 / 阶段 / 项目','状态','进度','已耗时','平均速度','预计剩余','文件大小'].forEach(function(title) { headings.append(node('th',title)); }); head.append(headings); table.append(head);
     const body = node('tbody'), detail = node('div'); detail.setAttribute('aria-live','polite'); const query = search.value.trim().toLowerCase(); let chosen;
     groups.forEach(function(group,groupIndex) {
       const entries = group.children.filter(function(entry) { return matches(entry,query); }), parentMatches = group.parent && matches(group.parent,query); if(!entries.length && !parentMatches) return;
@@ -170,20 +174,21 @@ function render(data, force) {
       const row = node('tr',undefined,'task-row'); row.dataset.taskKey = group.key; const title = node('td'), toggle = node('button',(open ? '▾ ' : '▸ ')+group.title,'text-button'); toggle.type = 'button'; toggle.setAttribute('aria-expanded',String(Boolean(open)));
       toggle.addEventListener('click',function() { expandedTasks.set(group.key,!open); render(currentData,true); const next = Array.from(runs.querySelectorAll('.task-row')).find(function(item) { return item.dataset.taskKey === group.key; }); if(next) next.querySelector('button').focus({preventScroll:true}); }); title.append(toggle,node('small',group.task));
       if(group.parent && group.parent.detail && attention.has(group.parent.status)) title.append(node('small',group.parent.detail)); const state = node('td'); state.append(badge(groupStatus(group),group.children.some(function(entry) { return entry.status === 'failed'; }) && groupStatus(group) === 'warning' ? '部分失败' : null));
-      const bars = node('td'); bars.append(groupProgress(group)); const spent = node('td'); spent.append(elapsedElement(...groupTimes(group))); const average = node('td',speed(groupSpeed(group)),'number'); average.append(node('small','下载平均')); row.append(title,state,bars,spent,average,node('td','--:--:--','duration')); body.append(row);
-      if(open) ['下载','合并'].forEach(function(kind) { const children = entries.filter(function(entry) { return entry.kind === kind; }); if(!children.length) return; const phase = node('tr',undefined,'phase-row'), cell = node('td',kind); cell.colSpan = 6; phase.append(cell); body.append(phase); children.forEach(function(entry) { appendEntry(body,run,group,entry,detail); if(selectedEntries.get(run.id) === entry.id || (!selectedEntries.has(run.id) && !chosen)) chosen = [group,entry]; }); });
-      if(parentMatches && !group.children.length) { const reason = node('tr'), message = node('td',group.parent.detail || '任务尚未创建下载或合并项'); message.colSpan = 6; reason.append(message); body.append(reason); }
+      const bars = node('td'); bars.append(groupProgress(group)); const spent = node('td'); spent.append(elapsedElement(...groupTimes(group))); const average = node('td',speed(groupSpeed(group)),'number'); average.append(node('small','下载平均')); row.append(title,state,bars,spent,average,node('td','--:--:--','duration'),node('td',group.sizeSummary ? group.sizeSummary.text : '未知','size-cell task-size-total')); body.append(row);
+      if(open) ['下载','合并'].forEach(function(kind) { const children = entries.filter(function(entry) { return entry.kind === kind; }); if(!children.length) return; const phase = node('tr',undefined,'phase-row'), cell = node('td',kind); cell.colSpan = 7; phase.append(cell); body.append(phase); children.forEach(function(entry) { appendEntry(body,run,group,entry,detail); if(selectedEntries.get(run.id) === entry.id || (!selectedEntries.has(run.id) && !chosen)) chosen = [group,entry]; }); });
+      if(parentMatches && !group.children.length) { const reason = node('tr'), message = node('td',group.parent.detail || '任务尚未创建下载或合并项'); message.colSpan = 7; reason.append(message); body.append(reason); }
     });
-    if(!body.children.length) { const row = node('tr'), message = node('td','暂无匹配活动','empty'); message.colSpan = 6; row.append(message); body.append(row); }
+    if(!body.children.length) { const row = node('tr'), message = node('td','暂无匹配活动','empty'); message.colSpan = 7; row.append(message); body.append(row); }
     table.append(body); wrapper.append(table); content.append(wrapper,detail); section.append(content); fragment.append(section); if(chosen) showDetail(run,chosen[0],chosen[1],detail);
   }); runs.replaceChildren(fragment);
   const storage = document.getElementById('storage'); storage.hidden = !data.storage_error; storage.textContent = data.storage_error ? '日志尚未保存到磁盘，下载和合并继续：'+data.storage_error : ''; updateTimes(); window.scrollTo(0,position);
 }
-// 从本机内存接口获取最新快照；断线时冻结耗时并保留最后状态；无参数及返回值。
+// 从本机内存接口获取并显示快照，最终状态显示后逐页确认；断线时冻结最后状态；无参数及返回值。
 async function refresh() {
-  try { const response = await fetch('/api/state',{cache:'no-store'}); if(!response.ok) throw new Error('HTTP '+response.status); const data = await response.json(); receivedAt = performance.now(); connected = true; render(data);
-    connection.textContent = data.closed ? '运行已结束 · 当前为最终状态' : '实时连接 · 每 '+interval/1000+' 秒更新 · 平均速度 MB/s · 日期 YYYY:MM:DD · 耗时 HH:MM:SS'; if(!data.closed) timer = setTimeout(refresh,interval); else clearInterval(clockTimer);
-  } catch(error) { connected = false; clearInterval(clockTimer); updateTimes(); connection.textContent = '连接已断开 · 以下为最后接收的数据，最终状态请查看程序保存的离线快照'; }
+  try { const response = await fetch('/api/state?client_id='+encodeURIComponent(clientId),{cache:'no-store'}); if(!response.ok) throw new Error('HTTP '+response.status); const data = await response.json(); receivedAt = performance.now(); connected = true; render(data);
+    connection.textContent = data.closed ? '运行已结束 · 当前为最终状态' : '实时连接 · 每 '+interval/1000+' 秒更新 · 平均速度 MB/s · 日期 YYYY:MM:DD · 耗时 HH:MM:SS';
+    if(!data.closed) timer = setTimeout(refresh,interval); else { clearInterval(clockTimer); if(clientId) { const query = new URLSearchParams({client_id:clientId,run_id:data.runs.at(-1).id,revision:String(data.revision)}); const receipt = await fetch('/api/ack?'+query,{cache:'no-store'}); if(!receipt.ok) throw new Error('HTTP '+receipt.status); } }
+  } catch(error) { connected = false; clearInterval(clockTimer); updateTimes(); if(!currentData.closed) connection.textContent = '连接已断开 · 以下为最后接收的数据，最终状态请查看程序保存的离线快照'; }
 }
 search.addEventListener('input',function() { render(currentData,true); }); errors.addEventListener('change',function() { render(currentData,true); });
 const initial = JSON.parse(document.getElementById('download-log-data').textContent); render(initial); document.getElementById('export').hidden = !live;

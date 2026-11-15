@@ -1,0 +1,19 @@
+{
+  "dll_path": "D:\\Program Files\\IQIYI Video\\LStyle\\14.9.0.10269\\mctoplayer.dll",
+  "dll_sha256": "47f669d197025b03ba77c782c35dc5eeed81434b33627719d12710da3f9d34df",
+  "cert_path": "C:\\Users\\Public\\QiYi\\drmq_config\\cert",
+  "attempt_config": "D:\\VSCode\\personal_tools\\002_获取爱奇艺视频\\research\\archive\\attempt_config.json",
+  "rva": {
+    "version": 4112,
+    "allocate": 4256,
+    "release": 4368,
+    "set_certificate": 5200,
+    "set_license": 6336,
+    "set_mode": 10368,
+    "decrypt": 8384
+  },
+  "report_path": "E:\\qycache\\decode_work\\episode01\\native_v5_probe.json",
+  "max_pes_bytes": 16777216,
+  "clear_video_path": "E:\\qycache\\decode_work\\episode01\\video_native_clear.ts",
+  "conversion_report": "E:\\qycache\\decode_work\\episode01\\native_conversion.json"
+}

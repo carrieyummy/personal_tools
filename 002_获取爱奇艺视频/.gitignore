@@ -1,0 +1,27 @@
+# Python 解释器与测试缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 完整解码性能比较的逐次报告、进度及 GPU 采样
+/tests/benchmark_results/
+
+# 本地虚拟环境
+.venv/
+venv/
+
+# 下载、转换产物及运行日志
+*.qsv
+*.qsv.tqs
+*.ts
+*.m4a
+*.mp4
+*.log
+*.partial
+
+# 批次写入锁及原子保存的临时文件；正式配置与转换网页模板仍纳入版本管理。
+.conversion.lock
+.*.tmp
+
+# 调研下载的第三方参考仓库，包含其独立 Git 元数据；正式程序不依赖它们。
+/research/third_party/

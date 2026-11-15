@@ -13,7 +13,8 @@ from .errors import ToolError
 class DownloadRequest:
     """描述一项输入：url 为规范链接，title 只用于日志，all_parts/merge_parts 控制范围和拼接。
 
-    quality_rank 为本任务档位并集中的正整数上限排名，None 表示普通链接交互选择上限；source 标识清单位置。
+    quality_rank 为清单任务档位并集中的正整数上限排名，None 表示普通链接交互选择；source 标识清单位置。
+    quality_group 是本次运行共用档位排名确认的关联季 ss 标识集合，空集合表示独立选择；清单仍按原有规则选档。
     """
 
     url: str
@@ -22,6 +23,7 @@ class DownloadRequest:
     merge_parts: str
     quality_rank: int | None
     source: str
+    quality_group: frozenset[str] = frozenset()
 
 
 def is_manifest(value: str) -> bool:
@@ -68,7 +70,7 @@ def load_manifest(path: Path, settings: Settings, all_parts: bool, merge_parts: 
             raise ToolError(f'{label}：未知任务配置 {sorted(unknown, key=str)}')
         validate_options(entry, label)
         if not isinstance(entry.get('url'), str) or not entry['url'].strip():
-            raise ToolError(f'{label}：url 必须为非空视频链接或 BV/AV 号')
+            raise ToolError(f'{label}：url 必须为非空视频/番剧链接、BV/AV 或 ep/ss 号')
         if not isinstance(entry.get('title', ''), str):
             raise ToolError(f'{label}：title 必须为字符串，仅用于日志备注')
         quality = entry.get('quality', data.get('quality'))

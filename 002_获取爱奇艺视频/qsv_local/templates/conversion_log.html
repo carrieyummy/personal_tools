@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>爱奇艺 · 本地转换记录</title>
+<style>
+:root{color-scheme:light;--ink:#19291f;--muted:#657269;--line:#dce4dd;--green:#246c48;--bg:#f4f6f1}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1360px;margin:auto;padding:36px 32px 64px}header{display:flex;justify-content:space-between;align-items:center;gap:24px}
+.eyebrow{font-size:12px;letter-spacing:.15em;color:var(--green)}h1{font-size:30px;letter-spacing:-.04em;margin:4px 0 8px}p{margin:0;color:var(--muted)}
+button,.button,input,select{font:inherit;border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:white;color:var(--ink)}
+button,.button{cursor:pointer;text-decoration:none}button:hover,.button:hover{border-color:var(--green)}.toolbar{display:flex;gap:10px;margin:26px 0 14px}input{flex:1;min-width:120px}
+.connection{font-size:12px;color:var(--green);margin-top:8px}.notice{color:#9a4c1c}.summary{display:flex;gap:12px;flex-wrap:wrap;margin:22px 0}.metric{flex:1;min-width:130px;background:white;border:1px solid var(--line);border-radius:10px;padding:16px 20px}.metric b{display:block;font-size:26px;line-height:1.3}.metric span{color:var(--muted);font-size:12px}
+details.run{margin:16px 0;border:1px solid var(--line);border-radius:12px;background:white;overflow:hidden}summary{cursor:pointer;list-style:none}
+summary::before{content:"›";display:inline-block;margin-right:10px;transition:transform .15s}details[open]>summary::before{transform:rotate(90deg)}
+.run>summary{padding:16px 20px;background:#eaf0e8;font-weight:600}.run>summary small{font-weight:400;color:var(--muted);margin-left:16px}
+.directory{margin:0 20px;border-top:1px solid var(--line)}.directory>summary{padding:14px 0;font-weight:600;overflow-wrap:anywhere}
+.phase{padding:8px 12px;color:var(--muted);font-size:12px;background:#f6f8f4;border-radius:6px}.row{display:grid;grid-template-columns:minmax(180px,1fr) 110px minmax(150px,.6fr) 90px;align-items:center;gap:16px;border-bottom:1px solid #edf0ea;padding:12px 8px;cursor:pointer}.row:hover,.row.selected{background:#f1f6ee}.title{overflow-wrap:anywhere}.row small{display:block;color:var(--muted)}
+.badge{font-size:12px;padding:3px 8px;border-radius:20px;background:#eef1ec;white-space:nowrap;display:inline-block}.badge.completed,.badge.reused{background:#e3f2e8;color:#236444}.badge.failed,.badge.interrupted,.badge.warning{background:#fff0e5;color:#99461f}.badge.running{background:#e6edf9;color:#345e9d}
+progress{display:block;width:100%;height:6px;accent-color:var(--green);margin-top:5px}.detail{margin:10px 0 18px;padding:16px;border:1px solid var(--line);background:#fafcf8;border-radius:8px;overflow-wrap:anywhere}.detail p{margin:4px 0}.detail a{color:var(--green);margin-right:16px}.empty{padding:30px;color:var(--muted);text-align:center}
+@media(max-width:720px){main{padding:20px 14px}header{align-items:flex-start}h1{font-size:24px}.row{grid-template-columns:1fr 90px;gap:8px}.run>summary small{display:block;margin-left:20px}.toolbar{flex-wrap:wrap}.directory{margin:0 12px}.metric{min-width:90px;padding:12px}}
+</style>
+</head>
+<body><main>
+<header><div><div class="eyebrow">LOCAL VIDEO / CONVERSION JOURNAL</div><h1>爱奇艺 · 本地转换记录</h1><p>保留每个版本，追踪每次转换。</p><div id="connection" class="connection"></div></div><a id="export" class="button" href="/export">导出 HTML</a></header>
+<div id="metrics" class="summary"></div>
+<div class="toolbar"><input id="search" type="search" placeholder="搜索目录、视频名或错误原因" aria-label="搜索日志"><select id="filter" aria-label="筛选状态"><option value="">全部状态</option><option value="attention">失败与中断</option><option value="reused">已复用</option><option value="completed">已完成</option></select></div>
+<p id="storage" class="notice"></p><div id="runs"></div>
+</main><script id="conversion-log-data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const live=__LIVE__, interval=__INTERVAL__, opened=new Map(), selected=new Map();
+const labels={pending:"待处理",running:"处理中",completed:"已完成",reused:"已复用",failed:"失败",interrupted:"已中断",skipped:"未执行",warning:"部分失败"};
+const stages={reading:"读取与校验",authorizing:"验证授权",extracting:"提取音视频",decrypting:"处理视频分段",muxing:"封装 MP4",waiting_verification:"等待验证设备",verifying:"完整解码验证",checking:"校验来源及成品",publishing:"保存成品与索引",migrating:"迁移旧版成品"};
+let state=JSON.parse(document.getElementById("conversion-log-data").textContent), connected=true;
+/** 创建 tag 元素，text 为可选纯文本，cls 为可选类名；返回 DOM 元素。 */
+function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
+/** 将状态值 value 格式化为标签 DOM；返回 span。 */
+function badge(value){return node("span",labels[value]||value,"badge "+value);}
+/** 将 ISO 时间 value 格式化为本地年月日时分秒；返回字符串。 */
+function date(value){if(!value)return "—";const d=new Date(value),p=function(n){return String(n).padStart(2,"0");};return d.getFullYear()+":"+p(d.getMonth()+1)+":"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());}
+/** 按 start/end 和当前连接状态计算耗时；返回 HH:MM:SS，未知返回占位符。 */
+function elapsed(start,end){if(!start)return "--:--:--";let seconds=Math.max(0,Math.floor((new Date(end||(live&&connected&&!state.closed?Date.now():state.captured_at))-new Date(start))/1000));return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(function(n){return String(n).padStart(2,"0");}).join(":");}
+/** 创建带稳定 key 的折叠区域；isOpen 是首次展开状态，返回 details。 */
+function fold(key,isOpen,cls){const e=node("details",undefined,cls);e.open=opened.has(key)?opened.get(key):isOpen;e.addEventListener("toggle",function(){if(e.isConnected)opened.set(key,e.open);});return e;}
+/** 判断视频 entry 是否满足当前搜索与筛选；返回布尔值。 */
+function matches(entry){const query=document.getElementById("search").value.toLowerCase(),filter=document.getElementById("filter").value;return (!query||[entry.source_relative,entry.detail,entry.output].join(" ").toLowerCase().includes(query))&&(!filter||(filter==="attention"?["failed","interrupted","warning"].includes(entry.status):entry.status===filter));}
+/** 创建视频 entry 的详情区域；返回 DOM，所有来源文字使用 textContent。 */
+function detail(entry){const e=node("div",undefined,"detail");e.append(node("strong",entry.title));[entry.source_relative,entry.detail,"开始："+date(entry.started)+" · 结束："+date(entry.finished),"输出："+(entry.output||"—")].forEach(function(text){e.append(node("p",text));});if(entry.file_url){const a=node("a","打开 MP4");a.href=entry.file_url;a.target="_blank";e.append(a);}if(entry.report_url){const a=node("a","转换报告");a.href=entry.report_url;a.target="_blank";e.append(a);}return e;}
+/** 按当前 state 渲染历史、目录和阶段树；保留展开、选中与页面滚动位置，无返回值。 */
+function render(){
+  const scroll=window.scrollY,host=document.getElementById("runs");
+  host.replaceChildren();
+  const runs=state.runs.slice().reverse(),latest=runs[0],counts={completed:0,reused:0,failed:0};
+  if(latest)latest.entries.forEach(function(e){if(e.status in counts)counts[e.status]++;});
+  const metrics=document.getElementById("metrics");
+  metrics.replaceChildren();
+  [["本批视频",latest?latest.entries.length:0],["转换完成",counts.completed],["已复用",counts.reused],
+   ["失败",counts.failed],["等待下载",latest?(latest.pending_downloads||[]).length:0]].forEach(function(pair){
+    const e=node("div",undefined,"metric");
+    e.append(node("b",pair[1]),node("span",pair[0]));metrics.append(e);
+  });
+  document.getElementById("connection").textContent=live?
+    (connected?(state.closed?"本次运行已结束":"实时连接 · 每 "+interval/1000+" 秒刷新"):"连接已断开 · 保留最后状态"):
+    "离线快照 · 导出于 "+date(state.captured_at);
+  document.getElementById("storage").textContent=state.storage_error?"日志保存提示："+state.storage_error:"";
+  runs.forEach(function(run,index){
+    const entries=run.entries.filter(matches);
+    if(!entries.length&&run.entries.length)return;
+    const box=fold("run:"+run.id,index===0,"run"),heading=node("summary",date(run.started)+"  ");
+    heading.append(badge(run.status),node("small",run.entries.length+" 个视频 · "+elapsed(run.started,run.finished)));
+    box.append(heading);
+    if((run.pending_downloads||[]).length){
+      const pending=fold("pending:"+run.id,false,"detail");
+      pending.append(node("summary","下载保护：已忽略 "+run.pending_downloads.length+" 个未完成或状态不明的文件"));
+      run.pending_downloads.forEach(function(item){pending.append(node("p",item.source+" · "+item.reason));});
+      box.append(pending);
+    }
+    const groups=new Map();
+    entries.forEach(function(e){if(!groups.has(e.directory))groups.set(e.directory,[]);groups.get(e.directory).push(e);});
+    groups.forEach(function(items,directory){
+      const group=fold("dir:"+run.id+":"+directory,true,"directory"),
+        title=node("summary",directory==="."?"输入根目录":directory);
+      title.append(node("small"," · "+items.length+" 个视频"));group.append(title);
+      [["conversion","转换"],["verification","验证与发布"]].forEach(function(pair){
+        group.append(node("div",pair[1],"phase"));
+        items.forEach(function(entry){
+          const phase=entry[pair[0]],
+            row=node("div",undefined,"row"+(selected.get(run.id)===entry.id?" selected":""));
+          row.tabIndex=0;row.setAttribute("role","button");
+          const name=node("div",entry.title,"title");name.append(node("small",stages[phase.stage]||""));
+          if(pair[0]==="verification"&&phase.device)name.append(node("small","验证设备："+phase.device.toUpperCase()));
+          const status=node("div");status.append(badge(phase.status));
+          const meter=node("div",typeof phase.progress==="number"?phase.progress.toFixed(1)+"%":"");
+          if(phase.status==="running"){
+            const bar=node("progress");
+            if(typeof phase.progress==="number"){bar.max=100;bar.value=phase.progress;}
+            meter.append(bar);
+          }
+          row.append(name,status,meter,node("small",elapsed(entry.started,entry.finished)));
+          const choose=function(){selected.set(run.id,entry.id);render();};
+          row.addEventListener("click",choose);
+          row.addEventListener("keydown",function(event){
+            if(event.key==="Enter"||event.key===" "){event.preventDefault();choose();}
+          });
+          group.append(row);
+        });
+      });
+      const chosen=items.find(function(e){return selected.get(run.id)===e.id;});
+      if(chosen)group.append(detail(chosen));box.append(group);
+    });
+    if(!entries.length)box.append(node("div","本次没有可转换的已完成 QSV。","empty"));
+    host.append(box);
+  });
+  if(!host.children.length)host.append(node("div","没有符合筛选条件的记录。","empty"));
+  window.scrollTo(0,scroll);
+}
+document.getElementById("search").addEventListener("input",render);document.getElementById("filter").addEventListener("change",render);document.getElementById("export").hidden=!live;render();
+/** 从本机服务轮询内存快照；离线导出不执行，断线后保留最后数据，无返回值。 */
+async function poll(){if(!live)return;try{const response=await fetch("/api/state",{cache:"no-store"});if(!response.ok)throw new Error("连接失败");state=await response.json();connected=true;}catch(error){connected=false;}render();if(!state.closed)setTimeout(poll,interval);}
+if(live&&!state.closed)setTimeout(poll,interval);
+</script></body></html>

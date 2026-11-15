@@ -75,8 +75,8 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
+                    // 可选：指定 YAML 配置文件；默认读取脚本目录下的 config/config.yaml。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config/config.yaml",
                     // 仅验证配置的登录态，不下载视频。
                     "--login-only"
                 ]
@@ -91,9 +91,9 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
-                    // 输入视频链接、BV/AV 号或 YAML 清单路径；相对路径以此工具目录为基准，可重复传入 --url。
+                    // 可选：指定 YAML 配置文件；默认读取脚本目录下的 config/config.yaml。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config/config.yaml",
+                    // 输入视频/番剧链接、BV/AV 或 ep/ss 号、YAML 清单路径；相对路径以此工具目录为基准，可重复传入 --url。
                     "--url", "${input:bilibiliUrl}",
                     // 仅查看当前账号可下载画质、参考编码和字幕；不进入清晰度确认、不下载。
                     "--list-formats"
@@ -109,9 +109,9 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
-                    // 输入视频链接或 YAML 清单；普通链接按 p 选分P并选择一次上限，清单按档位并集排名确定上限。
+                    // 可选：指定 YAML 配置文件；默认读取脚本目录下的 config/config.yaml。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config/config.yaml",
+                    // 输入视频/番剧链接或 YAML 清单；投稿按 p、番剧按 ep 选目标，ss 默认首集；all_seasons 开启时逐季下载全部正片，同一番剧只选一次逐集档位排名（1=每集最高）；清单仍逐季按档位并集排名确定上限。
                     "--url", "${input:bilibiliUrl}"
                 ]
             },
@@ -125,11 +125,11 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
-                    // 输入视频链接或 YAML 清单路径；例如 download_list/download_list.yaml。
+                    // 可选：指定 YAML 配置文件；默认读取脚本目录下的 config/config.yaml。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config/config.yaml",
+                    // 输入视频/番剧链接或 YAML 清单路径；例如 download_list/download_list.yaml。
                     "--url", "${input:bilibiliUrl}",
-                    // 普通链接下载全部分P并选择一次画质上限；清单的 all-parts 优先覆盖此默认值。
+                    // 普通投稿下载全部分P、番剧下载同季正片；all_seasons 开启时展开关联季，只确认一次逐集档位排名，1=每集最高、2=每集第二高；清单的 all-parts 优先覆盖此默认值。
                     "--all-parts",
                     // 下载后拼接：-1 不拼接，0 拼接全部，其他值分组拼接；清单项、清单全局的 merge-parts 优先。
                     // 下载后拼接使用各P实际分配的画质，不另弹菜单；每组必须同档，混合目录也不跨画质拼接。
@@ -150,9 +150,9 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
-                    // 输入已下载视频的 BV 号或普通 BV 链接；无需登录，多清晰度时在终端选择一个，不跨目录补齐。
+                    // 可选：指定 YAML 配置文件；默认读取脚本目录下的 config/config.yaml。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config/config.yaml",
+                    // 输入已下载视频的 BV 号、番剧 ss 号或对应链接；无需登录，多清晰度时在终端选择一个，不跨目录补齐。
                     "--merge-video", "${input:bilibiliMergeId}",
                     // 离线拼接：-1 不拼接，0 或留空拼接全部；其他值按表达式分组拼接。
                     // 分 P 编号从 1 开始，1 对应 P1；0 只能单独输入，不能作为组内编号。
@@ -171,8 +171,8 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
+                    // 可选：指定 YAML 配置文件；默认读取脚本目录下的 config/config.yaml。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config/config.yaml",
                     // 扫描配置的下载目录，迁移旧记录并补充视频信息；无需输入链接，不下载或拼接视频。
                     "--refresh-metadata"
                 ]
@@ -182,12 +182,12 @@
             {
                 "id": "bilibiliUrl",
                 "type": "promptString",
-                "description": "输入视频链接、BV/AV 号或 YAML 清单路径（如 download_list/download_list.yaml，相对工具目录）"
+                "description": "输入视频/番剧链接、BV/AV 或 ep/ss 号、YAML 清单路径（如 download_list/download_list.yaml，相对工具目录）"
             },
             {
                 "id": "bilibiliMergeId",
                 "type": "promptString",
-                "description": "输入已下载视频的 BV 号或普通 BV 视频链接"
+                "description": "输入已下载视频的 BV 号、番剧 ss 号或对应链接"
             },
             {
                 "id": "bilibiliDownloadMergeParts",

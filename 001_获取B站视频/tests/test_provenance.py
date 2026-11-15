@@ -14,7 +14,7 @@ from bilibili_downloader import config, errors, library, media, metadata, models
 from bilibili_downloader import downloader as transfer
 from bilibili_downloader import merge
 from bilibili_downloader.merged_records import MergedVideoInfo
-from tests import PROJECT_DIR
+from tests import CONFIG_PATH
 
 
 class ContentUpdateTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class ContentUpdateTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root, overwrite_merged=False)
+        self.settings = replace(config.load_settings(CONFIG_PATH), output_dir=self.root, overwrite_merged=False)
         self.bvid, self.title = 'BV1xx411c7mD', '内容更新测试'
         self.quality = models.Quality(80, '1080P')
         self.fmt = {'format_id': '80', 'vcodec': 'avc1', 'acodec': 'none', 'width': 64, 'height': 64, 'fps': 5,

@@ -1,4 +1,4 @@
-"""B 站工具测试包；通过 unittest 从项目根目录发现用例，共用 PROJECT_DIR 定位配置和扩展资源。"""
+"""B 站工具测试包；通过 unittest 发现用例，共用 PROJECT_DIR 和 CONFIG_PATH 定位资源及主配置。"""
 
 from pathlib import Path
 
@@ -6,6 +6,7 @@ from bilibili_downloader.auth import AuthSnapshot
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
+CONFIG_PATH = PROJECT_DIR / 'config' / 'config.yaml'
 
 
 def fake_auth_snapshot() -> AuthSnapshot:

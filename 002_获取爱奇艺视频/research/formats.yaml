@@ -1,0 +1,26 @@
+# 格式研究与验证范围；不作为运行参数，实际 SDK 路径及函数位置只读取 configs/native_v5.yaml。
+selection: 根据实际容器版本、授权版本和 TS 分段标记识别；不以发行年代猜测算法。
+verified:
+  container_version: 2
+  license_version: 5
+  methods:
+    - marker: 服务名内嵌 "|mdcm|"，常见含 "|gv|" 字段。
+      handling: 原样交给本机已校验 SDK 配置分段，再逐 NAL 处理；保留原始时间戳。
+      status: 已有完整整集验证及迁移复用记录。
+    - marker: 服务名从 "mdcm|" 开始；不要求出现 gv。
+      handling: 使用该视频自身的完整描述符配置 SDK；支持片头明文与后续加密分段切换。
+      status: 已通过另一实际样本的完整整集解码及帧数校验。
+    - marker: 当前分段没有 mdcm 标记。
+      handling: 保留明文 PES；后续分段仍逐段识别，不能仅凭片头短片断言整集明文。
+      status: 传输层有隔离用例；正式成功仍必须通过全部视频及音轨解码验证。
+other_formats:
+  - condition: 授权版本 3
+    reference: third_party/monalisa_v3
+    candidate: 参考其 v3 票据处理与 third_party/bbtsdecrypt 的 BBTS 分段处理。
+    status: 仅研究参考；没有当前项目完整样本验证，不接入正式转换，不输出密钥。
+  - condition: 其他容器版本、TS 包级加密或不认识的描述符。
+    handling: 明确报告检测到的格式与失败原因，保留现场，继续其他批次任务。
+download_protection:
+  completed: 只读 PPSDownLoad.db 的 Downloaded.xml，按配置核对完成状态。
+  active: Download.xml 中的路径优先排除；下载临时后缀与未知状态同样排除。
+  invariant: 在完成筛选之前，不打开、哈希、锁定、改名或删除视频内容。

@@ -17,9 +17,10 @@ from .models import SubtitleTrack, VideoTarget
 
 
 def list_subtitles(context: Any, target: VideoTarget, info: dict[str, Any], settings: Settings) -> list[SubtitleTrack]:
-    """查询 target/info 对应的字幕，按 settings 筛选语言与 AI；返回字幕列表，接口错误不伪装成无字幕。"""
+    """经 context 查询 target/info 的字幕；番剧使用真实 AV/CID，按 settings 筛选语言与AI，返回列表，接口错误不伪装成无字幕。"""
     video_id = str(info["id"]).split("_p")[0]
-    data = api.api_json(context, "/x/player/wbi/v2", settings, {"bvid": video_id, "cid": target.cid})["data"]
+    params = {'aid': target.aid, 'cid': target.cid, 'ep_id': target.episode_id} if target.episode_id is not None else {'bvid': video_id, 'cid': target.cid}
+    data = api.api_json(context, "/x/player/wbi/v2", settings, params)["data"]
     if not isinstance(data, dict):
         raise ToolError("字幕列表格式异常")
     if data.get("need_login_subtitle"):

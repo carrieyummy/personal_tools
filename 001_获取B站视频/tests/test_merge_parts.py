@@ -16,7 +16,7 @@ from bilibili_downloader.merged_records import MergedVideoInfo
 from bilibili_downloader import config as configuration
 import download_bilibili as cli_entry
 from bilibili_downloader import runtime
-from tests import PROJECT_DIR
+from tests import CONFIG_PATH
 
 
 class MergeGroupTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class MergeGroupTests(unittest.TestCase):
         """创建临时目录并模拟 FFmpeg 输出和媒体探测；无返回值。"""
         self.stack = ExitStack()
         self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
-        self.settings = replace(configuration.load_settings(PROJECT_DIR / "config.yaml"), output_dir=self.root, overwrite_merged=True)
+        self.settings = replace(configuration.load_settings(CONFIG_PATH), output_dir=self.root, overwrite_merged=True)
         self.bvid = "BV1xx411c7mD"
         self.formats = [{"vcodec": "avc1", "acodec": "none", "width": 64, "height": 64}]
         self.ffmpeg = self.stack.enter_context(patch.object(runtime, "run_process", side_effect=self.concatenate))
@@ -186,7 +186,7 @@ class MergeGroupTests(unittest.TestCase):
 
     def test_overwrite_configuration_requires_yaml_boolean(self) -> None:
         """验证覆盖开关从 YAML 读取 true/false，拒绝数字、字符串和缺失字段；无返回值。"""
-        original = yaml.safe_load((PROJECT_DIR / 'config.yaml').read_text(encoding='utf-8'))
+        original = yaml.safe_load(CONFIG_PATH.read_text(encoding='utf-8'))
         path = self.root / 'config.yaml'
         for expected in (True, False):
             with self.subTest(value=expected):
@@ -395,7 +395,7 @@ class MergeGroupTests(unittest.TestCase):
                 quality_suffix = '_' + stored.quality_suffix(models.LEGACY_QUALITY) if settings.mix_quality else ''
                 self.assertEqual(output["file_name"], f"测试投稿_{self.bvid}{quality_suffix}.mp4")
                 self.assertEqual(output["source_parts"], [1, 2, 3])
-                self.assertEqual(stored.data["schema_version"], 7)
+                self.assertEqual(stored.data["schema_version"], 8)
                 migrated = next(item for item in merged_files if item['id'] == self.bvid + ':' + legacy['id'])
                 self.assertIsNone(migrated['source_parts'])
                 self.assertTrue(all(item['kind'] != 'merged' for item in stored.data['files']))
@@ -446,8 +446,8 @@ class MergeMediaTests(unittest.TestCase):
 
     def test_multiple_outputs_preserve_exact_frames_and_sources(self) -> None:
         """生成十二段不同画面的编码视频，验证示例、倒序组合及重复分组的实际帧哈希；无返回值。"""
-        settings = configuration.load_settings(PROJECT_DIR / "config.yaml")
-        executable = media.resolve_ffmpeg(settings, PROJECT_DIR)
+        settings = configuration.load_settings(CONFIG_PATH)
+        executable = media.resolve_ffmpeg(settings, CONFIG_PATH.parent)
         bvid = "BV1xx411c7mD"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

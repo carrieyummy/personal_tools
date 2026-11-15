@@ -32,7 +32,11 @@ def folder_quality(base: Path, folder: Path) -> tuple[Quality, str] | None:
 
 def organize_submission(info: metadata.VideoInfo, target_base: Path | None = None, *, shared: bool = False,
                         mix_quality: bool | None = None, persist_source: bool = True) -> None:
-    """整理 info 到 target_base；shared 改合集名，mix_quality 指定模式，persist_source=False 仅迁移成品，失败回滚，无返回值。"""
+    """整理 info 到 target_base；shared 改合集名，mix_quality 指定模式，persist_source=False 仅迁移成品。
+
+    布局不变时仍清理旧空目录；当前源索引目录不递归清理，保留正在准备写入的断点子目录。
+    失败回滚媒体及索引，无返回值。
+    """
     original, old_path = deepcopy(info.data), info.path
     old_indexes, old_quality_folders = set(info._index_paths), dict(info._quality_folders)
     if old_path.exists():
@@ -129,15 +133,15 @@ def organize_submission(info: metadata.VideoInfo, target_base: Path | None = Non
                 if destination:
                     paths.append((item, destination))
                 if item.get('part') is not None:
-                    stream_qualities.setdefault(f"{info.data['bvid']}_p{item['part']}", set()).add(quality)
+                    stream_qualities.setdefault(f"{info.data['source_id']}_p{item['part']}", set()).add(quality)
         for folder in sorted(old_folders):
             validate_path(folder, info.output_dir)
             parsed = folder_quality(base, folder)
             if not folder.is_dir() or (parsed and parsed[1] == 'merged'):
                 continue
             folder_mixed = folder == base.with_name(base.name + '_分P')
-            for stream in (folder / '.streams').glob(f"{info.data['bvid']}_p*"):
-                if not re.fullmatch(re.escape(info.data['bvid']) + r'_p[1-9]\d*', stream.name):
+            for stream in (folder / '.streams').glob(f"{info.data['source_id']}_p*"):
+                if not re.fullmatch(re.escape(info.data['source_id']) + r'_p[1-9]\d*', stream.name):
                     continue
                 if folder_mixed:
                     for bucket in stream.iterdir():
@@ -151,7 +155,7 @@ def organize_submission(info: metadata.VideoInfo, target_base: Path | None = Non
                     quality = parsed[0] if parsed else next(iter(choices)) if len(choices) == 1 else LEGACY_QUALITY
                     move_stream_children(stream, quality, stream.name)
             for sidecar in folder.iterdir():
-                owned = old_path.name == 'video_info.json' or info.data['bvid'] in sidecar.name
+                owned = old_path.name == 'video_info.json' or info.data['source_id'] in sidecar.name
                 if sidecar.is_file() and sidecar.suffix.lower() in ('.srt', '.ass', '.vtt') and sidecar not in known and owned:
                     if mixed != was_mixed:
                         raise ToolError(f'字幕未关联源视频，无法在切换模式时确定新文件名：{sidecar}')
@@ -169,7 +173,7 @@ def organize_submission(info: metadata.VideoInfo, target_base: Path | None = Non
             old_index = MergedVideoInfo(info.output_dir, folder)
             moved_ids, moved_results = set(), set()
             for item in old_index.data['files']:
-                if item['bvid'] != info.data['bvid']:
+                if item['source_id'] != info.data['source_id']:
                     continue
                 source = old_index.resolve_file(item) if item.get('path') else None
                 if source is None:
@@ -185,7 +189,7 @@ def organize_submission(info: metadata.VideoInfo, target_base: Path | None = Non
             result_folder = naming.role_folder(target, '', True, 'merged')
             if folder != result_folder:
                 for result in old_index.data['merge_results']:
-                    if result['bvid'] != info.data['bvid']:
+                    if result['source_id'] != info.data['source_id']:
                         continue
                     copy = deepcopy(result)
                     copy['directory_base'] = target.name
@@ -196,7 +200,7 @@ def organize_submission(info: metadata.VideoInfo, target_base: Path | None = Non
                 old_index.data['merge_results'] = [item for item in old_index.data['merge_results'] if item['id'] not in moved_results]
                 obsolete[old_index.path] = old_index
         anchor = source_entries[0] if source_entries else original['files'][0] if original['files'] else None
-        name = f"{info.data['bvid']}_video_info.json" if shared else old_path.name
+        name = f"{info.data['source_id']}_video_info.json" if shared else old_path.name
         canonical = old_path
         if anchor is not None or shared:
             destinations = {destination_folder(entry_quality(item)) for item in source_entries}
@@ -207,31 +211,31 @@ def organize_submission(info: metadata.VideoInfo, target_base: Path | None = Non
             for item, destination in paths:
                 item['path'] = destination.relative_to(canonical.parent, walk_up=True).as_posix()
             info.data.update(files=source_entries, directory_base=target.name)
-        info.data.update(schema_version=7, record_type='source', mix_quality=mixed)
-        if info.data == original and not moves and not indexes and canonical == old_path:
-            return
-        info.path = canonical
-        if target != base or mixed != was_mixed:
-            info._quality_folders = {}
-        records = [*(info.index_paths if persist_source else []), *indexes, *(path for path, index in obsolete.items() if index.has_records)]
-        deletes = [path for path, index in obsolete.items() if not index.has_records]
+        info.data.update(schema_version=8, record_type='source', mix_quality=mixed)
+        if info.data != original or moves or indexes or canonical != old_path:
+            info.path = canonical
+            if target != base or mixed != was_mixed:
+                info._quality_folders = {}
+            records = [*(info.index_paths if persist_source else []), *indexes, *(path for path, index in obsolete.items() if index.has_records)]
+            deletes = [path for path, index in obsolete.items() if not index.has_records]
 
-        def commit() -> None:
-            """保存目标合并索引、旧共享索引和全部源索引；异常由外层文件事务回滚，无参数及返回值。"""
-            for index in [*indexes.values(), *(index for index in obsolete.values() if index.has_records)]:
+            def commit() -> None:
+                """保存目标合并索引、旧共享索引和全部源索引；异常由外层文件事务回滚，无参数及返回值。"""
+                for index in [*indexes.values(), *(index for index in obsolete.values() if index.has_records)]:
+                    check_cancel()
+                    index.save()
                 check_cancel()
-                index.save()
-            check_cancel()
-            if persist_source:
-                info.save()
+                if persist_source:
+                    info.save()
 
-        apply_changes(info.output_dir, list(moves.items()), records, commit, deletes)
+            apply_changes(info.output_dir, list(moves.items()), records, commit, deletes)
     except BaseException:
         info.data, info.path = original, old_path
         info._index_paths, info._quality_folders = old_indexes, old_quality_folders
         raise
+    source_folders = {path.parent for path in info._index_paths}
     for folder in old_folders:
-        metadata.remove_empty_directories(folder, info.output_dir)
+        metadata.remove_empty_directories(folder, info.output_dir, recursive=folder not in source_folders)
     if base.parent == target:
         metadata.remove_empty_directories(target, info.output_dir)
 
@@ -241,11 +245,11 @@ def organize_independent_merges(index: MergedVideoInfo, mix_quality: bool) -> se
     destinations = set()
     folder = index.path.parent
     subjects = list(index.data['files'])
-    seen = {item['bvid'] for item in subjects}
+    seen = {item['source_id'] for item in subjects}
     for result in index.data['merge_results']:
-        if result['bvid'] not in seen:
+        if result['source_id'] not in seen:
             subjects.append(result)
-            seen.add(result['bvid'])
+            seen.add(result['source_id'])
     for item in subjects:
         result_only = 'source_expression' in item
         suffix = '_' + item.get('quality_dir', entry_quality(item).directory) + '_合并'
@@ -258,7 +262,7 @@ def organize_independent_merges(index: MergedVideoInfo, mix_quality: bool) -> se
             base_name = folder.name[:-len(suffix)]
         else:
             raise ToolError(f'独立合并目录无法确认基础名称：{folder}')
-        info = metadata.VideoInfo(index.output_dir, folder, item['bvid'], item.get('video_title') or item.get('title'),
+        info = metadata.VideoInfo(index.output_dir, folder, item['source_id'], item.get('video_title') or item.get('title'),
                                   item.get('total_parts'), shared=True)
         if info._index_paths:
             raise ToolError(f'合并目录内出现源索引，无法按独立成品整理：{info.path}')

@@ -1,6 +1,7 @@
 """以可回滚事务协调媒体移动和多份 JSON 更新，统一限制下载目录边界。"""
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 import sys
 import tempfile
@@ -13,6 +14,9 @@ from .errors import ToolError
 # Windows 的 os.replace 不接受目标仍有打开句柄，即使读者允许删除共享也如此。
 # 仅串行化短暂的记录读盘/替换，不覆盖 JSON 解析、网络、媒体探测或 FFmpeg。
 record_io_lock = RLock()
+
+# 嵌套索引事务共用待清理集合；最外层成功后再删除空父目录，保留失败回滚所需的旧目录。
+_pending_directory_cleanup: ContextVar[set[Path] | None] = ContextVar('pending_directory_cleanup', default=None)
 
 
 def validate_path(path: Path, boundary: Path) -> None:
@@ -49,6 +53,7 @@ def apply_changes(boundary: Path, moves: list[tuple[Path, Path]], records: list[
     """在 boundary 内移动 moves 并调用 commit 写 records，最后删除 deletes 中的旧记录。
 
     所有目标先检查冲突；异常时恢复媒体、记录原始字节及已创建的空目录，无返回值。
+    删除记录遗留的空父目录在最外层事务成功后清理；保留非空目录、链接及下载根目录。
     commit 只应修改 records/deletes 列出的 JSON，不应再执行媒体移动。
     """
     boundary = boundary.resolve()
@@ -71,6 +76,11 @@ def apply_changes(boundary: Path, moves: list[tuple[Path, Path]], records: list[
     originals = {path: path.read_bytes() if path.exists() else None for path in [*records, *deletes]}
     moved: list[tuple[Path, Path]] = []
     created: list[Path] = []
+    cleanup = _pending_directory_cleanup.get()
+    token = None
+    if cleanup is None:
+        cleanup = set()
+        token = _pending_directory_cleanup.set(cleanup)
     try:
         for destination in [*(new for _, new in moves), *records]:
             missing, parent = [], destination.parent
@@ -87,6 +97,8 @@ def apply_changes(boundary: Path, moves: list[tuple[Path, Path]], records: list[
         for path in deletes:
             if path not in records:
                 path.unlink(missing_ok=True)
+                if originals[path] is not None and path.parent.resolve() != boundary:
+                    cleanup.add(path.parent)
     except BaseException as exc:
         for path, content in originals.items():
             try:
@@ -107,6 +119,18 @@ def apply_changes(boundary: Path, moves: list[tuple[Path, Path]], records: list[
             except OSError:
                 pass
         raise
+    finally:
+        if token is not None:
+            _pending_directory_cleanup.reset(token)
+    if token is not None:
+        for directory in sorted(cleanup, key=lambda path: len(path.parts), reverse=True):
+            try:
+                if directory.is_symlink() or directory.is_junction():
+                    continue
+                directory.rmdir()
+            except OSError:
+                # 仅删除已经变空的旧记录目录；其他任务的索引、媒体和断点继续保留。
+                pass
 
 
 def replace_file_transaction(boundary: Path, source: Path, destination: Path,

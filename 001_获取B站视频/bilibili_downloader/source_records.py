@@ -1,4 +1,4 @@
-"""管理分目录或混合画质的 v7 源索引，聚合投稿视图并事务化迁移旧记录。"""
+"""管理分目录或混合画质的 v8 源索引，聚合投稿视图并事务化迁移旧记录。"""
 
 from copy import deepcopy
 from pathlib import Path
@@ -7,6 +7,7 @@ from typing import Any, TYPE_CHECKING
 from .errors import ToolError
 from .models import entry_quality
 from . import variants
+from . import identity
 from .storage import apply_changes, record_io_lock, validate_path
 
 if TYPE_CHECKING:
@@ -24,11 +25,14 @@ def index_paths(output_dir: Path, bvid: str) -> list[Path]:
             continue
         try:
             data = read_json(path)
+            if data.get('record_type') == 'merged':
+                continue
+            identifier = identity.source_id(data)
         except ToolError:
             if bvid in path.name or bvid in path.parent.name:
                 raise
             continue
-        if data.get('record_type') != 'merged' and data.get('bvid') == bvid:
+        if identifier == bvid:
             validate_path(path, output_dir)
             result.append(path.resolve())
     return result
@@ -41,15 +45,15 @@ def load_views(info: 'VideoInfo', paths: list[Path]) -> None:
     files, seen, folders = [], set(), {}
     with record_io_lock:
         for path in paths:
-            source = VideoInfo(info.output_dir, path.parent, info.data['bvid'], info.data['title'], shared=path.name != 'video_info.json')
+            source = VideoInfo(info.output_dir, path.parent, info.data['source_id'], info.data['title'], shared=path.name != 'video_info.json')
             if source.base_directory != info.base_directory:
-                raise ToolError(f"{info.data['bvid']} 存在多个投稿目录，请整理后重试")
+                raise ToolError(f"{info.data['source_id']} 存在多个投稿目录，请整理后重试")
             if source.mix_quality != info.mix_quality:
                 raise ToolError(f'同一投稿存在不同存放模式的索引：{path}')
-            for key in ('title', 'source_url', 'total_parts', 'current_parts'):
+            for key in ('source_type', 'source_id', 'title', 'source_url', 'total_parts', 'current_parts', 'season_id'):
                 if source.data.get(key) != info.data.get(key):
                     raise ToolError(f'同一投稿各目录的 {key} 信息冲突：{path}')
-            if source.data.get('schema_version') in (5, 6, 7):
+            if source.data.get('schema_version') in (5, 6, 7, 8):
                 for item in source.data['files']:
                     code = item.get('quality_id')
                     if code in folders and folders[code] != path.parent:
@@ -71,7 +75,7 @@ def load_views(info: 'VideoInfo', paths: list[Path]) -> None:
 
 
 def documents(info: 'VideoInfo') -> dict[Path, dict[str, Any]]:
-    """按 info 的存放模式构造 v7 文档并同步实际文件名；未开始条目使用分配目录，返回路径到文档的映射，不写盘。"""
+    """按 info 的存放模式构造 v8 文档并同步实际文件名；未开始条目使用分配目录，返回路径到文档的映射，不写盘。"""
     from .metadata import timestamp
 
     grouped: dict[Path, list[dict[str, Any]]] = {}
@@ -108,7 +112,7 @@ def documents(info: 'VideoInfo') -> dict[Path, dict[str, Any]]:
         for item in files:
             if item.get('formats'):
                 item['format_variant'] = variants.variant_id(item['formats'])
-        data.update(schema_version=7, record_type='source', mix_quality=info.mix_quality, files=files, updated_at=timestamp())
+        data.update(schema_version=8, record_type='source', mix_quality=info.mix_quality, files=files, updated_at=timestamp())
         for key in ('quality_id', 'quality_name', 'quality_dir'):
             data.pop(key, None)
         if files:
@@ -164,7 +168,7 @@ def save_view(info: 'VideoInfo') -> None:
         info.path = anchor
         if info.data['files']:
             info.data['directory_base'] = docs[anchor]['directory_base']
-        info.data.update(schema_version=7, record_type='source', mix_quality=info.mix_quality, updated_at=timestamp())
+        info.data.update(schema_version=8, record_type='source', mix_quality=info.mix_quality, updated_at=timestamp())
         for key in ('quality_id', 'quality_name', 'quality_dir'):
             info.data.pop(key, None)
         info._index_paths = set(paths)

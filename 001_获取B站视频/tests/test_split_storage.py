@@ -16,7 +16,7 @@ from bilibili_downloader import merge as merging
 from bilibili_downloader.merged_records import MergedVideoInfo
 import download_bilibili as cli
 from bilibili_downloader import runtime
-from tests import PROJECT_DIR
+from tests import CONFIG_PATH
 
 
 class SplitStorageTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class SplitStorageTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root, mix_quality=False)
+        self.settings = replace(config.load_settings(CONFIG_PATH), output_dir=self.root, mix_quality=False)
         self.base = self.root / '演唱会_合集9060222'
         self.quality = models.Quality(127, '8K 超高清')
         self.ids = ['BV1xx411c7mD', 'BV1yy411c7mD']
@@ -73,7 +73,7 @@ class SplitStorageTests(unittest.TestCase):
                 source = library.get_video_info(self.settings, bvid)
             self.assertNotIn('未登记媒体', report.getvalue())
             self.assertTrue(source.path.parent.name.endswith('_分P'))
-            self.assertEqual(source.data['schema_version'], 7)
+            self.assertEqual(source.data['schema_version'], 8)
             self.assertEqual([item['kind'] for item in source.data['files']], ['part', 'part'])
             self.assertTrue((source.path.parent / '.streams' / f'{bvid}_p2/raw.part').is_file())
             for item in source.data['files']:

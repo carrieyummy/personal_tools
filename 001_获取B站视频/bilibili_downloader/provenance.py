@@ -49,4 +49,6 @@ def source_snapshot(ordered: list[tuple[Path, dict[str, Any]]]) -> list[dict[str
         item['content_fingerprint'] = fingerprint
         result.append({'part': item['part'], 'source_cid': item.get('source_cid'),
                        'quality_id': item.get('quality_id'), 'sha256': fingerprint['sha256']})
+        if item.get('episode_id') is not None:
+            result[-1]['episode_id'] = item['episode_id']
     return result

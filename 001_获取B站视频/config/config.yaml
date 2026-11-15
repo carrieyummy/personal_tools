@@ -1,8 +1,9 @@
-# 路径以本配置文件所在目录为基准；支持 ~、%环境变量% 和 ${环境变量}。
+# 路径以本配置文件所在的 config 目录为基准；../ 指向工具根目录；支持 ~、%环境变量% 和 ${环境变量}。
 # 下载保存路径、浏览器用户目录、FFmpeg 和标题长度设置。
 paths:
-  # 下载根目录；媒体保存在投稿或合集目录中，日志 JSON 和离线 HTML 快照直接保存在此目录下。
-  output_dir: "downloads"
+  # 下载根目录；媒体保存在投稿、番剧季或合集目录中，日志 JSON 和离线 HTML 快照直接保存在此目录下。
+  output_dir: "../downloads"
+  # output_dir: "Z:/002_动漫"
   # 独立 Chrome 用户数据目录，用于保存登录态；仅 auth.mode 为 chrome 时使用。
   chrome_profile_dir: "%LOCALAPPDATA%/BiliOriginalDownloader/chrome-profile"
   # auto 使用 imageio-ffmpeg 自带的 FFmpeg；也可以填写 ffmpeg.exe 的完整路径。
@@ -19,7 +20,7 @@ auth:
   # 支持 *；Chrome 重复下载产生 (1) 等后缀时，自动读取最近导出的文件。
   # 本目录对应用户指定的导出位置；也可以运行时用 --cookies 指定其他文件。
   # 使用本工具 Chrome 扩展导出的 JSON 文件；匹配多个文件时按修改时间选择最新文件。
-  cookie_file: "cookies/bilibili-cookies*.json"
+  cookie_file: "../cookies/bilibili-cookies*.json"
 
 # 本工具访问网络时的代理设置。
 network:
@@ -41,7 +42,8 @@ browser:
 
 # 下载格式、重试、连接超时和分 P 范围设置。
 download:
-  # 普通链接选择一次画质上限，清单 quality 按本任务所有P的档位并集排名确定上限；各P选不超过上限的最高档。
+  # 未展开关联季时普通链接交互选择画质上限；关联季共用逐集档位排名，1=各集最高、2=各集第二高。
+  # 清单 quality 仍按每季/投稿目标P的档位并集排名确定上限，各P选上限内最高档。
   # yt-dlp 格式排序项，按列表顺序设置优先级：分辨率、帧率、HDR、质量标记；必须为非空字符串数组。
   format_sort: ["res", "fps", "hdr", "quality"]
   # yt-dlp 格式选择表达式，必须为非空字符串；bv*+ba/b 优先选择最佳视频并配音频，或选择音视频合一格式。
@@ -50,19 +52,30 @@ download:
   retries: 3
   # 视频流单个分片失败后的重试次数，必须为大于或等于 0 的整数；0 表示失败后不重试。
   fragment_retries: 3
+  # 单次 HTTP 范围请求的最大字节数；必须为大于或等于 0 的整数，0 关闭主动分块。
+  # 较小分块可避开 CDN 对大响应的提前截断，但会增加请求次数；同时支持已有断点续传。
+  http_chunk_size_bytes: 524288
   # yt-dlp 视频下载的网络连接超时时间（秒），必须为大于 0 的有限数字。
   socket_timeout_seconds: 30
-  # true 下载当前 BV 全部分P；false 按链接选择，未指定时为P1；普通链接的 --all-parts 可强制启用。
-  # 清单项和清单全局的 all-parts 优先；本项不下载整个合集，拼接由命令行或清单的 merge-parts 控制。
+  # true 下载当前 BV 全部分P或番剧同季全部正片；false 按 p/ep 选择，ss 链接和未指定 p 的投稿取P1。
+  # --all-parts 可强制启用，清单项和清单全局的 all-parts 优先；番剧整季排除预告、花絮等附加分区。
+  # 本项不下载整个 UP 主合集；拼接由命令行或清单的 merge-parts 控制。
   all_parts: false
+  # true：输入任意番剧 ep/ss 地址后，下载原站关联季列表中每季的全部正片；普通 BV/AV 不受影响。
+  # 独立于 all_parts 和清单 all-parts；开启后番剧强制整季，每季按原站标题和 ss 编号分别归档。
+  # 关联列表中的番外篇、特别篇等独立季也包含；每季内的预告、花絮等附加分区仍排除。
+  # 普通链接全部关联季只确认一次档位排名，各集独立排序；刷新流仍按排名选档，缺少该排名的集报错。
+  # 拼接优先可按配置在逐集选档范围内选择兼容版本；清单按原有逐季上限规则，拼接范围始终在每季内生效。
+  # 关闭时继续按 all_parts 和输入链接选择范围。
+  all_seasons: false
   # 同时处理的分P任务数，必须为正整数；1 为串行，优先当前投稿，空闲线程由后续投稿补位。
   # 视频传输、封装和字幕处理共用此并发上限，不额外创建分片下载线程池。
-  threads: 4
+  threads: 5
   # false 按实际画质分目录；true 共用不带画质的分P/合并目录，视频及字幕文件名追加实际画质。
   # 切换后访问投稿或合集时自动整理已有媒体和索引，保留来源版本与指纹，不重新下载或合并。
   mix_quality: true
-  # quality：各P选上限内最高画质；merge：各拼接组独立选最高兼容画质，重叠P可下载多版本。
-  # 两种策略均受清单 quality 或用户选择的画质上限约束；无兼容方案时仍按清晰度优先下载并报告拼接失败。
+  # quality：关联季普通链接按逐集排名选档，其他任务选上限内最高画质；merge：各拼接组独立选最高兼容画质。
+  # 两种策略均受逐集所选档位或原有上限约束；重叠P可下载多版本，无兼容方案时按清晰度优先下载并报告拼接失败。
   priority: quality
 
 # 自动合并及手动拼接共用的设置。
@@ -74,7 +87,8 @@ merge:
 
 # 下载及拼接的实时网页、持久化数据及离线快照。
 logging:
-  # 离线快照命名基准；实际文件追加唯一标识，不覆盖已打开的 HTML；此旧文件存在时自动导入历史。
+  # 离线快照命名基准；追加本地导出时间 yymmdd_hhmmss，同秒重名追加 _01、_02；不覆盖旧 HTML。
+  # 此基准旧文件存在且 JSON 历史尚不存在时自动导入历史。
   html_file: "download_log.html"
   # output_dir 下的持久化 JSON 文件名；浏览器不直接读取此文件。
   state_file: "download_log.json"
@@ -82,6 +96,10 @@ logging:
   port: 0
   # 实时页面获取最新状态的间隔（秒）；离线快照不会联网或刷新。
   refresh_interval_seconds: 2
+  # 结束时等待近期活跃网页显示最终状态并确认的最长秒数；必须大于 0。
+  # 建议覆盖至少一次 refresh_interval_seconds 轮询间隔。
+  # 无网页时直接关闭；全部确认后立即关闭，页面已关闭或无响应时超时退出。
+  final_state_timeout_seconds: 10
   # 下载及合并进度写盘的最小间隔（秒），同时作为 FFmpeg 进度报告间隔；状态切换及结束样本立即写入。
   progress_interval_seconds: 1
   # 文件被占用时的额外重试次数及间隔；失败只提示，不影响下载和合并。

@@ -11,7 +11,7 @@ from bilibili_downloader import downloader as download_service
 from bilibili_downloader import subtitles as subtitle_service
 from bilibili_downloader import config as configuration
 import download_bilibili as cli_entry
-from tests import PROJECT_DIR, fake_auth_snapshot
+from tests import CONFIG_PATH, fake_auth_snapshot
 
 
 class CollectionTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class CollectionTests(unittest.TestCase):
         """创建临时下载目录、两个 BV 号及模拟合集信息；无返回值。"""
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name).resolve()
-        self.settings = replace(configuration.load_settings(PROJECT_DIR / "config.yaml"), output_dir=self.root, threads=1,
+        self.settings = replace(configuration.load_settings(CONFIG_PATH), output_dir=self.root, threads=1,
                                 mix_quality=False)
         self.enterContext(patch.object(auth, 'snapshot_session', return_value=fake_auth_snapshot()))
         self.ids = ["BV1xx411c7mD", "BV1yy411c7mD"]

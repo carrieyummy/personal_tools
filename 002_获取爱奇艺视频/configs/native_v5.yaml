@@ -1,0 +1,12 @@
+# 该适配配置只适用于此 SHA256 对应的本机 x64 客户端 DLL。
+# 客户端升级导致校验值变化时必须重新分析函数签名和位置，不能只改校验值。
+dll_path: 'D:\Program Files\IQIYI Video\LStyle\14.9.0.10269\mctoplayer.dll'
+dll_sha256: '47f669d197025b03ba77c782c35dc5eeed81434b33627719d12710da3f9d34df'
+cert_path: 'C:\Users\Public\QiYi\drmq_config\cert'
+rva:
+  allocate: 0x10a0
+  release: 0x1110
+  set_certificate: 0x1450
+  set_license: 0x18c0
+  set_mode: 0x2880
+  decrypt: 0x20c0

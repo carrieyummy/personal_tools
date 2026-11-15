@@ -13,7 +13,8 @@ from bilibili_downloader import auth, config, library, metadata, models, naming,
 from bilibili_downloader import merge
 from bilibili_downloader import downloader as transfer
 from bilibili_downloader.errors import ToolError
-from tests import PROJECT_DIR
+from bilibili_downloader.storage import apply_changes
+from tests import CONFIG_PATH
 
 
 class DirectoryIndexTests(unittest.TestCase):
@@ -24,7 +25,7 @@ class DirectoryIndexTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root)
+        self.settings = replace(config.load_settings(CONFIG_PATH), output_dir=self.root)
         self.bvid = 'BV1xx411c7mD'
         self.qualities = [models.Quality(126, '杜比视界'), models.Quality(125, 'HDR 真彩'), models.Quality(120, '4K 超高清')]
 
@@ -60,7 +61,7 @@ class DirectoryIndexTests(unittest.TestCase):
         self.assertEqual(len(record.index_paths), 3)
         for path in record.index_paths:
             data = metadata.read_json(path)
-            self.assertEqual((data['schema_version'], data['record_type']), (7, 'source'))
+            self.assertEqual((data['schema_version'], data['record_type']), (8, 'source'))
             self.assertEqual(len(data['files']), 1)
             item = data['files'][0]
             self.assertEqual(item['path'], item['file_name'])
@@ -88,6 +89,159 @@ class DirectoryIndexTests(unittest.TestCase):
             self.assertEqual(len(data['files']), 1)
             self.assertTrue((path.parent / data['files'][0]['path']).is_file())
         self.assertEqual(len(record.index_paths), 3)
+
+    def test_pending_source_save_removes_empty_placeholder_directory(self) -> None:
+        """验证投稿和番剧登记分 P 后删除空占位目录，两种画质布局均保留目标索引及下载根目录；无返回值。"""
+        for identifier in (self.bvid, 'ss123'):
+            for mixed in (False, True):
+                with self.subTest(source=identifier, mix_quality=mixed):
+                    root = self.root / f'{identifier}_{mixed}'
+                    settings = replace(self.settings, output_dir=root, mix_quality=mixed)
+                    record = library.get_video_info(settings, identifier, '测试来源', 1)
+                    base, old_path = record.base_directory, record.path
+                    record.save()
+                    self.assertTrue(old_path.is_file())
+                    record.entry(f'{identifier}_p1', part=1, quality=self.qualities[0])
+                    record.save()
+                    self.assertFalse(base.exists())
+                    self.assertTrue(root.is_dir())
+                    self.assertTrue(record.path.is_file())
+                    self.assertEqual(record.path.parent, record.quality_directory(self.qualities[0]))
+                    self.assertEqual(len(metadata.open_video(root, identifier).data['files']), 1)
+
+    def test_placeholder_cleanup_preserves_shared_records_and_unfinished_files(self) -> None:
+        """验证占位索引迁出后保留其他投稿的索引、媒体、字幕和断点，不把非空目录作为残留删除；无返回值。"""
+        base = self.root / '测试合集_合集123'
+        record = metadata.VideoInfo(self.root, base, self.bvid, '测试合集', 1, shared=True)
+        record.data['mix_quality'] = self.settings.mix_quality
+        record.save()
+        other = metadata.VideoInfo(self.root, base, 'BV1yy411c7mD', '测试合集', 1, shared=True)
+        other.save()
+        retained = {other.path: other.path.read_bytes(), base / '未登记视频.mp4': b'media',
+                    base / '未登记视频.zh.srt': b'subtitle', base / '.streams' / 'other_source' / 'raw.part': b'partial'}
+        for path, content in retained.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        old_path = record.path
+        record.entry(f'{self.bvid}_p1', part=1, quality=self.qualities[0])
+        record.save()
+        self.assertFalse(old_path.exists())
+        self.assertTrue(base.is_dir())
+        self.assertEqual({path: path.read_bytes() for path in retained}, retained)
+        self.assertTrue(record.path.is_file())
+
+    def test_failed_pending_save_preserves_placeholder_and_can_retry(self) -> None:
+        """验证新索引写入失败时保留旧占位索引与目录，恢复后重试成功才清理旧目录；无返回值。"""
+        record = library.get_video_info(self.settings, self.bvid, '测试来源', 1)
+        record.save()
+        base, old_path = record.base_directory, record.path
+        original = old_path.read_bytes()
+        record.entry(f'{self.bvid}_p1', part=1, quality=self.qualities[0])
+        target = record.quality_directory(self.qualities[0])
+        with patch.object(metadata, 'atomic_text', side_effect=OSError('disk full')), self.assertRaises(OSError):
+            record.save()
+        self.assertEqual(old_path.read_bytes(), original)
+        self.assertFalse(target.exists())
+        record.save()
+        self.assertFalse(base.exists())
+        self.assertTrue(record.path.is_file())
+
+    def test_nested_save_defers_cleanup_until_outer_transaction_succeeds(self) -> None:
+        """验证内层索引迁移后外层失败仍能恢复旧目录与原索引，后续独立事务不受待清理状态影响；无返回值。"""
+        record = library.get_video_info(self.settings, self.bvid, '测试来源', 1)
+        record.save()
+        base, old_path = record.base_directory, record.path
+        original = old_path.read_bytes()
+        record.entry(f'{self.bvid}_p1', part=1, quality=self.qualities[0])
+        new_path = record.quality_directory(self.qualities[0]) / old_path.name
+
+        def commit() -> None:
+            """保存内层索引后模拟外层提交失败，验证回滚前旧空目录仍保留；无参数及返回值。"""
+            record.save()
+            self.assertFalse(old_path.exists())
+            self.assertTrue(base.is_dir())
+            raise OSError('outer commit failed')
+
+        with self.assertRaisesRegex(OSError, 'outer commit failed'):
+            apply_changes(self.root, [], record.index_paths, commit)
+        self.assertEqual(old_path.read_bytes(), original)
+        self.assertFalse(new_path.exists())
+        record = metadata.open_video(self.root, self.bvid)
+        record.entry(f'{self.bvid}_p1', part=1, quality=self.qualities[0])
+        record.save()
+        self.assertFalse(base.exists())
+        self.assertTrue(record.path.is_file())
+
+    def test_unchanged_layout_cleans_empty_residue_without_rewriting_index(self) -> None:
+        """验证布局不变时也清理旧基础目录和空画质目录，保留现有索引字节、修改时间及无关目录；无返回值。"""
+        record = library.get_video_info(self.settings, self.bvid, '测试来源', 1)
+        record.entry(f'{self.bvid}_p1', part=1, quality=self.qualities[0])
+        record.save()
+        base = record.base_directory
+        base.mkdir()
+        empty_quality = base.with_name(base.name + '_' + self.qualities[1].directory + '_分P')
+        empty_quality.mkdir()
+        unrelated = self.root / '无关空目录'
+        unrelated.mkdir()
+        original, mtime = record.path.read_bytes(), record.path.stat().st_mtime_ns
+        record.organize_qualities(mix_quality=self.settings.mix_quality)
+        self.assertFalse(base.exists())
+        self.assertFalse(empty_quality.exists())
+        self.assertTrue(unrelated.is_dir())
+        self.assertEqual(record.path.read_bytes(), original)
+        self.assertEqual(record.path.stat().st_mtime_ns, mtime)
+
+    def test_unchanged_layout_preserves_nonempty_base_directory(self) -> None:
+        """验证布局不变时旧基础目录中未登记文件和其他来源断点均保留；无返回值。"""
+        record = library.get_video_info(self.settings, self.bvid, '测试来源', 1)
+        record.entry(f'{self.bvid}_p1', part=1, quality=self.qualities[0])
+        record.save()
+        base = record.base_directory
+        retained = {base / '保留说明.txt': b'note', base / '.streams' / 'other_source' / 'raw.part': b'partial'}
+        for path, content in retained.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        original = record.path.read_bytes()
+        record.organize_qualities(mix_quality=self.settings.mix_quality)
+        self.assertEqual({path: path.read_bytes() for path in retained}, retained)
+        self.assertEqual(record.path.read_bytes(), original)
+
+    def test_reopening_source_preserves_empty_active_stream_directories(self) -> None:
+        """验证基础目录已清理后 BV/ss/ep 两种布局的空断点结构仍可写入，不误判为旧单 P 断点；无返回值。"""
+        for identifier in (self.bvid, 'ss123', 'ep456'):
+            for mixed in (False, True):
+                with self.subTest(source=identifier, mix_quality=mixed):
+                    root = self.root / f'active_{identifier}_{mixed}'
+                    settings = replace(self.settings, output_dir=root, mix_quality=mixed)
+                    record = library.get_video_info(settings, identifier, '测试来源', 1)
+                    record.entry(f'{identifier}_p1', part=1, quality=self.qualities[0])
+                    record.save()
+                    base = record.base_directory
+                    staging = record.path.parent / '.streams' / f'{identifier}_p1'
+                    if mixed:
+                        staging /= f'qn{self.qualities[0].code}'
+                    staging /= 'cid123_pending'
+                    staging.mkdir(parents=True)
+                    base.mkdir(exist_ok=True)
+                    library.get_video_info(settings, identifier)
+                    self.assertFalse(base.exists())
+                    library.get_video_info(settings, identifier)
+                    self.assertTrue(staging.is_dir())
+                    stream = staging / '0.raw.part'
+                    stream.write_bytes(b'partial')
+                    self.assertEqual(stream.read_bytes(), b'partial')
+
+    def test_deleted_root_record_does_not_remove_download_root(self) -> None:
+        """验证删除下载根目录中的旧记录时保留下载根目录本身；无返回值。"""
+        old_path = self.root / 'old_record.json'
+        old_path.write_bytes(b'{}')
+
+        def commit() -> None:
+            """仅由外层事务删除旧记录，本回调不写入文件；无参数及返回值。"""
+
+        apply_changes(self.root, [], [], commit, [old_path])
+        self.assertFalse(old_path.exists())
+        self.assertTrue(self.root.is_dir())
 
     def test_collection_keeps_each_bv_in_each_quality_directory(self) -> None:
         """验证合集三个目录中各有两份 BV 索引，同一 BV 跨画质读取不被误判重复；无返回值。"""

@@ -1,0 +1,32 @@
+# CPU/GPU 完整解码性能比较；FFmpeg、复制缓冲和超时均读取 --config 指定的主配置。
+# 选取 output_path 下最新登记成功的 MP4，复制到 work_dir 后进行比较，不重新转换 QSV。
+# 每组对同一个完整视频执行相同数量的任务，串行和并发均包含全部视频帧及音轨。
+jobs_per_case: 2
+# 每组重复次数；耗时包含 FFmpeg 启动，不包含输入复制和预热。
+repetitions: 1
+# 每种后端正式计时前的短片预热时长，单位秒，必须大于零。
+warmup_seconds: 10
+# 本地输入副本目录名，相对主配置 work_dir；成功或失败均保留报告，结束后删除该输入副本。
+work_subdir: 'decode_benchmarks'
+# 报告根目录，相对此专项配置；每次运行独立建目录，保存命令、进度、错误及 GPU 采样。
+results_dir: '../tests/benchmark_results'
+# GPU 利用率采样间隔，单位毫秒，必须为正整数。
+gpu_sample_interval_ms: 1000
+# 按列表顺序运行；cpu 为现有软件解码，cuda 为保留 GPU 帧的 NVIDIA 硬件解码。
+# backend 为列表时按任务序号循环分配，便于比较 CPU 与 GPU 同时承担不同任务的吞吐。
+cases:
+  - name: cpu_serial
+    backend: cpu
+    workers: 1
+  - name: cpu_parallel
+    backend: cpu
+    workers: 2
+  - name: gpu_serial
+    backend: cuda
+    workers: 1
+  - name: gpu_parallel
+    backend: cuda
+    workers: 2
+  - name: mixed_parallel
+    backend: [cpu, cuda]
+    workers: 2

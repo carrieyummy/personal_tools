@@ -1,0 +1,89 @@
+# 所有路径均可修改；主路径相对本配置文件，目录选择和日志文件名的基准见各参数注释。
+# 输入根目录：递归查找本机已下载、授权有效且符合当前 v5 适配要求的 QSV 文件。
+# 视频按 TS 分段标记处理加密或明文内容，两种情况均需通过完整解码及帧数验证。
+input_root: 'E:\qycache\download\'
+# 选择目录列表：[] 扫描 input_root 全部子目录；非空时可填写多个相对 input_root 的子目录。
+# 不接受单文件、通配符或根目录外的路径；重叠选择自动去重。
+input_path: []
+
+# 下载保护：只处理客户端明确登记完成、且不存在下载临时标记的正式 QSV。
+# 数据库缺失、记录损坏或状态不明时禁止读取视频；整个流程不改写客户端数据库或源视频。
+download_guard:
+  # 客户端的下载状态数据库；支持 ~，相对路径以本配置文件为基准，只以 SQLite 只读模式访问。
+  database_path: '~/AppData/Roaming/IQIYI Video/LStyle/PPSDownLoad.db'
+  # 已下载完成的 XML 记录名称，必须与客户端数据库一致。
+  completed_record: 'Downloaded.xml'
+  # 进行中或等待下载的 XML 记录名称；同路径同时出现时，进行中记录优先。
+  active_record: 'Download.xml'
+  # XML 实际字节编码；本机客户端虽声明 UTF-8，实测使用 GB18030，不依次猜测其他编码。
+  xml_encoding: 'gb18030'
+  # 已确认完成的 State 数值列表；未知状态均跳过，不按文件大小或修改时间猜测完成状态。
+  completed_states: [4]
+  # 下载临时后缀列表；例如 .qsv.tqs 会被排除，同名正式 .qsv 也暂不处理。
+  temporary_suffixes: ['.tqs']
+  # 只读查询客户端下载元数据的锁等待秒数，必须为大于零的有限数字。
+  database_timeout_seconds: 2
+
+# 输出根目录：保留相对 input_root 的目录层级，首次转换仅将源文件扩展名改为 .mp4。
+# 每个视频目录独立保存 video_info.json；内容变化时保留旧成品，新成品追加本地时间戳。
+# 自动跳过按大小、纳秒修改时间缓存 SHA-256；两者都未变化的外部内容改写无法被缓存检查发现。
+output_path: 'Z:\003_电视剧'
+
+# 批次工作根目录：每次运行、每个视频使用独立子目录，保存中间媒体、日志及报告。
+# 旧单文件模式的根层 report.json 若证明成品有效，首次访问该源时自动迁移到新的目录布局。
+work_dir: 'E:\qycache\decode_work\v5_episode01'
+
+# 本机 v5 适配配置的 YAML 文件路径，提供客户端 DLL、证书及函数位置等参数。
+# 该文件内部的相对路径以该文件所在目录为基准。
+native_profile: 'native_v5.yaml'
+
+# FFmpeg 可执行文件路径：用于封装 MP4，并完整解码验证视频和音轨。
+ffmpeg_path: 'C:\ProgramData\miniconda3\envs\test_regression_py3.12\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v9.0.2.exe'
+
+# 完整解码验证使用的设备；必须填写两个布尔开关，至少开启一个。
+# 每种启用设备同时验证一个视频；两个都开启时处理不同视频，空闲时优先分配 GPU。
+# GPU 使用 NVIDIA CUDA 硬解；不可用时明确报错，不自动切换 CPU。
+# 指纹、准备/SDK、封装、解码后的完整性检查和发布各使用独立单任务槽。
+# 不同视频的这些阶段可重叠；解码槽在 FFmpeg 结束后即可处理下一视频。
+# 在途文件上限为启用设备数加两个阶段槽，达到上限暂停准备，避免中间文件持续堆积。
+decode_verification:
+  cpu: true
+  gpu: true
+
+# 文件复制缓冲区大小，单位为字节，必须为正整数；用于提取音视频及复制验证后的 MP4。
+copy_buffer_bytes: 4194304
+
+# 单个视频 PES（分包的基本码流）处理时允许累计的 TS 包缓冲上限，单位为字节，必须为正整数。
+# 缓冲包含其间穿插的非视频包；超过上限时停止转换并报错。
+max_pes_bytes: 16777216
+
+# 每次 FFmpeg 子进程的超时秒数，必须为正整数；封装与完整解码验证分别计时，不是整项任务的总时限。
+process_timeout_seconds: 600
+
+# 是否保留调试中间文件，必须为布尔值：true 保留；false 仅在转换成功后删除提取的音视频和待验证 MP4。
+# 日志和报告仍保留；转换失败时保留已生成的中间文件，便于排查。保留中间文件会额外占用磁盘空间。
+keep_intermediates: false
+
+# 实时网页、历次运行日志和离线 HTML 报告；以下文件名均相对 output_path，不填写目录。
+logging:
+  # 历次运行的 JSON 文件名；与各视频目录的 video_info.json 独立保存。
+  state_file: 'conversion_log.json'
+  # 离线报告命名基准；导出时追加本地时间 yymmdd_hhmmss，重名追加序号，不覆盖历史报告。
+  html_file: 'conversion_log.html'
+  # 只监听 127.0.0.1；0 自动分配端口，固定端口可填写 1～65535。
+  port: 0
+  # 实时页面刷新间隔，单位秒，必须为大于零的有限数字。
+  refresh_interval_seconds: 2
+  # 同阶段进度的最小写盘/采样间隔，单位秒；状态切换立即请求写盘，结束等待写盘完成。
+  progress_interval_seconds: 1
+  # JSON 原子替换失败时的额外重试次数，必须为非负整数；0 表示不额外重试。
+  write_retries: 5
+  # 运行日志写盘重试间隔，单位秒，必须为大于零的有限数字。
+  write_retry_interval_seconds: 0.2
+
+# 子进程取消与超时回收；中断时停止派发新视频，保留成功记录及已生成的失败现场。
+runtime:
+  # 检查媒体子进程与服务关闭的轮询间隔，单位秒，必须为大于零的有限数字。
+  cancel_poll_interval_seconds: 0.1
+  # 子进程收到终止请求后等待的秒数，超时后强制结束，必须为大于零的有限数字。
+  process_terminate_timeout_seconds: 2

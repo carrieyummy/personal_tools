@@ -18,12 +18,12 @@ def safe_name(value: str, limit: int) -> str:
 
 
 def video_stem(settings: Settings, title: str, video_id: str) -> str:
-    """按 settings 的长度限制清理 title，以 _ 连接 BV 号或分 P 标识 video_id，返回无扩展名的名称。"""
+    """按 settings 的长度限制清理 title，以 _ 连接来源或分P标识 video_id，返回无扩展名的名称。"""
     return f"{safe_name(title, settings.max_title_length)}_{safe_name(video_id, 60)}"
 
 
 def video_folder(settings: Settings, title: str, video_id: str) -> Path:
-    """根据 settings、投稿 title 和 BV 号 video_id 返回“标题_BV号”目录路径。"""
+    """根据 settings、来源 title 和 BV/ss/ep 标识 video_id 返回“标题_来源标识”目录路径。"""
     return settings.output_dir / video_stem(settings, title, video_id)
 
 

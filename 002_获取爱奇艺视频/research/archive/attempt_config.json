@@ -1,0 +1,8 @@
+{
+  "input_path": "E:\\qycache\\download\\折月亮-电视剧\\折月亮第1集-帧绮映画4K-杜比音效.qsv",
+  "output_dir": "E:\\qycache\\decode_work\\episode01",
+  "license_implementation": "D:\\VSCode\\personal_tools\\002_获取爱奇艺视频\\research\\third_party\\monalisa_v3\\monalisa_v3.py",
+  "ffmpeg": "C:\\ProgramData\\miniconda3\\envs\\test_regression_py3.12\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v9.0.2.exe",
+  "copy_buffer_bytes": 4194304,
+  "decode_timeout_seconds": 180
+}

@@ -15,7 +15,7 @@ from .errors import ToolError
 
 @dataclass(frozen=True)
 class Settings:
-    """保存已校验的 YAML 配置；路径为展开后的绝对 Path，拼接由命令行或清单任务控制。"""
+    """保存已校验的 YAML 配置；路径为绝对 Path，all_seasons 展开番剧整季，拼接由命令行或清单控制。"""
 
     output_dir: Path
     profile_dir: Path
@@ -32,8 +32,10 @@ class Settings:
     format_selector: str
     retries: int
     fragment_retries: int
+    http_chunk_size: int  # 单次 HTTP 范围请求的最大字节数；0 表示不主动分块。
     socket_timeout: float
     all_parts: bool
+    all_seasons: bool  # 番剧展开原站关联季，每季下载全部正片；普通投稿不受影响。
     threads: int
     mix_quality: bool
     priority: str
@@ -46,6 +48,7 @@ class Settings:
     log_port: int
     log_write_retries: int
     log_write_retry_interval: float
+    log_final_state_timeout: float  # 等待近期活跃网页确认最终状态的最长秒数。
     cancel_poll_interval: float
     process_terminate_timeout: float
     overwrite_merged: bool  # 来源一致时 False 复用有效成品，True 强制重合并；来源变化始终更新。
@@ -85,7 +88,9 @@ def load_settings(path: Path) -> Settings:
             poll_interval=browser["poll_interval_seconds"], request_timeout=browser["request_timeout_seconds"],
             format_sort=download["format_sort"], format_selector=download["format"],
             retries=download["retries"], fragment_retries=download["fragment_retries"],
+            http_chunk_size=download["http_chunk_size_bytes"],
             socket_timeout=download["socket_timeout_seconds"], all_parts=download["all_parts"],
+            all_seasons=download['all_seasons'],
             threads=download['threads'],
             mix_quality=download['mix_quality'],
             priority=download['priority'],
@@ -94,6 +99,7 @@ def load_settings(path: Path) -> Settings:
             log_progress_interval=logging['progress_interval_seconds'],
             log_state_filename=logging['state_file'], log_port=logging['port'],
             log_write_retries=logging['write_retries'], log_write_retry_interval=logging['write_retry_interval_seconds'],
+            log_final_state_timeout=logging['final_state_timeout_seconds'],
             cancel_poll_interval=runtime['cancel_poll_interval_seconds'],
             process_terminate_timeout=runtime['process_terminate_timeout_seconds'],
             overwrite_merged=merge['overwrite_existing'],
@@ -101,7 +107,7 @@ def load_settings(path: Path) -> Settings:
     except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
         raise ToolError(f"无法读取配置 {path}：{exc}") from exc
     for name in ("login_timeout", "poll_interval", "request_timeout", "socket_timeout", "log_refresh_interval", "log_progress_interval",
-                 "log_write_retry_interval", "cancel_poll_interval", "process_terminate_timeout"):
+                 "log_write_retry_interval", "log_final_state_timeout", "cancel_poll_interval", "process_terminate_timeout"):
         value = getattr(settings, name)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             raise ToolError(f"配置 {name} 必须为大于 0 的有限数字")
@@ -111,6 +117,8 @@ def load_settings(path: Path) -> Settings:
             raise ToolError(f"配置 {name} 必须为有效整数")
     if not 10 <= settings.max_title_length <= 80:
         raise ToolError("max_title_length 必须在 10 到 80 之间")
+    if type(settings.http_chunk_size) is not int or settings.http_chunk_size < 0:
+        raise ToolError('download.http_chunk_size_bytes 必须为大于或等于 0 的整数')
     if type(settings.threads) is not int or settings.threads < 1:
         raise ToolError('download.threads 必须为正整数')
     if type(settings.mix_quality) is not bool:
@@ -123,7 +131,7 @@ def load_settings(path: Path) -> Settings:
             raise ToolError(f'logging.{key} 必须为不含目录和空格的 {suffix} 文件名')
     if type(settings.log_port) is not int or not 0 <= settings.log_port <= 65535:
         raise ToolError('logging.port 必须为 0～65535 的整数')
-    for name in ("all_parts", "include_ai"):
+    for name in ("all_parts", "all_seasons", "include_ai"):
         if type(getattr(settings, name)) is not bool:
             raise ToolError(f"配置 {name} 必须为 true 或 false")
     if type(settings.overwrite_merged) is not bool:

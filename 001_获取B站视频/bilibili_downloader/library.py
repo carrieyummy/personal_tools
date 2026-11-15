@@ -16,6 +16,7 @@ from . import auth
 from . import metadata as metadata_store
 from . import naming
 from . import provenance
+from . import identity
 from .merged_records import MergedVideoInfo
 from .config import Settings
 from .errors import ToolError
@@ -71,7 +72,7 @@ def snapshot_video(settings: Settings, bvid: str) -> VideoInfo:
 def cache_source_fingerprints(settings: Settings, record: VideoInfo,
                               sources: list[tuple[Path, dict[str, Any]]]) -> None:
     """按 settings 加锁，将 record 的 sources 指纹合并到最新记录；来源版本或文件变化时报错，不覆盖并发更新，返回 None。"""
-    with video_transaction(replace(settings, output_dir=record.output_dir), record.data['bvid']) as current:
+    with video_transaction(replace(settings, output_dir=record.output_dir), record.data['source_id']) as current:
         entries = {item['id']: item for item in current.data['files']}
         expected = {page['part']: page['cid'] for page in current.data.get('current_parts', [])}
         changed = False
@@ -79,9 +80,14 @@ def cache_source_fingerprints(settings: Settings, record: VideoInfo,
             latest = entries.get(item['id'])
             if (latest is None or latest.get('status') != 'completed'
                     or latest.get('source_cid') != item.get('source_cid') or latest['formats'] != item['formats']
+                    or latest.get('episode_id') != item.get('episode_id')
                     or current.resolve_file(latest) != path
                     or (expected and expected.get(item['part']) != item.get('source_cid'))):
                 raise ToolError(f"第 {item['part']} P 来源在合并期间变化，请重新运行")
+            if current.data['source_type'] == 'bangumi':
+                page = next((page for page in current.data.get('current_parts', []) if page['part'] == item['part']), None)
+                if page is None or page['episode_id'] != item.get('episode_id'):
+                    raise ToolError(f"第 {item['part']} P 剧集身份在合并期间变化，请重新运行")
             fingerprint = item['content_fingerprint']
             stat = path.stat()
             if (stat.st_size, stat.st_mtime_ns) != (fingerprint['size_bytes'], fingerprint['mtime_ns']):
@@ -124,7 +130,7 @@ def adopt_existing_content(record: VideoInfo) -> tuple[int, int, list[str]]:
         index = MergedVideoInfo(record.output_dir, index_path.parent)
         changed = False
         for item in index.data['files']:
-            if item['bvid'] != record.data['bvid'] or item.get('source_snapshot') is not None:
+            if item['source_id'] != record.data['source_id'] or item.get('source_snapshot') is not None:
                 continue
             try:
                 parts = item.get('source_parts')
@@ -208,9 +214,9 @@ def prepare_collection(settings: Settings, metadata: dict[str, Any]) -> Path | N
 
 
 def update_source_info(record: VideoInfo, metadata: dict[str, Any]) -> None:
-    """将原站 metadata 的标题、UP 主、总分 P 数及当前 CID 列表更新到 record；不改写已下载版本，不写盘，返回 None。"""
-    if metadata.get("bvid") != record.data["bvid"]:
-        raise ToolError("原站返回的 BV 号与本地记录不一致")
+    """将原站 metadata 的身份、标题及当前分P列表更新到 record；番剧保留季和剧集映射，不改写已下载版本、不写盘。"""
+    if identity.source_id(metadata) != record.data['source_id']:
+        raise ToolError("原站返回的来源标识与本地记录不一致")
     owner = metadata.get("owner") or {}
     record.data.update(title=metadata["title"], uploader={"id": owner.get("mid"), "name": owner.get("name")} if owner else None,
                        total_parts=len(metadata["pages"]) if metadata.get("pages") else metadata.get("videos", record.data["total_parts"]), errors=[])
@@ -221,8 +227,12 @@ def update_source_info(record: VideoInfo, metadata: dict[str, Any]) -> None:
             raise ToolError('原站分 P 编号或 CID 无效')
         if sorted(page['page'] for page in pages) != list(range(1, len(pages) + 1)):
             raise ToolError('原站分 P 列表不连续或重复')
-        record.data['current_parts'] = [{'part': page['page'], 'cid': page['cid']} for page in pages]
-    if not owner:
+        if record.data['source_type'] == 'bangumi':
+            record.data.update(season_id=metadata['season_id'], source_url=metadata['source_url'])
+            record.data['current_parts'] = [{**page, 'part': page['page'], 'title': page['part']} for page in pages]
+        else:
+            record.data['current_parts'] = [{'part': page['page'], 'cid': page['cid']} for page in pages]
+    if not owner and record.data['source_type'] == 'video':
         record.data["errors"].append("原站未提供 UP 主信息")
     if record.data["total_parts"] is None:
         record.data["errors"].append("原站未提供总分 P 数")
@@ -245,7 +255,11 @@ def refresh_metadata(settings: Settings, args: argparse.Namespace, executable: s
                 auth.ensure_login(context, settings)
                 for record in records:
                     try:
-                        metadata = api.api_json(context, "/x/web-interface/view", settings, {"bvid": record.data["bvid"]})["data"]
+                        if record.data['source_type'] == 'bangumi':
+                            targets = api.resolve_targets(context, record.data['source_url'], settings, False)
+                            metadata = targets[0].metadata
+                        else:
+                            metadata = api.api_json(context, "/x/web-interface/view", settings, {"bvid": record.data["source_id"]})["data"]
                         update_source_info(record, metadata)
                         record.flatten_parts()
                     except Exception as exc:
@@ -256,7 +270,7 @@ def refresh_metadata(settings: Settings, args: argparse.Namespace, executable: s
                 record.data["errors"] = [f"原站认证或信息保存失败：{exc}"]
                 record.save()
     for record in records:
-        failures.extend(f"{record.data['bvid']}：{error}" for error in record.data["errors"])
+        failures.extend(f"{record.data['source_id']}：{error}" for error in record.data["errors"])
         for item in record.data["files"]:
             failures.extend(f"{item['id']}：{error}" for error in item["errors"])
         print(f"视频信息已更新：{record.path}")

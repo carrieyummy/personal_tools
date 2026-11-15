@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from contextlib import nullcontext
+from dataclasses import replace
 import sys
 from urllib.parse import urlsplit
 
 from . import api
+from . import bangumi
+from . import identity as source_identity
 from . import auth
 from . import config as configuration
 from . import downloader as transfer
@@ -42,27 +46,44 @@ def run(args: argparse.Namespace) -> int:
             return result
 
 
+def expand_season_request(context: object, request: manifest.DownloadRequest, settings: Settings) -> list[manifest.DownloadRequest]:
+    """经 context/settings 展开 request 的关联季，普通链接标记共享画质组，保留清单排名及拼接设置；返回请求列表。"""
+    url = api.resolve_url(context, request.url, settings)
+    if not api.BANGUMI_PATH.fullmatch(urlsplit(url).path):
+        return [replace(request, url=url)]
+    season_urls = bangumi.related_season_urls(context, url, settings)
+    group = (frozenset(api.BANGUMI_PATH.fullmatch(urlsplit(value).path)['id'] for value in season_urls)
+             if request.quality_rank is None else frozenset())
+    return [replace(request, url=season_url, all_parts=True, source=f'{request.source} · {season_url}', quality_group=group)
+            for season_url in season_urls]
+
+
 def run_with_settings(args: argparse.Namespace, settings: Settings, journal: HtmlLog | None) -> int:
-    """按 args 和已校验 settings 执行模式，将下载及拼接写入可选 journal；返回 0/2。"""
+    """按 args/settings 执行模式；all_seasons 逐季归档且普通链接按关联季共用画质确认，失败记录到 journal，返回 0/2。"""
     selection = args.merge_parts.strip()
     if args.refresh_metadata:
         return library.refresh_metadata(settings, args, media.resolve_ffmpeg(settings, args.config.resolve().parent))
     if args.merge_video:
         url = api.normalize_url(args.merge_video)
         match = api.VIDEO_PATH.fullmatch(urlsplit(url).path)
-        if not match or not match['id'].startswith('BV'):
-            raise ToolError("手动拼接请输入已下载视频的 BV 号或普通 BV 视频链接")
+        season = api.BANGUMI_PATH.fullmatch(urlsplit(url).path)
+        if match and match['id'].startswith('BV'):
+            identifier = match['id']
+        elif season and season['id'].startswith('ss'):
+            identifier = season['id']
+        else:
+            raise ToolError("手动拼接请输入已下载视频的 BV 号、番剧 ss 号或对应链接")
         executable = media.resolve_ffmpeg(settings, args.config.resolve().parent)
-        record = library.get_video_info(settings, match['id'])
+        record = library.get_video_info(settings, identifier)
         if selection not in ('', '0'):
             return merging.merge_groups(settings, executable, record, args.merge_parts, journal=journal)
-        activity = journal.add('合并', record.data['title'], task=record.data['bvid'], part='全部分 P',
+        activity = journal.add('合并', record.data['title'], task=record.data['source_id'], part='全部分 P',
                                status='merging') if journal else None
         merging.merge_parts(settings, executable, record, activity=activity)
         return 0
     urls = args.url or []
     if not args.login_only and not urls:
-        urls = [input("请输入 B 站链接、BV/AV 号或 YAML 下载清单路径：").strip()]
+        urls = [input("请输入 B 站视频/番剧链接、BV/AV 或 ep/ss 号、YAML 下载清单路径：").strip()]
     requests = manifest.expand_requests(urls, settings, args.all_parts, args.merge_parts)
     executable = '' if args.login_only or args.list_formats else media.resolve_ffmpeg(settings, args.config.resolve().parent)
     failures = []
@@ -74,10 +95,18 @@ def run_with_settings(args: argparse.Namespace, settings: Settings, journal: Htm
             return 0
         submissions: dict[tuple, workflow.Submission] = {}
         processed: set[str] = set()
-        for index, request in enumerate(requests):
+        pending = deque((request, settings.all_seasons) for request in requests)
+        index = 0
+        while pending:
             check_cancel()
+            request, expand_seasons = pending.popleft()
+            index += 1
             url = request.url
             try:
+                if expand_seasons:
+                    expanded = expand_season_request(context, request, settings)
+                    pending.extendleft((item, False) for item in reversed(expanded))
+                    continue
                 targets = api.resolve_targets(context, url, settings, request.all_parts)
                 if args.list_formats:
                     for target in targets:
@@ -87,7 +116,11 @@ def run_with_settings(args: argparse.Namespace, settings: Settings, journal: Htm
                         try:
                             auth.ensure_login(context, settings)
                             with transfer.make_downloader(context, settings) as downloader:
-                                info = downloader.extract_info(target.url, download=False)
+                                if target.episode_id is not None:
+                                    info = workflow.extract_target(downloader, target, context, settings)
+                                    info = downloader.process_ie_result(info, download=False)
+                                else:
+                                    info = downloader.extract_info(target.url, download=False)
                                 subtitle_error = None
                                 try:
                                     tracks = subtitles.list_subtitles(context, target, info, settings)
@@ -98,16 +131,16 @@ def run_with_settings(args: argparse.Namespace, settings: Settings, journal: Htm
                         except Exception as exc:
                             failures.append(f"{target.url} 画质查询：{exc}")
                     continue
-                resolved_id = api.VIDEO_PATH.fullmatch(urlsplit(targets[0].url).path)['id']
-                params = {'bvid': resolved_id} if resolved_id.startswith('BV') else {'aid': resolved_id[2:]}
-                metadata = api.api_json(context, '/x/web-interface/view', settings, params)['data']
+                metadata = api.target_metadata(context, targets[0], settings)
                 if not isinstance(metadata.get('title'), str) or not metadata['title']:
                     raise ToolError("投稿标题为空，无法创建视频目录")
-                identity = ('direct', metadata['bvid']) if request.quality_rank is None else ('manifest', index)
+                identity = ('direct', source_identity.source_id(metadata)) if request.quality_rank is None else ('manifest', index)
                 if identity in submissions:
                     combined = {target.part: target for target in submissions[identity].targets}
                     combined.update((target.part, target) for target in targets)
                     submissions[identity].targets = list(combined.values())
+                    submissions[identity].request = replace(submissions[identity].request,
+                        quality_group=submissions[identity].request.quality_group | request.quality_group)
                 else:
                     submissions[identity] = workflow.Submission(metadata, targets, request)
             except Exception as exc:

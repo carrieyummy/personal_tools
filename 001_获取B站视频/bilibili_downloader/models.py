@@ -11,12 +11,23 @@ from .errors import ToolError
 
 @dataclass(frozen=True)
 class VideoTarget:
-    """描述待处理分 P：url 为规范链接，cid 为内容 ID，part 和 total_parts 为序号和总数。"""
+    """描述单个下载目标；url/cid 为规范地址及内容ID，part/total_parts 为所属来源的序号和总数。
+
+    番剧填写 source_id、episode_id、season_id、真实 bvid/aid 和 title；metadata 为同来源的完整原站信息。
+    普通投稿的新增字段可为空，由原有投稿接口取得身份，不改变原位置参数的含义。
+    """
 
     url: str
     cid: int
     part: int
     total_parts: int = 1
+    source_id: str = ''
+    episode_id: int | None = None
+    season_id: int | None = None
+    bvid: str | None = None
+    aid: int | None = None
+    title: str = ''
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

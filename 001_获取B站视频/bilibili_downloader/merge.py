@@ -24,6 +24,7 @@ from .activity_log import Activity, HtmlLog, progress_number
 from . import runtime
 from .errors import check_cancel
 from . import variants
+from . import identity
 
 
 def parse_merge_group(expression: str) -> list[int]:
@@ -88,7 +89,7 @@ def record_merge_result(record: VideoInfo, *, status: str, source_parts: list[in
     qualities = [{'part': part, 'quality_id': available[part].code, 'quality_name': available[part].name}
                  for part in dict.fromkeys(parts or []) if part in available]
     value = {
-        'id': result_id or uuid4().hex, 'bvid': record.data['bvid'], 'video_title': record.data['title'],
+        'id': result_id or uuid4().hex, **identity.fields(record.data['source_id']), 'video_title': record.data['title'],
         'source_url': record.data['source_url'], 'uploader': record.data.get('uploader'),
         'total_parts': record.data.get('total_parts'), 'directory_base': record.base_directory.name,
         'status': status, 'source_expression': expression, 'source_parts': parts, 'occurrence': occurrence,
@@ -149,6 +150,7 @@ def merge_parts(settings: Settings, executable: str, record: VideoInfo,
                         destination=destination, source_entries=source_entries)
     if activity:
         activity.update('reused' if reused else 'completed', path=str(destination),
+                        actual_size_bytes=destination.stat().st_size,
                         detail=reason if reused else reason + '；无损拼接完成，原分 P 和字幕已保留')
     return destination
 
@@ -170,7 +172,7 @@ def _merge_parts(settings: Settings, executable: str, record: VideoInfo,
         raise ToolError("每组至少需要两个片段，分 P 编号必须为正整数")
     if type(occurrence) is not int or occurrence < 1:
         raise ToolError("拼接序列的出现次数必须为正整数")
-    video_id = record.data["bvid"]
+    video_id = record.data["source_id"]
     quality = quality if quality is not None else qualities.choose_merge_quality(record)
     expected = ({page['part']: page['cid'] for page in record.data['current_parts']}
                 if 'current_parts' in record.data else None)
@@ -198,6 +200,10 @@ def _merge_parts(settings: Settings, executable: str, record: VideoInfo,
         part = int(match[1])
         if expected is not None and item.get('source_cid') != expected[part]:
             raise ToolError(f'第 {part} P 本地来源 CID 与当前版本不一致，需先完成更新下载')
+        if record.data['source_type'] == 'bangumi':
+            page = next(page for page in record.data['current_parts'] if page['part'] == part)
+            if item.get('episode_id') != page['episode_id']:
+                raise ToolError(f'第 {part} P 剧集身份已变化，需先完成更新下载')
         if item.get("status") != "completed":
             raise ToolError(f"第 {part} P 尚未完成")
         source = record.resolve_file(item)
@@ -337,7 +343,7 @@ def merge_groups(settings: Settings, executable: str, record: VideoInfo, express
     for index, group in enumerate(expression.split(";"), 1):
         check_cancel()
         label = f"第 {index} 组 [{group.strip()}]"
-        activity = journal.merge_activity(record.data['title'], task=task or record.data['bvid'], part=label) if journal else None
+        activity = journal.merge_activity(record.data['title'], task=task or record.data['source_id'], part=label) if journal else None
         parts, selected_quality, delegated = None, quality, False
         started = timestamp()
         try:

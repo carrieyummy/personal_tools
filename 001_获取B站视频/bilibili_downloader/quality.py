@@ -1,4 +1,4 @@
-"""聚合实际可下载画质，确认一次统一上限，并限定各分 P 的实际下载流。"""
+"""聚合可下载画质，确认关联季逐集档位排名或单任务上限，并限定各分 P 的实际下载流。"""
 
 from copy import deepcopy
 from itertools import product
@@ -8,6 +8,7 @@ from .errors import ToolError
 from .metadata import VideoInfo
 from .models import Quality, entry_quality
 from . import variants
+from . import media
 
 
 class QualityUnavailable(ToolError):
@@ -87,7 +88,8 @@ def available_variants(downloader: Any, info: dict[str, Any], options: dict[int,
             formats = selected.get('requested_formats') or [selected]
             stable = tuple({key: fmt.get(key) for key in ('format_id', 'vcodec', 'acodec', 'width', 'height', 'fps')}
                            for fmt in formats)
-            candidates[signature] = variants.StreamChoice(quality, stable, tuple(ranks.get(fmt.get('format_id'), -1) for fmt in formats))
+            candidates[signature] = variants.StreamChoice(quality, stable, tuple(ranks.get(fmt.get('format_id'), -1) for fmt in formats),
+                                                          **media.expected_size(formats))
         if candidates:
             result[code] = candidates
     return result
@@ -108,15 +110,20 @@ def common_choice(catalogs: dict[int, dict[int, dict[tuple, variants.StreamChoic
     raise ToolError(f'画质上限 {ceiling.name} 内没有同档位且编码和分辨率兼容的方案；仍按清晰度优先下载')
 
 
-def available_qualities(downloader: Any, info: dict[str, Any]) -> dict[int, Quality]:
-    """检查 info 各档位是否可由 downloader 配置完整选流；返回实际可下载档位，不含平台会员广告项。"""
+def available_qualities(downloader: Any, info: dict[str, Any], *, size_info: dict[int, dict[str, Any]] | None = None) -> dict[int, Quality]:
+    """检查 downloader 可选的 info 档位；可选 size_info 接收各档已选版本及大小，返回档位映射，不额外联网。"""
     result = {}
     for code, (quality, _) in quality_formats(info).items():
         try:
-            select_quality(downloader, info, quality)
+            selected = select_quality(downloader, info, quality)
         except QualityUnavailable:
             continue
         result[code] = quality
+        if size_info is not None:
+            formats = media.chosen_formats(selected)
+            size_info[code] = {**media.expected_size(formats), 'format_variant': variants.variant_id(formats),
+                               'formats': [{key: fmt.get(key) for key in ('format_id', 'vcodec', 'acodec', 'width', 'height', 'fps')}
+                                           for fmt in formats]}
     return result
 
 
@@ -142,6 +149,27 @@ def below_ceiling(options: dict[int, Quality], ceiling: Quality) -> Quality:
     if not allowed:
         raise ToolError(f'画质上限 {ceiling.name} (qn={ceiling.code}) 内没有可下载档位')
     return max(allowed, key=lambda choice: choice.code)
+
+
+def confirm_rank(catalogs: dict[tuple[str, int], dict[int, Quality]]) -> int | None:
+    """为 catalogs 关联季确认一次正整数档位排名，键为(ss号,P号)，各集按平台编号降序独立排名。
+
+    返回从1开始的排名，跳过整组或无档位时返回 None；q/EOF 取消，缺少所选排名的集由调用方报告失败。
+    """
+    ordered = {part: sorted(options.values(), key=lambda choice: choice.code, reverse=True)
+               for part, options in catalogs.items()}
+    count = max((len(options) for options in ordered.values()), default=0)
+    if not count:
+        print('没有可下载清晰度')
+        return None
+    parts = '、'.join(f'{season} P{part}' for season, part in sorted(catalogs))
+    print(f'\n待确认剧集：{parts}；选择一次档位排名，各集分别按可下载画质降序取档：')
+    for rank in range(1, count + 1):
+        choices = [options[rank - 1] for options in ordered.values() if len(options) >= rank]
+        names = '、'.join(dict.fromkeys(f'{choice.name} (qn={choice.code})' for choice in choices))
+        print(f'  {rank}. 第 {rank} 高档位 | {names} | 本档支持 {len(choices)}/{len(catalogs)} 集')
+    index = read_choice(count, '输入画质档位（1=各集最高），s 跳过本番剧全部关联季，q 取消：', allow_skip=True)
+    return index + 1 if index is not None else None
 
 
 def confirm_ceiling(catalogs: dict[int, dict[int, Quality]], *, per_group: bool = False) -> Quality | None:

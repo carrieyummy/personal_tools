@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from bilibili_downloader import config, errors, library, metadata, models
-from tests import PROJECT_DIR
+from tests import CONFIG_PATH
 
 
 class QualityLayoutTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class QualityLayoutTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root, mix_quality=False)
+        self.settings = replace(config.load_settings(CONFIG_PATH), output_dir=self.root, mix_quality=False)
         self.base = self.root / '演唱会_合集9060222'
         self.bvid = 'BV1xx411c7mD'
         self.high = models.Quality(127, '8K 超高清')
@@ -58,7 +58,7 @@ class QualityLayoutTests(unittest.TestCase):
             record = library.get_video_info(self.settings, bvid)
             self.assertEqual(record.path.parent, self.root / f'{self.base.name}_{self.high.directory}_分P')
             self.assertEqual(record.data['directory_base'], self.base.name)
-            self.assertEqual(record.data['schema_version'], 7)
+            self.assertEqual(record.data['schema_version'], 8)
             for item in record.data['files']:
                 video = record.resolve_file(item)
                 self.assertEqual(video.parent.parent, self.root)

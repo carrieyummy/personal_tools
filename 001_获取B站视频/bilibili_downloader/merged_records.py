@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from . import metadata, naming
+from . import identity
 from .errors import ToolError
 from .storage import validate_path
 
@@ -20,24 +21,27 @@ class MergedVideoInfo(metadata.VideoInfo):
         validate_path(folder / 'video_info.json', self.output_dir)
         now = metadata.timestamp()
         self.data = metadata.read_json(self.path) if self.path.exists() else {
-            'schema_version': 1, 'record_type': 'merged', 'created_at': now, 'updated_at': now, 'files': [],
+            'schema_version': 2, 'record_type': 'merged', 'created_at': now, 'updated_at': now, 'files': [],
         }
         files = self.data.get('files')
-        if (self.data.get('schema_version') != 1 or self.data.get('record_type') != 'merged'
+        if (self.data.get('schema_version') not in (1, 2) or self.data.get('record_type') != 'merged'
                 or not isinstance(files, list) or any(not isinstance(item, dict) for item in files)):
             raise ToolError(f'合并视频索引格式无效：{self.path}')
         ids = [item.get('id') for item in files]
         if (any(not isinstance(value, str) or not value for value in ids) or len(set(ids)) != len(ids)
-                or any(item.get('kind') != 'merged' or not isinstance(item.get('bvid'), str)
+                or any(item.get('kind') != 'merged'
                        or not isinstance(item.get('errors'), list) for item in files)):
             raise ToolError(f'合并视频索引条目无效：{self.path}')
         results = self.data.setdefault('merge_results', [])
         if (not isinstance(results, list) or any(not isinstance(item, dict) for item in results)
                 or any(not isinstance(item.get('id'), str) or not item['id']
-                       or not isinstance(item.get('bvid'), str) or not isinstance(item.get('errors'), list)
+                       or not isinstance(item.get('errors'), list)
                        or item.get('status') not in {'completed', 'reused', 'failed', 'interrupted', 'skipped'} for item in results)
                 or len({item['id'] for item in results}) != len(results)):
             raise ToolError(f'合并结果记录无效：{self.path}')
+        for item in [*files, *results]:
+            identity.validate(item, legacy=self.data['schema_version'] == 1)
+        self.data['schema_version'] = 2
 
     @classmethod
     def for_results(cls, source: metadata.VideoInfo) -> 'MergedVideoInfo':
@@ -51,6 +55,8 @@ class MergedVideoInfo(metadata.VideoInfo):
 
     def register_result(self, result: dict[str, Any]) -> None:
         """按稳定 id 登记独立的 result 合并结果；重复导入同一结果时更新而不追加，不修改成品条目；无返回值。"""
+        result = deepcopy(result)
+        identity.validate(result, legacy='source_id' not in result)
         previous = next((item for item in self.data['merge_results'] if item['id'] == result['id']), None)
         if previous is None:
             self.data['merge_results'].append(deepcopy(result))
@@ -74,10 +80,10 @@ class MergedVideoInfo(metadata.VideoInfo):
     def register(self, source: metadata.VideoInfo, item: dict[str, Any], destination: Path | None) -> dict[str, Any]:
         """复制 source 的合并 item 到本索引；destination 为新媒体路径或 None，返回独立的索引条目。"""
         entry = deepcopy(item)
-        bvid = source.data['bvid']
+        bvid = source.data['source_id']
         if not entry['id'].startswith(bvid + ':'):
             entry['id'] = bvid + ':' + entry['id']
-        entry.update(bvid=bvid, video_title=source.data['title'], uploader=deepcopy(source.data.get('uploader')),
+        entry.update(**identity.fields(bvid), video_title=source.data['title'], uploader=deepcopy(source.data.get('uploader')),
                      source_url=source.data['source_url'], total_parts=source.data.get('total_parts'), kind='merged')
         if 'source_parts' not in entry:
             entry['source_parts'] = None

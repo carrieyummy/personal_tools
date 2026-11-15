@@ -26,7 +26,7 @@ from bilibili_downloader.merged_records import MergedVideoInfo
 from bilibili_downloader.models import Quality, VideoTarget
 import download_bilibili as cli
 from bilibili_downloader import runtime
-from tests import PROJECT_DIR, fake_auth_snapshot
+from tests import CONFIG_PATH, fake_auth_snapshot
 
 
 class ManifestTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class ManifestTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root, threads=3)
+        self.settings = replace(config.load_settings(CONFIG_PATH), output_dir=self.root, threads=3)
 
     def write(self, data: object, name: str = 'list.yaml') -> Path:
         """将 data 写入临时 name 清单，返回其绝对路径。"""
@@ -103,7 +103,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_threads_must_be_positive_integer(self) -> None:
         """验证线程数由 YAML 配置读取，拒绝 0、负数、浮点数、字符串和布尔值；无返回值。"""
-        original = (PROJECT_DIR / 'config.yaml').read_text(encoding='utf-8')
+        original = CONFIG_PATH.read_text(encoding='utf-8')
         path = self.root / 'config.yaml'
         for value in ('0', '-1', '1.5', '"3"', 'true'):
             path.write_text(re.sub(r'(?m)^  threads:.*$', '  threads: ' + value, original), encoding='utf-8')
@@ -258,7 +258,7 @@ class BatchEngineTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root / 'downloads',
+        self.settings = replace(config.load_settings(CONFIG_PATH), output_dir=self.root / 'downloads',
                                 priority='quality')
         self.ids = ['BV1xx411c7mD', 'BV1yy411c7mD']
         self.counts = dict.fromkeys(self.ids, 1)
@@ -695,7 +695,7 @@ class ConcurrentRecordTests(unittest.TestCase):
 
     def test_http_sessions_copy_cookies_and_downloaders(self) -> None:
         """验证两个工作会话的CookieJar和下载器独立，快照Cookie值不被会话改写；无返回值。"""
-        settings = config.load_settings(PROJECT_DIR / 'config.yaml')
+        settings = config.load_settings(CONFIG_PATH)
         snapshot = fake_auth_snapshot()
         with auth.worker_session(snapshot, settings) as first, auth.worker_session(snapshot, settings) as second:
             self.assertIsNot(first.downloader, second.downloader)
@@ -707,7 +707,7 @@ class ConcurrentRecordTests(unittest.TestCase):
         """验证同一BV三个分P可同时传输及探测，JSON最终保留全部完成状态，锁不覆盖这些耗时步骤；无返回值。"""
         with tempfile.TemporaryDirectory() as directory:
             root, bvid = Path(directory).resolve(), 'BV1xx411c7mD'
-            settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=root)
+            settings = replace(config.load_settings(CONFIG_PATH), output_dir=root)
             record = library.get_video_info(settings, bvid, '并发投稿', 3)
             quality, download_barrier, probe_barrier = Quality(80, '1080P'), Barrier(3), Barrier(3)
             for part in (1, 2, 3):

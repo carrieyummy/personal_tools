@@ -37,11 +37,13 @@ def label(formats: list[dict[str, Any]]) -> str:
 
 @dataclass(frozen=True)
 class StreamChoice:
-    """一个实际选流版本：quality 为档位，formats 为不含临时地址的选流参数；rank 为格式偏好顺序。"""
+    """实际选流：quality/formats/rank 描述档位及偏好；预计大小仅用于展示，不参与版本身份和格式比较。"""
 
     quality: Quality
     formats: tuple[dict[str, Any], ...]
     rank: tuple[int, ...] = field(default=(), compare=False)
+    expected_size_bytes: int | None = field(default=None, compare=False)
+    expected_size_estimated: bool = field(default=False, compare=False)
 
     @property
     def variant(self) -> str:

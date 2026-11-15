@@ -15,6 +15,7 @@ from .models import LEGACY_QUALITY, Quality, entry_quality, quality_entry_id
 from . import runtime
 from . import naming
 from . import variants
+from . import identity
 from .storage import record_io_lock
 
 
@@ -80,7 +81,7 @@ class VideoInfo:
     """管理单个投稿的内存视图；磁盘源索引按目录独立保存，内存媒体路径相对当前锚点且限制在下载根目录内。"""
 
     def __init__(self, output_dir: Path, folder: Path, bvid: str, title: str, total_parts: int | None = None, *, shared: bool = False) -> None:
-        """以 output_dir 为边界加载 folder 中的 bvid/title 投稿；total_parts 为总分 P 数，shared 表示合集共用目录，无返回值。"""
+        """加载 output_dir 边界内 folder 的来源；bvid 接受真实 BV 或 ss/ep 标识，title/total_parts 描述来源，shared 指合集共用目录。"""
         self.output_dir = output_dir.resolve()
         self.path = folder.resolve() / (f"{bvid}_video_info.json" if shared else "video_info.json")
         self._index_paths = {self.path} if self.path.exists() else set()
@@ -89,13 +90,14 @@ class VideoInfo:
             raise ToolError(f"信息文件超出下载目录：{self.path}")
         now = timestamp()
         self.data = read_json(self.path) if self.path.exists() else {
-            "schema_version": 7, "record_type": "source", "mix_quality": False, "bvid": bvid, "title": title,
-            "source_url": f"https://www.bilibili.com/video/{bvid}",
+            "schema_version": 8, "record_type": "source", "mix_quality": False, **identity.fields(bvid), "title": title,
+            "source_url": identity.source_url(bvid),
             "uploader": None, "total_parts": total_parts, "created_at": now, "updated_at": now,
-            "files": [], "errors": ["尚未获取 UP 主信息"] + (["尚未获取总分 P 数"] if total_parts is None else []),
+            "files": [], "errors": (["尚未获取 UP 主信息"] if bvid.startswith('BV') else []) + (["尚未获取总分 P 数"] if total_parts is None else []),
         }
-        if self.data.get("record_type") == 'merged' or self.data.get("schema_version") not in (1, 2, 3, 4, 5, 6, 7) or self.data.get("bvid") != bvid or not isinstance(self.data.get("files"), list):
-            raise ToolError(f"信息文件版本、BV 号或文件列表无效：{self.path}")
+        identity.validate(self.data, legacy=self.data.get('schema_version') in (1, 2, 3, 4, 5, 6, 7))
+        if self.data.get("record_type") == 'merged' or self.data.get("schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8) or self.data['source_id'] != bvid or not isinstance(self.data.get("files"), list):
+            raise ToolError(f"信息文件版本、来源标识或文件列表无效：{self.path}")
         entries = self.data["files"]
         if any(not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in entries):
             raise ToolError(f"信息文件的文件条目无效：{self.path}")
@@ -114,9 +116,18 @@ class VideoInfo:
                            or type(page.get('cid')) is not int or page['cid'] < 1 for page in pages)
                     or sorted(page['part'] for page in pages) != list(range(1, len(pages) + 1))):
                 raise ToolError(f'信息文件当前分 P 列表无效：{self.path}')
-        if self.data.get('schema_version') in (6, 7) and type(self.data.get('mix_quality')) is not bool:
+            if self.data['source_type'] == 'bangumi':
+                from .bangumi import episode_page, positive_id
+
+                positive_id(self.data.get('season_id'), '季编号')
+                for page in pages:
+                    expected = episode_page({'id': page.get('episode_id'), 'cid': page['cid'],
+                                             'aid': page.get('aid'), 'bvid': page.get('bvid')}, page['part'])
+                    if page.get('source_url') != expected['source_url']:
+                        raise ToolError(f'信息文件剧集地址与 EP 不一致：{self.path}')
+        if self.data.get('schema_version') in (6, 7, 8) and type(self.data.get('mix_quality')) is not bool:
             raise ToolError(f'源目录索引 mix_quality 必须为布尔值：{self.path}')
-        if self.path.exists() and self.data.get('schema_version') in (5, 6, 7):
+        if self.path.exists() and self.data.get('schema_version') in (5, 6, 7, 8):
             if self.data.get('record_type') != 'source':
                 raise ToolError(f'源目录索引类型无效：{self.path}')
             if any(item['kind'] == 'merged' or (not self.mix_quality and item.get('quality_id') != self.data.get('quality_id'))
@@ -131,7 +142,7 @@ class VideoInfo:
     @property
     def mix_quality(self) -> bool:
         """返回磁盘索引声明的存放方式；v1～v5 明确属于旧分画质布局，无参数。"""
-        return self.data['mix_quality'] if self.data.get('schema_version') in (6, 7) else False
+        return self.data['mix_quality'] if self.data.get('schema_version') in (6, 7, 8) else False
 
     @property
     def base_directory(self) -> Path:
@@ -151,12 +162,12 @@ class VideoInfo:
         """返回此投稿已有及待写入的全部源索引路径，供跨文件事务完整回滚；无参数。"""
         from .source_records import documents
 
-        planned = documents(self).keys() if self.data.get('schema_version') in (5, 6, 7) else [self.path]
+        planned = documents(self).keys() if self.data.get('schema_version') in (5, 6, 7, 8) else [self.path]
         return sorted(self._index_paths | set(planned))
 
     def save(self) -> None:
         """保存投稿视图到各目录索引；旧布局在迁移步骤完成前保留旧写入规则，失败恢复原文件，无返回值。"""
-        if self.data.get('schema_version') not in (5, 6, 7):
+        if self.data.get('schema_version') not in (5, 6, 7, 8):
             self._save_legacy()
             self._index_paths = {self.path}
             return
@@ -167,7 +178,7 @@ class VideoInfo:
     def migrate_directory_indexes(self) -> None:
         """只拆分此投稿的源 JSON 到媒体实际目录，保留媒体和指纹，不联网、不移动文件；失败恢复旧视图，无返回值。"""
         original = deepcopy(self.data)
-        self.data.update(schema_version=7, mix_quality=self.mix_quality)
+        self.data.update(schema_version=8, mix_quality=self.mix_quality)
         try:
             self.save()
         except BaseException:
@@ -229,6 +240,11 @@ class VideoInfo:
             "quality_dir": self.quality_suffix(quality),
             "format_variant": variant or None,
         }
+        if self.data['source_type'] == 'bangumi' and part is not None:
+            page = next((page for page in self.data.get('current_parts', []) if page['part'] == part), None)
+            if page:
+                item.update(episode_id=page['episode_id'], season_id=self.data['season_id'],
+                            bvid=page.get('bvid'), aid=page['aid'], source_url=page['source_url'])
         self.data["files"].append(item)
         return item
 
@@ -297,9 +313,9 @@ class VideoInfo:
         self.save()
 
     def flatten_parts(self) -> None:
-        """整理本投稿旧分 P 目录及单 P 断点流；冲突不覆盖，移动或保存失败回滚，返回 None。"""
+        """整理来源的旧分 P 目录及单 P 断点流；BV/ss/ep 分 P 断点保持身份，冲突不覆盖，失败回滚，返回 None。"""
         root = self.base_directory if self.base_directory.is_dir() else self.path.parent
-        bvid = self.data["bvid"]
+        bvid = self.data["source_id"]
         pattern = re.compile(re.escape(bvid) + r"_p[1-9]\d*")
         sources = {path for path in root.iterdir() if pattern.fullmatch(path.name)} if root.is_dir() else set()
         for item in self.data["files"]:
@@ -321,7 +337,7 @@ class VideoInfo:
             children = list(streams.iterdir())
             if any(path.is_symlink() or path.is_junction() for path in children):
                 raise ToolError(f"断点流目录包含链接，无法直接迁移：{streams}")
-            stream_pattern = re.compile(r"BV[0-9A-Za-z]{10}_p[1-9]\d*")
+            stream_pattern = re.compile(identity.SOURCE_ID.pattern + r"_p[1-9]\d*")
             old_streams = [path for path in children if not (path.is_dir() and stream_pattern.fullmatch(path.name))]
             if old_streams:
                 parts = {item.get("part") for item in self.data["files"] if item.get("kind") == "part"}
@@ -417,13 +433,13 @@ class VideoInfo:
                 continue
             if any(piece.startswith(".") and piece != ".." for piece in relative.parts) or ".partial." in path.name:
                 continue
-            if self.path.name != "video_info.json" and self.data["bvid"] not in path.stem:
+            if self.path.name != "video_info.json" and self.data["source_id"] not in path.stem:
                 continue
-            match = re.fullmatch(re.escape(self.data["bvid"]) + r"_p(\d+)", path.parent.name)
+            match = re.fullmatch(re.escape(self.data["source_id"]) + r"_p(\d+)", path.parent.name)
             if not match:
-                match = re.fullmatch(r".*_" + re.escape(self.data["bvid"]) + r"_p(\d+)(?:_(qn([1-9]\d*)_(.+)))?", path.stem)
+                match = re.fullmatch(r".*_" + re.escape(self.data["source_id"]) + r"_p(\d+)(?:_(qn([1-9]\d*)_(.+)))?", path.stem)
             part = int(match[1]) if match else None
-            entry_id = f"{self.data['bvid']}_p{part}" if part else f"video:{relative.as_posix()}"
+            entry_id = f"{self.data['source_id']}_p{part}" if part else f"video:{relative.as_posix()}"
             kind = "part" if part else "video"
             suffix = path.parent.name.removeprefix(base.name + '_').removesuffix('_分P')
             directory_match = re.fullmatch(r'qn([1-9]\d*)_(.+)', suffix)
@@ -431,7 +447,7 @@ class VideoInfo:
             quality = next((entry_quality(item) for item in self.data["files"] if item.get("quality_dir") == suffix), inferred)
             tag = None
             if self.mix_quality:
-                named = re.fullmatch(r'.*_' + re.escape(self.data['bvid']) + r'_p[1-9]\d*_(qn([1-9]\d*)_(.+))', path.stem)
+                named = re.fullmatch(r'.*_' + re.escape(self.data['source_id']) + r'_p[1-9]\d*_(qn([1-9]\d*)_(.+))', path.stem)
                 if named:
                     tag = named[1]
                     quality = next((entry_quality(item) for item in self.data['files'] if item.get('quality_dir') == tag),
@@ -451,14 +467,18 @@ class VideoInfo:
         self.save()
 
 
-def remove_empty_directories(root: Path, output_dir: Path) -> None:
-    """清理 output_dir 内 root 下的空目录；跳过链接和非空目录，无返回值，不删除下载根目录。"""
+def remove_empty_directories(root: Path, output_dir: Path, *, recursive: bool = True) -> None:
+    """清理 output_dir 内 root 的空目录；recursive=True 递归清理，False 只尝试删除 root。
+
+    跳过链接和非空目录，不删除下载根目录；当前索引目录须使用非递归模式以保留待写入的断点子目录，无返回值。
+    """
     if root.is_symlink() or root.is_junction():
         return
     root = root.resolve()
     if root == output_dir.resolve() or not root.is_relative_to(output_dir.resolve()) or not root.is_dir():
         return
-    directories = [path for path in root.rglob('*') if path.is_dir() and not path.is_symlink() and not path.is_junction()]
+    directories = ([path for path in root.rglob('*') if path.is_dir() and not path.is_symlink() and not path.is_junction()]
+                   if recursive else [])
     for directory in sorted([root, *directories], key=lambda path: len(path.parts), reverse=True):
         try:
             directory.rmdir()
@@ -488,7 +508,7 @@ def move_to_collection(info: VideoInfo, folder: Path) -> VideoInfo:
     from .layout import organize_submission
 
     if info.path.name != "video_info.json" and info.base_directory.resolve() != folder.resolve():
-        raise ToolError(f"{info.data['bvid']} 已在其他合集目录：{info.base_directory}")
+        raise ToolError(f"{info.data['source_id']} 已在其他合集目录：{info.base_directory}")
     organize_submission(info, target_base=folder, shared=True)
     return info
 
@@ -523,7 +543,7 @@ def open_video(output_dir: Path, bvid: str, title: str | None = None, total_part
 
 
 def discover_videos(output_dir: Path) -> tuple[list[str], list[str]]:
-    """发现 output_dir 及分组目录内的投稿与旧下载记录；返回 BV 号列表及损坏旧记录的错误列表。"""
+    """发现 output_dir 及分组目录内的投稿、番剧和旧下载记录；返回来源标识及损坏记录错误列表。"""
     ids: set[str] = set()
     errors: list[str] = []
     for folder in output_dir.rglob("*") if output_dir.is_dir() else []:
@@ -538,9 +558,8 @@ def discover_videos(output_dir: Path) -> tuple[list[str], list[str]]:
                 data = read_json(folder)
                 if data.get('record_type') == 'merged':
                     continue
-                bvid = data.get('bvid', '')
-                if re.fullmatch(r'BV[0-9A-Za-z]{10}', bvid):
-                    ids.add(bvid)
+                if 'source_id' in data or 'bvid' in data:
+                    ids.add(identity.source_id(data))
             except ToolError as exc:
                 errors.append(str(exc))
     for path in output_dir.rglob("download.json"):
@@ -563,10 +582,10 @@ def migrate_legacy(info: VideoInfo) -> None:
         try:
             record = read_json(path)
         except ToolError:
-            if info.data["bvid"] in str(path):
+            if info.data["source_id"] in str(path):
                 raise
             continue
-        match = re.fullmatch(re.escape(info.data["bvid"]) + r"_p(\d+)", str(record.get("id", "")))
+        match = re.fullmatch(re.escape(info.data["source_id"]) + r"_p(\d+)", str(record.get("id", "")))
         if not match:
             continue
         if not info.path.exists() and record.get("video_title"):
@@ -583,7 +602,7 @@ def migrate_legacy(info: VideoInfo) -> None:
                 raise ToolError(f"旧记录总分 P 数无效：{path}")
             totals.add(total)
         if len(totals) > 1:
-            raise ToolError(f"{info.data['bvid']} 的旧记录总分 P 数不一致")
+            raise ToolError(f"{info.data['source_id']} 的旧记录总分 P 数不一致")
         source = (path.parent / name).resolve()
         item = info.entry(record["id"], "part", int(match[1]), record.get("title"))
         if item.get("path") and (info.resolve_file(item) != source or item.get("formats") != formats):

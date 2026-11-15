@@ -21,7 +21,7 @@ from bilibili_downloader import subtitles as subtitle_service
 from bilibili_downloader import config as configuration
 import download_bilibili as cli_entry
 from bilibili_downloader import runtime
-from tests import PROJECT_DIR, fake_auth_snapshot
+from tests import CONFIG_PATH, PROJECT_DIR, fake_auth_snapshot
 
 
 class FakeResponse:
@@ -47,7 +47,7 @@ class DownloadTests(unittest.TestCase):
         """创建本用例的临时目录及测试配置；无返回值。"""
         self.temporary = tempfile.TemporaryDirectory()
         self.folder = Path(self.temporary.name).resolve()
-        self.settings = replace(configuration.load_settings(PROJECT_DIR / "config.yaml"), output_dir=self.folder, retries=0, threads=1)
+        self.settings = replace(configuration.load_settings(CONFIG_PATH), output_dir=self.folder, retries=0, threads=1)
         self.enterContext(patch.object(auth, 'snapshot_session', return_value=fake_auth_snapshot()))
         self.info = {"id": "BV1xx411c7mD_p1", "title": "测试视频", "http_headers": {}, "webpage_url": "https://www.bilibili.com/video/BV1xx411c7mD?p=1"}
         self.target = models.VideoTarget(self.info["webpage_url"], 123, 1)
@@ -56,9 +56,10 @@ class DownloadTests(unittest.TestCase):
         """移除本用例生成的临时文件；无返回值。"""
         self.temporary.cleanup()
 
-    def test_default_config_remains_beside_script_entry(self) -> None:
-        """验证入口脚本的默认 YAML 与脚本位于同一目录；无参数、无返回值。"""
-        self.assertEqual(cli_entry.parse_args([]).config, PROJECT_DIR / 'config.yaml')
+    def test_default_config_is_in_script_config_directory(self) -> None:
+        """验证默认 YAML 定位入口下的 config 目录，且文件迁移后仍可读取；无参数、无返回值。"""
+        self.assertEqual(cli_entry.parse_args([]).config, CONFIG_PATH)
+        self.assertTrue(CONFIG_PATH.is_file())
 
     def test_normalize_links_and_reject_other_content(self) -> None:
         """验证 BV/AV、分享文字、分 P 和不支持的链接；无返回值。"""
@@ -66,7 +67,7 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(api.normalize_url("av123"), "https://www.bilibili.com/video/av123")
         self.assertEqual(api.normalize_url("分享 https://www.bilibili.com/video/BV1xx411c7mD/?p=2&share=1"), "https://www.bilibili.com/video/BV1xx411c7mD?p=2")
         self.assertEqual(api.normalize_url("https://b23.tv/abc"), "https://b23.tv/abc")
-        for url in ("https://evil.example/video/BV1xx411c7mD", "https://www.bilibili.com/bangumi/play/ep1", "https://live.bilibili.com/1", "https://www.bilibili.com/video/av1?p=0", "https://www.bilibili.com/video/av1?p=2&p=3"):
+        for url in ("https://evil.example/video/BV1xx411c7mD", "https://www.bilibili.com/cheese/play/ep1", "https://live.bilibili.com/1", "https://www.bilibili.com/video/av1?p=0", "https://www.bilibili.com/video/av1?p=2&p=3"):
             with self.subTest(url=url), self.assertRaises(errors.ToolError):
                 api.normalize_url(url)
 
@@ -173,14 +174,18 @@ class DownloadTests(unittest.TestCase):
 
     def test_windows_names_and_config_paths(self) -> None:
         """验证 Windows 禁用字符、保留设备名、相对路径与配置校验；无返回值。"""
+        import yaml
+
         self.assertEqual(naming.safe_name('A:B?C. ', 60), "A_B_C")
         self.assertEqual(naming.safe_name("CON", 60), "_CON")
         self.assertEqual(configuration.expand_path("downloads", self.folder), self.folder / "downloads")
         config_path = self.folder / "config.yaml"
-        original = (PROJECT_DIR / "config.yaml").read_text(encoding="utf-8")
-        config_path.write_text(original.replace('output_dir: "downloads"', 'output_dir: "relative"'), encoding="utf-8")
+        original = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+        original['paths']['output_dir'] = 'relative'
+        config_path.write_text(yaml.safe_dump(original), encoding="utf-8")
         self.assertEqual(configuration.load_settings(config_path).output_dir, self.folder / "relative")
-        config_path.write_text(original.replace("retries: 3", "retries: -1"), encoding="utf-8")
+        original['download']['retries'] = -1
+        config_path.write_text(yaml.safe_dump(original), encoding="utf-8")
         with self.assertRaises(errors.ToolError):
             configuration.load_settings(config_path)
         config_path.write_text("paths: [", encoding="utf-8")
@@ -192,25 +197,30 @@ class DownloadTests(unittest.TestCase):
         root = PROJECT_DIR.parent
         content = (root / "001_获取B站视频.code-workspace").read_text(encoding="utf-8")
         workspace = json.loads("\n".join(line for line in content.splitlines() if not line.lstrip().startswith("//")))
-        root_folder = next(folder for folder in workspace["folders"] if (root / folder["path"]).resolve() == root)
-        workspace_variable = "${workspaceFolder:" + root_folder["name"] + "}"
+        workspace_roots = {'${workspaceFolder:' + folder.get('name', (root / folder['path']).resolve().name) + '}': str((root / folder['path']).resolve())
+                           for folder in workspace['folders']}
+        def resolve_workspace(value: str) -> str:
+            """按当前工作区全部命名目录展开 value，返回可用于路径检查和参数解析的字符串。"""
+            for variable, path in workspace_roots.items():
+                value = value.replace(variable, path)
+            return value
         configurations = workspace["launch"]["configurations"]
         self.assertEqual(len(configurations), 6)
         self.assertTrue(Path(workspace["settings"]["python.defaultInterpreterPath"]).is_file())
         settings = workspace["settings"]
         self.assertTrue(settings["python.testing.unittestEnabled"])
-        test_cwd = Path(settings["python.testing.cwd"].replace(workspace_variable, str(root)))
+        test_cwd = Path(resolve_workspace(settings["python.testing.cwd"]))
         self.assertEqual(test_cwd.resolve(), PROJECT_DIR)
         test_arguments = settings["python.testing.unittestArgs"]
         self.assertEqual((test_cwd / test_arguments[test_arguments.index("-s") + 1]).resolve(), PROJECT_DIR / "tests")
         self.assertEqual((test_cwd / test_arguments[test_arguments.index("-t") + 1]).resolve(), PROJECT_DIR)
         for configuration in configurations:
             self.assertEqual(configuration["python"], "${config:python.defaultInterpreterPath}")
-            self.assertTrue(Path(configuration["program"].replace(workspace_variable, str(root))).is_file())
+            self.assertTrue(Path(resolve_workspace(configuration["program"])).is_file())
             arguments = configuration["args"]
             config = arguments[arguments.index("--config") + 1]
-            self.assertTrue(Path(config.replace(workspace_variable, str(root))).is_file())
-            parsed = cli_entry.parse_args([value.replace(workspace_variable, str(root)).replace("${input:bilibiliUrl}", "BV1xx411c7mD").replace("${input:bilibiliMergeId}", "BV1xx411c7mD").replace("${input:bilibiliMergeParts}", "1-5,8,10-12;10-12").replace("${input:bilibiliDownloadMergeParts}", "1-5,8,10-12;10-12") for value in arguments])
+            self.assertTrue(Path(resolve_workspace(config)).is_file())
+            parsed = cli_entry.parse_args([resolve_workspace(value).replace("${input:bilibiliUrl}", "BV1xx411c7mD").replace("${input:bilibiliMergeId}", "BV1xx411c7mD").replace("${input:bilibiliMergeParts}", "1-5,8,10-12;10-12").replace("${input:bilibiliDownloadMergeParts}", "1-5,8,10-12;10-12") for value in arguments])
             self.assertEqual(parsed.login_only, configuration["name"] == "B站：验证 Chrome 登录态")
             self.assertEqual(parsed.list_formats, configuration["name"] == "B站：查看画质与字幕")
             self.assertEqual(parsed.all_parts, configuration["name"] == "B站：下载全部分 P")
@@ -391,8 +401,8 @@ class LosslessMuxTests(unittest.TestCase):
 
     def test_merge_existing_parts_in_order_without_reencoding(self) -> None:
         """用含中文和单引号的旧目录生成两段视频，验证离线拼接顺序和编码帧；无返回值。"""
-        settings = configuration.load_settings(PROJECT_DIR / "config.yaml")
-        executable = media.resolve_ffmpeg(settings, PROJECT_DIR)
+        settings = configuration.load_settings(CONFIG_PATH)
+        executable = media.resolve_ffmpeg(settings, CONFIG_PATH.parent)
         with tempfile.TemporaryDirectory() as directory:
             settings = replace(settings, output_dir=Path(directory) / "测试'目录")
             settings.output_dir.mkdir()
@@ -435,7 +445,7 @@ class LosslessMuxTests(unittest.TestCase):
 
     def test_merge_rejects_missing_and_incompatible_parts(self) -> None:
         """验证缺失分 P 或编码不一致时不调用 FFmpeg；无返回值。"""
-        settings = configuration.load_settings(PROJECT_DIR / "config.yaml")
+        settings = configuration.load_settings(CONFIG_PATH)
         with tempfile.TemporaryDirectory() as directory:
             settings = replace(settings, output_dir=Path(directory))
             manifests = []
@@ -460,8 +470,8 @@ class LosslessMuxTests(unittest.TestCase):
 
     def test_mp4_and_mkv_preserve_encoded_packets(self) -> None:
         """生成测试源，验证 MP4/AAC 和 MKV/FLAC 的音视频编码包哈希相同；无返回值。"""
-        settings = configuration.load_settings(PROJECT_DIR / "config.yaml")
-        executable = media.resolve_ffmpeg(settings, PROJECT_DIR)
+        settings = configuration.load_settings(CONFIG_PATH)
+        executable = media.resolve_ffmpeg(settings, CONFIG_PATH.parent)
 
         def ffmpeg(arguments: list[str]) -> str:
             """用测试 FFmpeg 执行 arguments；成功返回标准输出，失败使本用例失败。"""

@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from .config import Settings
 from .errors import ToolError
+from . import media
 from .log_server import LogServer
 from .storage import record_io_lock, validate_path
 
@@ -93,8 +94,8 @@ class Activity:
                         metric_intervals=deepcopy(self.transfer_intervals),
                         average_speed_bps=self.transferred_bytes / self.transfer_seconds if self.transfer_seconds > 0 else None)
 
-    def progress(self, status: dict[str, Any]) -> None:
-        """采样 yt-dlp status 的当前流进度；累计本次传输字节及有效时长，按配置节流落盘，结束样本立即保存；无返回值。"""
+    def progress(self, status: dict[str, Any], *, size_info: dict[str, Any] | None = None) -> None:
+        """采样 status 当前流进度；可选 size_info 提供整文件预计大小，按配置节流落盘，结束样本立即保存；无返回值。"""
         with self.journal.lock:
             if self.journal.closed or self.entry['status'] in TERMINAL:
                 return
@@ -117,6 +118,7 @@ class Activity:
             if total:
                 detail += f' / {total / 1_000_000:.2f} MB'
             self.update('downloading', progress=percent, detail=detail, current_bytes=downloaded,
+                        **(size_info or {}),
                         total_bytes=total, processed_bytes=self.transferred_bytes, metric_seconds=self.transfer_seconds,
                         metric_intervals=deepcopy(self.transfer_intervals),
                         average_speed_bps=self.transferred_bytes / self.transfer_seconds if self.transfer_seconds > 0 else None,
@@ -172,6 +174,7 @@ class HtmlLog:
         self.template = Path(__file__).with_name('templates').joinpath('download_log.html').read_text(encoding='utf-8')
         self.closed = False
         self.snapshot_path: Path | None = None
+        self._snapshot_filenames: set[str] = set()
         self.data = self.load_history()
         self.data.update(storage_error='', revision=0, closed=False)
         self.run: dict[str, Any] = {'id': uuid4().hex, 'label': label, 'started': timestamp(), 'finished': '',
@@ -218,7 +221,7 @@ class HtmlLog:
         return self
 
     def __exit__(self, exc_type: Any, exc: BaseException | None, traceback: Any) -> None:
-        """按 exc_type/exc/traceback 保存终态、快照并关闭 HTTP 服务；日志写盘错误不覆盖业务异常，无返回值。"""
+        """按 exc_type/exc/traceback 保存终态及快照，等待网页确认后关闭服务；日志写盘错误不覆盖业务异常，无返回值。"""
         with self.lock:
             if self.closed:
                 return
@@ -237,7 +240,12 @@ class HtmlLog:
         try:
             self.export_snapshot()
         finally:
-            self.server.close()
+            try:
+                if not self.server.wait_for_final_state():
+                    print('等待网页确认最终状态超时，日志服务即将关闭；最终结果请查看离线日志快照。',
+                          file=sys.stderr, flush=True)
+            finally:
+                self.server.close()
         if self.snapshot_path:
             print(f'离线日志快照：{self.snapshot_path}', flush=True)
 
@@ -266,40 +274,68 @@ class HtmlLog:
             return self.add('合并', title, task=task, part=part, status='merging')
 
     def snapshot(self, *, live: bool) -> dict[str, Any]:
-        """返回独立的内存快照；live 决定媒体链接为 HTTP 路径或离线 file 路径，浏览器请求不读日志磁盘。"""
+        """返回内存快照并共享重复版本大小、汇总任务及运行；live 决定 HTTP/file 链接，浏览器不读取文件大小。"""
         with self.lock:
             data = deepcopy(self.data)
             data['captured_at'] = timestamp()
         root = self.settings.output_dir.resolve()
         for run in data['runs']:
+            shared_sizes = {}
             for entry in run['entries']:
+                key = tuple(entry.get('download_key') or [])
+                if key and (key not in shared_sizes or media.size_priority(entry) > media.size_priority(shared_sizes[key])):
+                    shared_sizes[key] = entry
+            tasks: dict[str, list[dict[str, Any]]] = {}
+            for entry in run['entries']:
+                key = tuple(entry.get('download_key') or [])
+                if key:
+                    owner = shared_sizes[key]
+                    entry.update({field: owner[field] for field in ('expected_size_bytes', 'expected_size_estimated', 'actual_size_bytes')
+                                  if field in owner})
+                entry.update(media.file_size_fields(entry))
+                tasks.setdefault(entry.get('task') or entry['id'], []).append(entry)
                 entry['file_url'] = ''
                 if entry.get('path') and entry['status'] in ('completed', 'reused', 'warning'):
                     target = Path(entry['path']).resolve()
                     if target.is_relative_to(root):
                         entry['file_url'] = '/files/' + quote(target.relative_to(root).as_posix()) if live else target.as_uri()
+            run['size_summary'] = media.summarize_sizes(run['entries'])
+            run['task_sizes'] = {key: media.summarize_sizes(entries) for key, entries in tasks.items()}
         return data
 
-    def render_document(self, *, live: bool) -> str:
-        """从内存渲染页面；live 为 True 时轮询服务，False 时内嵌数据且不联网；返回 HTML。"""
+    def render_document(self, *, live: bool, client_id: str = '') -> str:
+        """从内存渲染 HTML；live 控制联网，client_id 为本次网页的确认标识（离线或直接渲染时可为空）。"""
         payload = json.dumps(self.snapshot(live=live), ensure_ascii=False).replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e')
         return (self.template.replace('<!--DATA-->', payload)
                 .replace('__LIVE__', json.dumps(live)).replace('__LABELS__', json.dumps(STATUS_LABELS, ensure_ascii=False))
+                .replace('__CLIENT_ID__', json.dumps(client_id))
                 .replace('__INTERVAL_MS__', str(self.settings.log_refresh_interval * 1000)))
 
     def snapshot_filename(self) -> str:
-        """返回带唯一运行和导出标识的 HTML 文件名；无参数，每次调用均不同。"""
-        return f'{Path(self.settings.log_filename).stem}_{self.run["id"]}_{uuid4().hex[:8]}.html'
+        """预留并返回带本地导出时间 yymmdd_hhmmss 的 HTML 文件名；同秒或磁盘重名追加序号，无参数。"""
+        with self.lock:
+            stem = f'{Path(self.settings.log_filename).stem}_{datetime.now().astimezone():%y%m%d_%H%M%S}'
+            filename, index = stem + '.html', 0
+            while filename in self._snapshot_filenames or (self.settings.output_dir / filename).exists():
+                index += 1
+                filename = f'{stem}_{index:02d}.html'
+            self._snapshot_filenames.add(filename)
+            return filename
 
     def export_snapshot(self) -> None:
-        """独占创建最终离线 HTML，不替换已打开文件；失败提示但不改变业务结局，无参数及返回值。"""
-        path = self.settings.output_dir / self.snapshot_filename()
-        try:
-            with path.open('x', encoding='utf-8') as stream:
-                stream.write(self.render_document(live=False))
-            self.snapshot_path = path
-        except OSError as exc:
-            print(f'离线日志快照保存失败（不影响媒体结果）：{exc}', file=sys.stderr, flush=True)
+        """独占创建最终离线 HTML；并发重名时换序号重试，其余失败提示但不改变业务结局，无参数及返回值。"""
+        while True:
+            try:
+                path = self.settings.output_dir / self.snapshot_filename()
+                with path.open('x', encoding='utf-8') as stream:
+                    stream.write(self.render_document(live=False))
+                self.snapshot_path = path
+                return
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                print(f'离线日志快照保存失败（不影响媒体结果）：{exc}', file=sys.stderr, flush=True)
+                return
 
     def write(self) -> bool:
         """在调用方持锁时原子保存 JSON，文件占用有限重试；失败保留内存状态且不抛 I/O 异常，返回是否成功。"""

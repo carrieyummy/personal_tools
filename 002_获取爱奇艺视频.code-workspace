@@ -1,0 +1,85 @@
+{
+    "folders": [
+        {
+            "name": "002_获取爱奇艺视频",
+            "path": "D:/VSCode/personal_tools/002_获取爱奇艺视频"
+        },
+        {
+            "name": "personal_tools",
+            "path": "."
+        },
+        {
+            "path": "C:/Users/Administrator/.codex"
+        },
+        {
+            "path": "E:/qycache"
+        }
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe",
+        "python.terminal.activateEnvironment": true,
+        "python.testing.cwd": "${workspaceFolder:002_获取爱奇艺视频}",
+        "python.testing.unittestEnabled": true,
+        "python.testing.unittestArgs": [
+            // 输出每个测试用例的执行结果。
+            "-v",
+            // 从工具目录下的 tests 文件夹发现测试。
+            "-s", "tests",
+            // 以工具目录为导入根目录，供测试导入业务模块和共用测试资源路径。
+            "-t", "."
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "爱奇艺：批量转换 QSV",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:002_获取爱奇艺视频}/decode_qsv.py",
+                "cwd": "${workspaceFolder:002_获取爱奇艺视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：指定主 YAML 配置；输入、输出及 decode_verification.cpu/gpu 均读取该文件。
+                    "--config", "${workspaceFolder:002_获取爱奇艺视频}/configs/config.yaml"
+                ]
+            },
+            {
+                "name": "爱奇艺：比较 CPU/GPU 解码",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:002_获取爱奇艺视频}/tests/benchmark_decode.py",
+                "cwd": "${workspaceFolder:002_获取爱奇艺视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：读取主配置中的成品目录、本地工作目录、FFmpeg 和运行超时。
+                    "--config", "${workspaceFolder:002_获取爱奇艺视频}/configs/config.yaml",
+                    // 必填：设置比较任务数量、并发数、CPU/GPU 后端、预热和报告位置。
+                    "--benchmark-config", "${workspaceFolder:002_获取爱奇艺视频}/configs/benchmark_decode.yaml"
+                    // 可选：只比较某一组；省略时按专项配置运行全部组，可重复传入 --case。
+                    // , "--case", "mixed_parallel"
+                ]
+            },
+            {
+                "name": "爱奇艺：验收 CPU/GPU 验证",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:002_获取爱奇艺视频}/tests/accept_verification.py",
+                "cwd": "${workspaceFolder:002_获取爱奇艺视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：主配置，复用已登记成品、源文件下载保护和 FFmpeg。
+                    "--config", "${workspaceFolder:002_获取爱奇艺视频}/configs/config.yaml",
+                    // 必填：专项配置，只读取报告根目录；两种设备分别验收正常及截断副本。
+                    "--benchmark-config", "${workspaceFolder:002_获取爱奇艺视频}/configs/benchmark_decode.yaml"
+                ]
+            }
+        ]
+    }
+}

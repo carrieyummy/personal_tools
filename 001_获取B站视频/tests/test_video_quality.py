@@ -19,7 +19,7 @@ from bilibili_downloader import subtitles as subtitle_service
 from bilibili_downloader import config as configuration
 import download_bilibili as cli_entry
 from bilibili_downloader import runtime
-from tests import PROJECT_DIR, fake_auth_snapshot
+from tests import CONFIG_PATH, fake_auth_snapshot
 
 
 def sample_info(part: int = 1, codes: tuple[int, ...] = (80, 120)) -> dict:
@@ -44,7 +44,7 @@ class VideoQualityTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.settings = replace(configuration.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root, threads=1,
+        self.settings = replace(configuration.load_settings(CONFIG_PATH), output_dir=self.root, threads=1,
                                 mix_quality=False)
         self.enterContext(patch.object(auth, 'snapshot_session', return_value=fake_auth_snapshot()))
         self.downloader = YoutubeDL({'quiet': True, 'no_warnings': True, 'format': self.settings.format_selector,
@@ -95,6 +95,16 @@ class VideoQualityTests(unittest.TestCase):
             with self.subTest(response=response), patch('builtins.input', side_effect=[response]), self.assertRaises(KeyboardInterrupt):
                 quality.confirm_qualities(catalog)
 
+    def test_series_rank_menu_validates_input_and_keeps_episode_identity(self) -> None:
+        """验证跨季同号P独立计数，空值和非法输入不默认选档，第二档返回排名而非画质编号；无返回值。"""
+        choices = {code: models.Quality(code, f'画质{code}') for code in (64, 80, 120)}
+        catalogs = {('ss1', 1): {80: choices[80], 120: choices[120]}, ('ss2', 1): {64: choices[64]}}
+        with patch('builtins.input', side_effect=['', 'x', '0', '2']) as prompt:
+            self.assertEqual(quality.confirm_rank(catalogs), 2)
+        self.assertEqual(prompt.call_count, 4)
+        self.assertIn('ss1 P1、ss2 P1', self.out.getvalue())
+        self.assertIn('本档支持 1/2 集', self.out.getvalue())
+
     def record(self) -> metadata.VideoInfo:
         """创建可离线使用的两分 P 投稿记录并清空来源错误；返回 VideoInfo。"""
         record = metadata.open_video(self.root, 'BV1xx411c7mD', '测试投稿', 2)
@@ -144,13 +154,16 @@ class VideoQualityTests(unittest.TestCase):
             (stream / '0.raw.part').write_bytes(b'partial')
         record.save()
         migrated = library.get_video_info(self.settings, 'BV1xx411c7mD')
-        self.assertEqual(migrated.data['schema_version'], 7)
+        self.assertEqual(migrated.data['schema_version'], 8)
         self.assertEqual({item['quality_dir'] for item in migrated.data['files']}, {'qn80_1080P', '旧版_未确认清晰度'})
         for item in migrated.data['files']:
             media = migrated.resolve_file(item)
             self.assertTrue(media.with_suffix('.zh.srt').is_file())
             self.assertEqual((media.parent / '.streams' / f"BV1xx411c7mD_p{item['part']}" / '0.raw.part').read_bytes(), b'partial')
-        self.assertEqual(library.get_video_info(self.settings, 'BV1xx411c7mD').data, migrated.data)
+        # 保存/聚合时允许刷新顶层更新时间；重复读取应保持全部业务信息，不依赖两次操作落在同一秒。
+        reloaded = library.get_video_info(self.settings, 'BV1xx411c7mD').data
+        self.assertEqual({key: value for key, value in reloaded.items() if key != 'updated_at'},
+                         {key: value for key, value in migrated.data.items() if key != 'updated_at'})
 
     def test_migration_conflict_and_save_failure_roll_back(self) -> None:
         """验证清晰度迁移的目标冲突和记录保存失败保留原媒体、记录及字幕；无返回值。"""

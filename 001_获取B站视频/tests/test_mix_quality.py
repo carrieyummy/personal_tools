@@ -15,7 +15,7 @@ from bilibili_downloader import config, errors, library, media, metadata, models
 from bilibili_downloader import downloader as transfer
 from bilibili_downloader import merge
 from bilibili_downloader.merged_records import MergedVideoInfo
-from tests import PROJECT_DIR
+from tests import CONFIG_PATH
 
 
 class MixQualityTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class MixQualityTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
-        self.settings = replace(config.load_settings(PROJECT_DIR / 'config.yaml'), output_dir=self.root,
+        self.settings = replace(config.load_settings(CONFIG_PATH), output_dir=self.root,
                                 mix_quality=False, overwrite_merged=False)
         self.bvid = 'BV1xx411c7mD'
         self.choices = [models.Quality(126, '杜比视界'), models.Quality(120, '4K 超高清')]
@@ -83,7 +83,7 @@ class MixQualityTests(unittest.TestCase):
         folder = mixed.base_directory.with_name(mixed.base_directory.name + '_分P')
         self.assertEqual(mixed.index_paths, [folder / 'video_info.json'])
         document = metadata.read_json(mixed.index_paths[0])
-        self.assertEqual((document['schema_version'], document['mix_quality']), (7, True))
+        self.assertEqual((document['schema_version'], document['mix_quality']), (8, True))
         self.assertNotIn('quality_id', document)
         self.assertTrue(all(item['path'] == item['file_name'] and Path(item['path']).stem == item['stem'] for item in document['files']))
         for item in mixed.data['files']:
@@ -333,7 +333,7 @@ class CeilingAndConfigTests(unittest.TestCase):
 
     def test_mix_quality_configuration_requires_boolean_and_key(self) -> None:
         """从实际配置构造 true/false 及非法值，验证新开关不使用隐藏默认值；无返回值。"""
-        data = yaml.safe_load((PROJECT_DIR / 'config.yaml').read_text(encoding='utf-8-sig'))
+        data = yaml.safe_load(CONFIG_PATH.read_text(encoding='utf-8-sig'))
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / 'config.yaml'
             for value in (False, True, 'false', 0, None):
