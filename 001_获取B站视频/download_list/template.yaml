@@ -1,0 +1,20 @@
+# 非必填备注，不影响下载
+date: 2026年11月14日22:46:43
+commit: '' 
+
+# 全局设置；下面各 download_list 任务的同名配置优先覆盖这里。
+all-parts: true # true 下载当前BV全部分P；任务可设 false 仅下载链接指定的P，未指定时为P1。
+merge-parts: 0 # -1 不合并，0 合并全部，或填分组表达式；无需额外传命令行 --all-parts。
+quality: 1 # 本任务各P档位并集的上限排名：1 最高，2 次高；各P取上限内最高档，排名不存在时报任务失败。
+
+# 保留列表顺序；优先派发当前投稿的分P，空闲线程自动用下一投稿补满。
+# title 仅用于日志备注，保存目录和文件名继续使用原站标题；url 必填。
+download_list:
+  - title: xx # 视频标题
+    url: xx
+  # - title: 
+  #   url:
+  # - title: 
+  #   url:
+  # - title: 
+  #   url:

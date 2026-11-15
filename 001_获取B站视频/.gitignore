@@ -1,0 +1,11 @@
+# Python 运行缓存
+__pycache__/
+
+# 下载媒体、字幕、记录及断点流
+downloads/
+
+# 本机导出的登录凭据
+cookies/
+
+# 我的下载任务列表
+# download_list/

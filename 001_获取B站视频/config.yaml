@@ -1,0 +1,104 @@
+# 路径以本配置文件所在目录为基准；支持 ~、%环境变量% 和 ${环境变量}。
+# 下载保存路径、浏览器用户目录、FFmpeg 和标题长度设置。
+paths:
+  # 下载根目录；媒体保存在投稿或合集目录中，日志 JSON 和离线 HTML 快照直接保存在此目录下。
+  output_dir: "downloads"
+  # 独立 Chrome 用户数据目录，用于保存登录态；仅 auth.mode 为 chrome 时使用。
+  chrome_profile_dir: "%LOCALAPPDATA%/BiliOriginalDownloader/chrome-profile"
+  # auto 使用 imageio-ffmpeg 自带的 FFmpeg；也可以填写 ffmpeg.exe 的完整路径。
+  # 用于音视频无损封装、分 P 拼接和本地媒体信息读取，也支持相对本配置文件的路径。
+  ffmpeg: "auto"
+  # 文件名和目录名中标题部分的最大字符数，必须为 10～80 的整数；不包含追加的 BV 号等标识。
+  max_title_length: 60
+
+# 登录认证方式和 Cookie 导出文件设置。
+auth:
+  # cookies：复用默认 Chrome 导出的登录态；chrome：使用独立 Chrome 用户目录登录。
+  # 仅支持 cookies 或 chrome；命令行传入 --cookies 时优先使用指定的 Cookie 文件。
+  mode: "cookies"
+  # 支持 *；Chrome 重复下载产生 (1) 等后缀时，自动读取最近导出的文件。
+  # 本目录对应用户指定的导出位置；也可以运行时用 --cookies 指定其他文件。
+  # 使用本工具 Chrome 扩展导出的 JSON 文件；匹配多个文件时按修改时间选择最新文件。
+  cookie_file: "cookies/bilibili-cookies*.json"
+
+# 本工具访问网络时的代理设置。
+network:
+  # 空字符串表示本工具直连，不使用系统/环境代理；需要代理时填写 http://地址:端口 或 socks5://地址:端口。
+  # 同时作用于专用 Chrome、B 站接口与视频下载，不修改系统代理设置。
+  # 代理协议支持 http、https 和 socks5，例如 http://127.0.0.1:7890。
+  proxy: ""
+
+# 浏览器启动、等待登录和接口请求设置；所有时间单位均为秒。
+browser:
+  # Playwright 启动的浏览器通道，chrome 表示本机安装的 Google Chrome；仅 chrome 认证模式使用。
+  channel: "chrome"
+  # 独立 Chrome 等待用户完成登录的最长时间，必须为大于 0 的有限数字；cookies 模式不等待登录。
+  login_timeout_seconds: 300
+  # 等待独立 Chrome 登录时检查登录状态的间隔，必须为大于 0 的有限数字。
+  poll_interval_seconds: 2
+  # B 站接口、字幕请求及独立 Chrome 打开首页的超时时间；两种认证模式均使用，必须大于 0 且有限。
+  request_timeout_seconds: 30
+
+# 下载格式、重试、连接超时和分 P 范围设置。
+download:
+  # 普通链接选择一次画质上限，清单 quality 按本任务所有P的档位并集排名确定上限；各P选不超过上限的最高档。
+  # yt-dlp 格式排序项，按列表顺序设置优先级：分辨率、帧率、HDR、质量标记；必须为非空字符串数组。
+  format_sort: ["res", "fps", "hdr", "quality"]
+  # yt-dlp 格式选择表达式，必须为非空字符串；bv*+ba/b 优先选择最佳视频并配音频，或选择音视频合一格式。
+  format: "bv*+ba/b"
+  # 视频下载和字幕请求失败后的重试次数，必须为大于或等于 0 的整数；0 表示失败后不重试。
+  retries: 3
+  # 视频流单个分片失败后的重试次数，必须为大于或等于 0 的整数；0 表示失败后不重试。
+  fragment_retries: 3
+  # yt-dlp 视频下载的网络连接超时时间（秒），必须为大于 0 的有限数字。
+  socket_timeout_seconds: 30
+  # true 下载当前 BV 全部分P；false 按链接选择，未指定时为P1；普通链接的 --all-parts 可强制启用。
+  # 清单项和清单全局的 all-parts 优先；本项不下载整个合集，拼接由命令行或清单的 merge-parts 控制。
+  all_parts: false
+  # 同时处理的分P任务数，必须为正整数；1 为串行，优先当前投稿，空闲线程由后续投稿补位。
+  # 视频传输、封装和字幕处理共用此并发上限，不额外创建分片下载线程池。
+  threads: 4
+  # false 按实际画质分目录；true 共用不带画质的分P/合并目录，视频及字幕文件名追加实际画质。
+  # 切换后访问投稿或合集时自动整理已有媒体和索引，保留来源版本与指纹，不重新下载或合并。
+  mix_quality: true
+  # quality：各P选上限内最高画质；merge：各拼接组独立选最高兼容画质，重叠P可下载多版本。
+  # 两种策略均受清单 quality 或用户选择的画质上限约束；无兼容方案时仍按清晰度优先下载并报告拼接失败。
+  priority: quality
+
+# 自动合并及手动拼接共用的设置。
+merge:
+  # 来源内容相同时：true 强制重新合并；false 复用已有有效成品。
+  # 来源增加、删减、顺序或内容变化，以及成品缺失、为空或来源未知时，两种设置均重新合并。
+  # 仅控制合并成品；源分 P 通过 CID 和格式判断下载复用，内容指纹按文件大小和纳秒修改时间缓存。
+  overwrite_existing: true
+
+# 下载及拼接的实时网页、持久化数据及离线快照。
+logging:
+  # 离线快照命名基准；实际文件追加唯一标识，不覆盖已打开的 HTML；此旧文件存在时自动导入历史。
+  html_file: "download_log.html"
+  # output_dir 下的持久化 JSON 文件名；浏览器不直接读取此文件。
+  state_file: "download_log.json"
+  # 本地网页服务只监听 127.0.0.1；0 自动分配空闲端口，其他值为 1～65535。
+  port: 0
+  # 实时页面获取最新状态的间隔（秒）；离线快照不会联网或刷新。
+  refresh_interval_seconds: 2
+  # 下载及合并进度写盘的最小间隔（秒），同时作为 FFmpeg 进度报告间隔；状态切换及结束样本立即写入。
+  progress_interval_seconds: 1
+  # 文件被占用时的额外重试次数及间隔；失败只提示，不影响下载和合并。
+  write_retries: 5
+  write_retry_interval_seconds: 0.2
+
+# 取消下载及本工具启动的媒体子进程时的清理设置。
+runtime:
+  # 检查取消和进程结束的间隔（秒）。
+  cancel_poll_interval_seconds: 0.1
+  # FFmpeg 收到终止请求后的等待时间（秒），超时后强制结束并保留原始流。
+  process_terminate_timeout_seconds: 2
+
+# 独立字幕下载的语言筛选和 AI 字幕设置。
+subtitles:
+  # all 表示全部语言；也可填写正则表达式，例如 ["zh.*", "ai-zh.*"]。
+  # 必须为非空字符串数组，正则按完整语言代码匹配；AI 字幕还受 include_ai 控制。
+  languages: ["all"]
+  # 是否包含 AI 自动生成字幕：true 纳入语言筛选，false 排除；仅下载原站已有字幕，不自行生成。
+  include_ai: false

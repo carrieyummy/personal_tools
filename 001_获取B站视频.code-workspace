@@ -1,6 +1,10 @@
 {
     "folders": [
         {
+            "name": "001_获取B站视频",
+            "path": "D:/VSCode/personal_tools/001_获取B站视频"
+        },
+        {
             "name": "personal_tools",
             "path": "."
         },
@@ -11,7 +15,7 @@
     "settings": {
         "python.defaultInterpreterPath": "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe",
         "python.terminal.activateEnvironment": false,
-        "python.testing.cwd": "${workspaceFolder:personal_tools}/001_获取B站的视频",
+        "python.testing.cwd": "${workspaceFolder:001_获取B站视频}",
         "python.testing.unittestEnabled": true,
         "python.testing.unittestArgs": [
             // 输出每个测试用例的执行结果。
@@ -30,7 +34,7 @@
                 "detail": "在默认 Chrome 打开 chrome://extensions，开启开发者模式，加载打开的 chrome_cookie_export 文件夹，然后点击扩展导出 B 站登录态。",
                 "type": "process",
                 "command": "explorer.exe",
-                "args": ["${workspaceFolder:personal_tools}/001_获取B站的视频/chrome_cookie_export"],
+                "args": ["${workspaceFolder:001_获取B站视频}/chrome_cookie_export"],
                 "problemMatcher": []
             },
             {
@@ -40,10 +44,10 @@
                 "args": [
                     "-m", "pip", "install", "--isolated", "--proxy", "",
                     "--index-url", "https://mirrors.aliyun.com/pypi/simple",
-                    "-r", "${workspaceFolder:personal_tools}/001_获取B站的视频/requirements.txt"
+                    "-r", "${workspaceFolder:001_获取B站视频}/requirements.txt"
                 ],
                 "options": {
-                    "cwd": "${workspaceFolder:personal_tools}/001_获取B站的视频",
+                    "cwd": "${workspaceFolder:001_获取B站视频}",
                     "env": {
                         "HTTP_PROXY": "",
                         "HTTPS_PROXY": "",
@@ -66,13 +70,13 @@
                 "type": "debugpy",
                 "request": "launch",
                 "python": "${config:python.defaultInterpreterPath}",
-                "program": "${workspaceFolder:personal_tools}/001_获取B站的视频/download_bilibili.py",
-                "cwd": "${workspaceFolder:personal_tools}/001_获取B站的视频",
+                "program": "${workspaceFolder:001_获取B站视频}/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_获取B站视频}",
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:personal_tools}/001_获取B站的视频/config.yaml",
+                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
                     // 仅验证配置的登录态，不下载视频。
                     "--login-only"
                 ]
@@ -82,16 +86,16 @@
                 "type": "debugpy",
                 "request": "launch",
                 "python": "${config:python.defaultInterpreterPath}",
-                "program": "${workspaceFolder:personal_tools}/001_获取B站的视频/download_bilibili.py",
-                "cwd": "${workspaceFolder:personal_tools}/001_获取B站的视频",
+                "program": "${workspaceFolder:001_获取B站视频}/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_获取B站视频}",
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:personal_tools}/001_获取B站的视频/config.yaml",
-                    // 启动时输入视频链接或 BV/AV 号，支持带 p 参数指定分 P；可重复传入 --url。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
+                    // 输入视频链接、BV/AV 号或 YAML 清单路径；相对路径以此工具目录为基准，可重复传入 --url。
                     "--url", "${input:bilibiliUrl}",
-                    // 仅查看可用画质、已选编码和字幕，不下载视频。
+                    // 仅查看当前账号可下载画质、参考编码和字幕；不进入清晰度确认、不下载。
                     "--list-formats"
                 ]
             },
@@ -100,14 +104,14 @@
                 "type": "debugpy",
                 "request": "launch",
                 "python": "${config:python.defaultInterpreterPath}",
-                "program": "${workspaceFolder:personal_tools}/001_获取B站的视频/download_bilibili.py",
-                "cwd": "${workspaceFolder:personal_tools}/001_获取B站的视频",
+                "program": "${workspaceFolder:001_获取B站视频}/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_获取B站视频}",
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:personal_tools}/001_获取B站的视频/config.yaml",
-                    // 启动时输入视频链接或 BV/AV 号；链接中的 p 参数用于选择当前分 P。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
+                    // 输入视频链接或 YAML 清单；普通链接按 p 选分P并选择一次上限，清单按档位并集排名确定上限。
                     "--url", "${input:bilibiliUrl}"
                 ]
             },
@@ -116,38 +120,44 @@
                 "type": "debugpy",
                 "request": "launch",
                 "python": "${config:python.defaultInterpreterPath}",
-                "program": "${workspaceFolder:personal_tools}/001_获取B站的视频/download_bilibili.py",
-                "cwd": "${workspaceFolder:personal_tools}/001_获取B站的视频",
+                "program": "${workspaceFolder:001_获取B站视频}/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_获取B站视频}",
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:personal_tools}/001_获取B站的视频/config.yaml",
-                    // 启动时输入视频链接或 BV/AV 号，作为下载目标。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
+                    // 输入视频链接或 YAML 清单路径；例如 download_list/download_list.yaml。
                     "--url", "${input:bilibiliUrl}",
-                    // 下载全部分 P，忽略链接中的 p 参数。
+                    // 普通链接下载全部分P并选择一次画质上限；清单的 all-parts 优先覆盖此默认值。
                     "--all-parts",
-                    // 可选：关闭自动拼接（默认）；改为 --auto-merge-parts 后，范围留空且全部下载成功时拼接全部分 P。
-                    "--no-auto-merge-parts",
-                    // 可选：下载后按表达式分组拼接；非空时优先于自动拼接开关，留空时按上述参数处理。
+                    // 下载后拼接：-1 不拼接，0 拼接全部，其他值分组拼接；清单项、清单全局的 merge-parts 优先。
+                    // 下载后拼接使用各P实际分配的画质，不另弹菜单；每组必须同档，混合目录也不跨画质拼接。
+                    // 分 P 编号从 1 开始，1 对应 P1；0 只能单独输入，不能作为组内编号。
+                    // 示例 1-3,5;4,2,4：第一组依次拼接 P1、P2、P3、P5，第二组依次拼接 P4、P2、P4。
+                    // 使用英文逗号和分号；范围包含首尾，保留顺序和重复项，每组至少两个片段。
                     "--merge-parts", "${input:bilibiliDownloadMergeParts}"
                 ]
+                // python download_bilibili.py --url download_list/download_list.yaml
             },
             {
                 "name": "B站：拼接已下载分 P",
                 "type": "debugpy",
                 "request": "launch",
                 "python": "${config:python.defaultInterpreterPath}",
-                "program": "${workspaceFolder:personal_tools}/001_获取B站的视频/download_bilibili.py",
-                "cwd": "${workspaceFolder:personal_tools}/001_获取B站的视频",
+                "program": "${workspaceFolder:001_获取B站视频}/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_获取B站视频}",
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:personal_tools}/001_获取B站的视频/config.yaml",
-                    // 启动时输入已下载视频的 BV 号或普通 BV 链接；离线拼接分 P，无需登录。
+                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
+                    // 输入已下载视频的 BV 号或普通 BV 链接；无需登录，多清晰度时在终端选择一个，不跨目录补齐。
                     "--merge-video", "${input:bilibiliMergeId}",
-                    // 可选：留空拼接全部；逗号连接片段，范围包含首尾，分号生成多份文件；保留顺序及重复项。
+                    // 离线拼接：-1 不拼接，0 或留空拼接全部；其他值按表达式分组拼接。
+                    // 分 P 编号从 1 开始，1 对应 P1；0 只能单独输入，不能作为组内编号。
+                    // 示例 1-3,5;4,2,4：第一组依次拼接 P1、P2、P3、P5，第二组依次拼接 P4、P2、P4。
+                    // 使用英文逗号和分号；范围包含首尾，保留顺序和重复项，每组至少两个片段。
                     "--merge-parts", "${input:bilibiliMergeParts}"
                 ]
             },
@@ -156,13 +166,13 @@
                 "type": "debugpy",
                 "request": "launch",
                 "python": "${config:python.defaultInterpreterPath}",
-                "program": "${workspaceFolder:personal_tools}/001_获取B站的视频/download_bilibili.py",
-                "cwd": "${workspaceFolder:personal_tools}/001_获取B站的视频",
+                "program": "${workspaceFolder:001_获取B站视频}/download_bilibili.py",
+                "cwd": "${workspaceFolder:001_获取B站视频}",
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 可选：指定 YAML 配置文件；默认读取脚本同目录下的 config.yaml。
-                    "--config", "${workspaceFolder:personal_tools}/001_获取B站的视频/config.yaml",
+                    "--config", "${workspaceFolder:001_获取B站视频}/config.yaml",
                     // 扫描配置的下载目录，迁移旧记录并补充视频信息；无需输入链接，不下载或拼接视频。
                     "--refresh-metadata"
                 ]
@@ -172,7 +182,7 @@
             {
                 "id": "bilibiliUrl",
                 "type": "promptString",
-                "description": "粘贴 B 站普通视频链接、b23.tv 短链接或 BV/AV 号（支持带 p 参数）"
+                "description": "输入视频链接、BV/AV 号或 YAML 清单路径（如 download_list/download_list.yaml，相对工具目录）"
             },
             {
                 "id": "bilibiliMergeId",
@@ -182,14 +192,14 @@
             {
                 "id": "bilibiliDownloadMergeParts",
                 "type": "promptString",
-                "description": "下载后分组拼接范围（可选，留空按自动拼接参数）：如 1-5,8,10-12;10-12；保留输入顺序和重复项",
-                "default": ""
+                "description": "下载后拼接：-1 不拼接，0 拼接全部，或输入范围如 1-5,8,10-12;10-12",
+                "default": "-1"
             },
             {
                 "id": "bilibiliMergeParts",
                 "type": "promptString",
-                "description": "分 P 范围（可选，留空拼接全部）：如 1-5,8,10-12;10-12；逗号连接、范围含首尾、分号分组；保留输入顺序和重复项",
-                "default": ""
+                "description": "离线拼接：-1 不拼接，0 或留空拼接全部，或输入范围如 1-5,8,10-12;10-12",
+                "default": "0"
             }
         ]
     }

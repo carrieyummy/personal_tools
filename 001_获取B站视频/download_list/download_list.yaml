@@ -1,0 +1,27 @@
+date: 2026年11月14日22:46:43 # 备注
+
+# 全局设置；下面各 download_list 任务的同名配置优先覆盖这里。
+all-parts: true # true 下载当前BV全部分P；任务可设 false 仅下载链接指定的P，未指定时为P1。
+merge-parts: 0 # -1 不合并，0 合并全部，或填分组表达式；无需额外传命令行 --all-parts。
+quality: 1 # 本任务各P档位并集的上限排名：1 最高，2 次高；各P取上限内最高档，排名不存在时报任务失败。
+
+# 保留列表顺序；优先派发当前投稿的分P，空闲线程自动用下一投稿补满。
+# title 仅用于日志备注，保存目录和文件名继续使用原站标题；url 必填。
+download_list:
+  - title: 徐良首场演唱会3.27深圳站-680视角#徐良时间折叠巡回演唱会 # 视频标题
+    url: https://www.bilibili.com/video/BV1FbXdBxECf/?vd_source=59d3378854760fe48ed81fc1088a0358
+  - title: 2026徐良【时间折叠】深圳演唱会全程（03.28）
+    url: https://www.bilibili.com/video/BV1mHXqB7E6a/?vd_source=59d3378854760fe48ed81fc1088a0358
+  - title: 【4K60】徐良泉州演唱会音质超好(2026.10.17)杜比音效时间折叠完整版【直拍星计划】
+    url: https://www.bilibili.com/video/BV1o1JB69Eua/?vd_source=59d3378854760fe48ed81fc1088a0358
+    merge-parts: 1-33;34-37 # 本任务的特有设定
+  - title: 【徐良丨压轴场】时间折叠巡回演唱会深圳站3.29
+    url: https://www.bilibili.com/video/BV1PjX9BdEwp
+  # - title: 【4k全程 | 正面看台视角】张新成新程New Journey演唱会杭州站 2026.9.19
+  #   url: https://www.bilibili.com/video/BV1YCee66Eyo
+  # - title: 
+  #   url:
+  # - title: 
+  #   url:
+  # - title: 
+  #   url:

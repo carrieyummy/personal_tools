@@ -7,9 +7,13 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-import download_bilibili as tool
-import video_metadata as metadata
-from tests import PROJECT_DIR
+from bilibili_downloader import api, application, auth, errors, library, media, metadata, models
+from bilibili_downloader import downloader as download_service
+from bilibili_downloader import merge as merge_service
+from bilibili_downloader import subtitles as subtitle_service
+from bilibili_downloader import config as configuration
+import download_bilibili as cli_entry
+from tests import PROJECT_DIR, fake_auth_snapshot
 
 
 class VideoMetadataTests(unittest.TestCase):
@@ -19,7 +23,9 @@ class VideoMetadataTests(unittest.TestCase):
         """创建临时下载目录、配置及选定格式；无返回值。"""
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.settings = replace(tool.load_settings(PROJECT_DIR / "config.yaml"), output_dir=self.root)
+        self.settings = replace(configuration.load_settings(PROJECT_DIR / "config.yaml"), output_dir=self.root, threads=1,
+                                mix_quality=False)
+        self.enterContext(patch.object(auth, 'snapshot_session', return_value=fake_auth_snapshot()))
         self.bvid = "BV1xx411c7mD"
         self.title = "测试投稿"
         self.fmt = {"format_id": "30064", "vcodec": "avc1", "acodec": "none", "width": 64, "height": 64, "fps": 5}
@@ -49,7 +55,7 @@ class VideoMetadataTests(unittest.TestCase):
 
         def transfer(filename: str, info: dict) -> tuple[bool, bool]:
             """检查 filename/info 对应的下载中状态，写入流并按需中断，成功返回传输结果。"""
-            stored = tool.get_video_info(self.settings, self.bvid)
+            stored = library.get_video_info(self.settings, self.bvid)
             entry = next(item for item in stored.data["files"] if item["id"] == info["id"])
             self.assertEqual(entry["status"], "downloading")
             Path(filename).write_bytes(b"stream")
@@ -66,8 +72,8 @@ class VideoMetadataTests(unittest.TestCase):
         downloader.dl.side_effect = transfer
         info = {"id": f"{self.bvid}_p{part}", "title": f"片段{part}",
                 "requested_formats": [{**self.fmt, "url": "https://example.com/file", "ext": "mp4"}]}
-        with patch.object(tool, "mux_streams", side_effect=mux), patch.object(metadata, "probe_media", return_value=self.probe):
-            tool.save_video(downloader, info, self.settings, "ffmpeg", self.title, total_parts)
+        with patch.object(media, "mux_streams", side_effect=mux), patch.object(metadata, "probe_media", return_value=self.probe):
+            download_service.save_video(downloader, info, self.settings, "ffmpeg", self.title, total_parts, source_cid=part)
         return downloader
 
     def test_parts_share_one_record_and_repeat_download_skips(self) -> None:
@@ -76,24 +82,24 @@ class VideoMetadataTests(unittest.TestCase):
         self.download(1)
         downloader = self.download(1)
         downloader.dl.assert_not_called()
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         self.assertEqual(len(record.data["files"]), 2)
         self.assertTrue(all(item["status"] == "completed" for item in record.data["files"]))
         self.assertEqual(len(list(self.root.rglob("video_info.json"))), 1)
         self.assertEqual(list(self.root.rglob("download.json")), [])
         self.assertEqual(record.data["source_url"], f"https://www.bilibili.com/video/{self.bvid}")
         self.assertEqual(record.data["files"][0]["source_url"], f"https://www.bilibili.com/video/{self.bvid}?p=2")
-        self.assertTrue(all(record.resolve_file(item).parent == record.path.parent for item in record.data["files"]))
+        self.assertTrue(all(record.resolve_file(item).parent == record.quality_directory(models.LEGACY_QUALITY) for item in record.data["files"]))
 
     def test_grouped_post_remains_discoverable_and_skips_repeat_download(self) -> None:
         """验证投稿移入分组后仍可查找、刷新和跳过重复下载；无返回值。"""
         self.download(1, total_parts=1)
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         group = self.root / "合集"
         group.mkdir()
         destination = group / record.path.parent.name
         record.path.parent.rename(destination)
-        grouped = tool.get_video_info(self.settings, self.bvid, self.title, 1)
+        grouped = library.get_video_info(self.settings, self.bvid, self.title, 1)
         self.assertEqual(grouped.path.parent, destination.resolve())
         self.assertEqual(metadata.discover_videos(self.root), ([self.bvid], []))
         self.download(1, total_parts=1).dl.assert_not_called()
@@ -104,8 +110,8 @@ class VideoMetadataTests(unittest.TestCase):
         self.download(1, total_parts=1)
         duplicate = self.root / "合集" / f"另一个标题_{self.bvid}"
         duplicate.mkdir(parents=True)
-        with self.assertRaises(tool.ToolError):
-            tool.get_video_info(self.settings, self.bvid, self.title, 1)
+        with self.assertRaises(errors.ToolError):
+            library.get_video_info(self.settings, self.bvid, self.title, 1)
 
     def test_incremental_parts_save_subtitles_together(self) -> None:
         """验证分次下载的字幕使用各自分 P 前缀并与视频同目录；无返回值。"""
@@ -113,32 +119,34 @@ class VideoMetadataTests(unittest.TestCase):
         response = context.request.get.return_value
         response.ok = True
         response.json.return_value = {"body": [{"from": 0, "to": 1, "content": "字幕"}]}
-        track = tool.SubtitleTrack("zh", "中文", False, "https://example.com/subtitle", "1")
+        track = models.SubtitleTrack("zh", "中文", False, "https://example.com/subtitle", "1")
         for part in (2, 1):
             self.download(part)
-            record = tool.get_video_info(self.settings, self.bvid)
+            record = library.get_video_info(self.settings, self.bvid)
             item = next(item for item in record.data["files"] if item["part"] == part)
-            self.assertEqual(tool.fetch_subtitles(context, [track], record.path.parent, item["stem"], self.settings), [])
-            self.assertTrue((record.path.parent / f"{item['stem']}.zh.srt").is_file())
-        self.assertEqual(len(list(record.path.parent.glob("*.zh.srt"))), 2)
+            folder = record.resolve_file(item).parent
+            self.assertEqual(subtitle_service.fetch_subtitles(context, [track], folder, item["stem"], self.settings), [])
+            self.assertTrue((folder / f"{item['stem']}.zh.srt").is_file())
+        self.assertEqual(len(list(folder.glob("*.zh.srt"))), 2)
 
     def test_single_part_download_uses_post_directory_and_repeat_skips(self) -> None:
-        """验证单分 P 新下载直接落在投稿目录，重复运行无需重新下载；无返回值。"""
+        """验证缺少平台档位的单 P 归入旧版未确认目录，重复运行无需重新下载；无返回值。"""
         self.download(1, total_parts=1)
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         item = record.data["files"][0]
-        self.assertEqual(record.resolve_file(item).parent, record.path.parent)
-        self.assertNotIn("/", item["path"])
+        self.assertEqual(record.resolve_file(item).parent, record.quality_directory(models.LEGACY_QUALITY))
+        self.assertEqual(record.path.parent.name, f'{self.title}_{self.bvid}_{models.LEGACY_QUALITY.directory}_分P')
+        self.assertEqual(len(Path(item['path']).parts), 1)
         self.assertFalse((record.path.parent / f"{self.bvid}_p1").exists())
         self.assertEqual(item["id"], f"{self.bvid}_p1")
         self.assertEqual(item["formats"], [self.fmt])
         self.download(1, total_parts=1).dl.assert_not_called()
 
     def test_one_selected_part_of_multi_part_post_uses_post_directory(self) -> None:
-        """验证多分 P 投稿只选择 P1 时也直接保存到投稿目录；无返回值。"""
+        """验证多分 P 投稿只选 P1 时仍按档位保存，投稿总分 P 数独立记录；无返回值。"""
         self.download(1, total_parts=5)
-        record = tool.get_video_info(self.settings, self.bvid)
-        self.assertEqual(record.resolve_file(record.data["files"][0]).parent, record.path.parent)
+        record = library.get_video_info(self.settings, self.bvid)
+        self.assertEqual(record.resolve_file(record.data["files"][0]).parent, record.quality_directory(models.LEGACY_QUALITY))
         self.assertEqual(record.data["total_parts"], 5)
 
     def test_multiple_part_directories_migrate_with_independent_streams(self) -> None:
@@ -148,12 +156,13 @@ class VideoMetadataTests(unittest.TestCase):
             (old.parent / f"subtitle{number}.srt").write_text(f"字幕{number}", encoding="utf-8")
             (old.parent / ".streams").mkdir()
             (old.parent / ".streams/0.raw.part").write_bytes(f"stream{number}".encode())
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         for number, old in enumerate((first, second), 1):
             self.assertFalse(old.parent.exists())
-            self.assertEqual((record.path.parent / f"subtitle{number}.srt").read_text(encoding="utf-8"), f"字幕{number}")
-            self.assertEqual((record.path.parent / ".streams" / f"{self.bvid}_p{number}" / "0.raw.part").read_bytes(), f"stream{number}".encode())
-        self.assertTrue(all(record.resolve_file(item).parent == record.path.parent for item in record.data["files"]))
+            folder = record.quality_directory(models.LEGACY_QUALITY)
+            self.assertEqual((folder / f"subtitle{number}.srt").read_text(encoding="utf-8"), f"字幕{number}")
+            self.assertEqual((folder / ".streams" / f"{self.bvid}_p{number}" / "0.raw.part").read_bytes(), f"stream{number}".encode())
+        self.assertTrue(all(record.resolve_file(item).parent == folder for item in record.data["files"]))
 
     def test_multi_part_migration_preflights_conflicts(self) -> None:
         """验证多个旧目录的目标冲突在移动前报错，所有原文件保留；无返回值。"""
@@ -162,7 +171,7 @@ class VideoMetadataTests(unittest.TestCase):
         record = metadata.open_video(self.root, self.bvid, self.title, 2)
         metadata.migrate_legacy(record)
         original = record.path.read_bytes()
-        with self.assertRaises(tool.ToolError):
+        with self.assertRaises(errors.ToolError):
             record.flatten_parts()
         self.assertEqual((first.parent / "video.mp4").read_bytes(), b"local-video")
         self.assertEqual((second.parent / "video.mp4").read_bytes(), b"different")
@@ -172,44 +181,47 @@ class VideoMetadataTests(unittest.TestCase):
     def test_old_single_part_flat_streams_migrate(self) -> None:
         """验证投稿目录下旧单 P 断点流在总数更新前被归入 P1；无返回值。"""
         self.download(1, total_parts=1)
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         streams = record.path.parent / ".streams"
         streams.mkdir()
         (streams / "0.raw.part").write_bytes(b"partial")
-        tool.get_video_info(self.settings, self.bvid, self.title, 2)
-        self.assertEqual((streams / f"{self.bvid}_p1/0.raw.part").read_bytes(), b"partial")
+        library.get_video_info(self.settings, self.bvid, self.title, 2)
+        self.assertEqual((record.quality_directory(models.LEGACY_QUALITY) / '.streams' / f"{self.bvid}_p1/0.raw.part").read_bytes(), b"partial")
 
     def test_incomplete_parts_use_separate_streams(self) -> None:
         """验证两个中断的分 P 分别保存同名流并能够独立续传；无返回值。"""
         for part in (1, 2):
             with self.assertRaises(KeyboardInterrupt):
                 self.download(part, KeyboardInterrupt())
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         for part in (1, 2):
-            self.assertTrue((record.path.parent / ".streams" / f"{self.bvid}_p{part}" / "0.30064.mp4").is_file())
+            self.assertEqual(len(list((record.quality_directory(models.LEGACY_QUALITY) / '.streams' / f'{self.bvid}_p{part}').glob('cid*/0.30064.mp4'))), 1)
             self.download(part)
-        self.assertTrue(all(item["status"] == "completed" for item in tool.get_video_info(self.settings, self.bvid).data["files"]))
+        self.assertTrue(all(item["status"] == "completed" for item in library.get_video_info(self.settings, self.bvid).data["files"]))
 
     def test_single_part_migration_moves_subtitles_and_partial_streams(self) -> None:
-        """验证旧单 P 目录连同字幕及断点流迁移，记录更新且文件属性、格式签名不变；无返回值。"""
+        """验证旧单 P 目录连同字幕和断点迁移，明确采用现有文件建立 CID 基线后复用；无返回值。"""
         old = self.legacy(total_parts=1)
         source = old.parent / "video.mp4"
         before = source.stat()
         (old.parent / "video.ai-zh.ai.srt").write_text("字幕", encoding="utf-8")
         (old.parent / ".streams").mkdir()
         (old.parent / ".streams/0.raw.mp4.part").write_bytes(b"partial")
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         item = record.data["files"][0]
         destination = record.resolve_file(item)
-        self.assertEqual(destination, record.path.parent / "video.mp4")
+        folder = record.quality_directory(models.LEGACY_QUALITY)
+        self.assertEqual(destination, folder / "video.mp4")
         self.assertEqual((destination.stat().st_size, destination.stat().st_mtime_ns), (before.st_size, before.st_mtime_ns))
-        self.assertEqual((record.path.parent / "video.ai-zh.ai.srt").read_text(encoding="utf-8"), "字幕")
-        self.assertEqual((record.path.parent / ".streams" / f"{self.bvid}_p1/0.raw.mp4.part").read_bytes(), b"partial")
+        self.assertEqual((folder / "video.ai-zh.ai.srt").read_text(encoding="utf-8"), "字幕")
+        self.assertEqual((folder / ".streams" / f"{self.bvid}_p1/0.raw.mp4.part").read_bytes(), b"partial")
         self.assertEqual(item["formats"], [self.fmt])
         self.assertFalse(old.parent.exists())
         self.assertEqual(list(self.root.rglob("download.json")), [])
         self.assertEqual(len(list(self.root.rglob("video_info.json"))), 1)
-        self.assertEqual(tool.get_video_info(self.settings, self.bvid).data["files"], record.data["files"])
+        self.assertEqual(library.get_video_info(self.settings, self.bvid).data["files"], record.data["files"])
+        record.data['current_parts'] = [{'part': 1, 'cid': 1}]
+        self.assertEqual(library.adopt_existing_content(record), (1, 0, []))
         self.download(1, total_parts=1).dl.assert_not_called()
 
     def test_single_part_migration_rolls_back_on_record_write_failure(self) -> None:
@@ -232,9 +244,9 @@ class VideoMetadataTests(unittest.TestCase):
         record = metadata.open_video(self.root, self.bvid, self.title, 1)
         metadata.migrate_legacy(record)
         original = record.path.read_bytes()
-        destination = record.path.parent / "video.mp4"
+        destination = record.base_directory / "video.mp4"
         destination.write_bytes(b"other-video")
-        with self.assertRaises(tool.ToolError):
+        with self.assertRaises(errors.ToolError):
             record.flatten_parts()
         self.assertEqual(destination.read_bytes(), b"other-video")
         self.assertEqual((old.parent / "video.mp4").read_bytes(), b"local-video")
@@ -265,12 +277,12 @@ class VideoMetadataTests(unittest.TestCase):
     def test_refresh_flattens_even_when_total_part_count_is_unknown(self) -> None:
         """验证旧记录总数未知时也整理分 P 目录，并可继续刷新原站信息；无返回值。"""
         old = self.legacy(total_parts=None)
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         self.assertFalse(old.parent.exists())
         data = {"bvid": self.bvid, "title": self.title, "owner": {"mid": 1, "name": "test"}, "videos": 1}
-        with patch.object(metadata, "probe_media", return_value={**self.probe, "errors": []}), patch.object(tool, "authenticated_session", return_value=MagicMock()), patch.object(tool, "ensure_login"), patch.object(tool, "api_json", return_value={"data": data}):
-            self.assertEqual(tool.refresh_metadata(self.settings, tool.parse_args(["--refresh-metadata"]), "ffmpeg"), 0)
-        record = tool.get_video_info(self.settings, self.bvid)
+        with patch.object(metadata, "probe_media", return_value={**self.probe, "errors": []}), patch.object(auth, "authenticated_session", return_value=MagicMock()), patch.object(auth, "ensure_login"), patch.object(api, "api_json", return_value={"data": data}):
+            self.assertEqual(library.refresh_metadata(self.settings, cli_entry.parse_args(["--refresh-metadata"]), "ffmpeg"), 0)
+        record = library.get_video_info(self.settings, self.bvid)
         self.assertFalse(old.parent.exists())
         self.assertEqual(record.data["files"][0]["path"], "video.mp4")
 
@@ -279,35 +291,38 @@ class VideoMetadataTests(unittest.TestCase):
         self.download(1)
         with self.assertRaises(KeyboardInterrupt):
             self.download(2, KeyboardInterrupt())
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         states = {item["part"]: item["status"] for item in record.data["files"]}
         self.assertEqual(states, {1: "completed", 2: "interrupted"})
         self.assertTrue(list(self.root.rglob(".streams/*")))
         self.download(2)
-        self.assertTrue(all(item["status"] == "completed" for item in tool.get_video_info(self.settings, self.bvid).data["files"]))
+        self.assertTrue(all(item["status"] == "completed" for item in library.get_video_info(self.settings, self.bvid).data["files"]))
 
     def test_migration_preserves_signature_and_skip_without_download(self) -> None:
-        """验证迁移后保留精确格式签名和字幕前缀，可跳过下载且不修改媒体文件；无返回值。"""
+        """验证迁移并明确建立来源基线后保留格式签名和字幕前缀，可复用且不修改媒体；无返回值。"""
         old = self.legacy()
         source = old.parent / "video.mp4"
         before = source.stat()
+        record = library.get_video_info(self.settings, self.bvid)
+        record.data['current_parts'] = [{'part': 1, 'cid': 1}, {'part': 2, 'cid': 2}]
+        self.assertEqual(library.adopt_existing_content(record), (1, 0, []))
         with patch.object(metadata, "probe_media", return_value=self.probe):
             downloader = self.download(1)
         downloader.dl.assert_not_called()
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         self.assertEqual(record.data["files"][0]["formats"], [self.fmt])
         self.assertEqual(record.data["files"][0]["stem"], "video")
         source = record.resolve_file(record.data["files"][0])
         self.assertEqual((source.stat().st_size, source.stat().st_mtime_ns), (before.st_size, before.st_mtime_ns))
         self.assertFalse(old.exists())
-        tool.get_video_info(self.settings, self.bvid)
+        library.get_video_info(self.settings, self.bvid)
         self.assertEqual(len(record.data["files"]), 1)
 
     def test_migration_write_failure_keeps_old_records(self) -> None:
         """验证原子写入失败时旧记录不删除、临时文件不遗留；无返回值。"""
         old = self.legacy()
         with patch.object(metadata, "atomic_text", side_effect=OSError("disk full")), self.assertRaises(OSError):
-            tool.get_video_info(self.settings, self.bvid)
+            library.get_video_info(self.settings, self.bvid)
         self.assertTrue(old.exists())
         self.assertEqual(list(self.root.rglob("video_info.json")), [])
 
@@ -323,16 +338,16 @@ class VideoMetadataTests(unittest.TestCase):
                 result["files"] = []
             return result
 
-        with patch.object(metadata, "read_json", side_effect=read), self.assertRaises(tool.ToolError):
-            tool.get_video_info(self.settings, self.bvid)
+        with patch.object(metadata, "read_json", side_effect=read), self.assertRaises(errors.ToolError):
+            library.get_video_info(self.settings, self.bvid)
         self.assertTrue(old.exists())
 
     def test_conflicting_old_records_are_not_removed(self) -> None:
         """验证同分 P 不同来源记录冲突时均保留，且不保存不完整迁移；无返回值。"""
         first = self.legacy()
         second = self.legacy(folder="another")
-        with self.assertRaises(tool.ToolError):
-            tool.get_video_info(self.settings, self.bvid)
+        with self.assertRaises(errors.ToolError):
+            library.get_video_info(self.settings, self.bvid)
         self.assertTrue(first.exists())
         self.assertTrue(second.exists())
         self.assertEqual(list(self.root.rglob("video_info.json")), [])
@@ -350,9 +365,9 @@ class VideoMetadataTests(unittest.TestCase):
             original(path, missing_ok=missing_ok)
 
         with patch.object(Path, "unlink", new=remove), self.assertRaises(PermissionError):
-            tool.get_video_info(self.settings, self.bvid)
+            library.get_video_info(self.settings, self.bvid)
         self.assertTrue(second.exists())
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         self.assertEqual(len(record.data["files"]), 2)
         self.assertEqual(list(self.root.rglob("download.json")), [])
 
@@ -360,12 +375,12 @@ class VideoMetadataTests(unittest.TestCase):
         """验证损坏记录或总数冲突明确报错，不删除原始记录；无返回值。"""
         first = self.legacy()
         second = self.legacy(2, total_parts=3)
-        with self.assertRaises(tool.ToolError):
-            tool.get_video_info(self.settings, self.bvid)
+        with self.assertRaises(errors.ToolError):
+            library.get_video_info(self.settings, self.bvid)
         self.assertTrue(first.exists())
         second.write_text("{broken", encoding="utf-8")
-        with self.assertRaises(tool.ToolError):
-            tool.get_video_info(self.settings, self.bvid)
+        with self.assertRaises(errors.ToolError):
+            library.get_video_info(self.settings, self.bvid)
         self.assertTrue(second.exists())
 
     def test_completion_write_failure_keeps_downloaded_streams(self) -> None:
@@ -380,15 +395,15 @@ class VideoMetadataTests(unittest.TestCase):
 
         with patch.object(metadata.VideoInfo, "save", new=save), self.assertRaises(OSError):
             self.download(1)
-        record = tool.get_video_info(self.settings, self.bvid)
-        self.assertEqual(record.data["files"][0]["status"], "downloading")
+        record = library.get_video_info(self.settings, self.bvid)
+        self.assertEqual(record.data["files"][0]["status"], "failed")
         self.assertTrue(list(self.root.rglob(".streams/*")))
 
     def test_probe_failure_keeps_confirmed_completion(self) -> None:
         """验证文件头探测失败只记录原因，不改变已经保存的完成状态；无返回值。"""
         old = self.legacy()
-        record = tool.get_video_info(self.settings, self.bvid)
-        with patch.object(metadata, "probe_media", side_effect=tool.ToolError("probe failed")):
+        record = library.get_video_info(self.settings, self.bvid)
+        with patch.object(metadata, "probe_media", side_effect=errors.ToolError("probe failed")):
             record.enrich_file(record.data["files"][0], "ffmpeg")
             record.save()
         item = metadata.read_json(record.path)["files"][0]
@@ -399,7 +414,7 @@ class VideoMetadataTests(unittest.TestCase):
 
     def test_refresh_discovers_standalone_media_and_ignores_temporary(self) -> None:
         """验证旧版独立视频可补生成记录，临时媒体不加入列表；无返回值。"""
-        record = tool.get_video_info(self.settings, self.bvid, self.title)
+        record = library.get_video_info(self.settings, self.bvid, self.title)
         record.path.parent.mkdir(parents=True)
         source = record.path.parent / "完整视频.mp4"
         source.write_bytes(b"video")
@@ -413,11 +428,11 @@ class VideoMetadataTests(unittest.TestCase):
         self.assertEqual(len(record.data["files"]), 1)
         item = record.data["files"][0]
         self.assertEqual((item["kind"], item["size_bytes"], item["path"]), ("video", 5, source.name))
-        self.assertEqual(source.stat().st_mtime_ns, before)
+        self.assertEqual(record.resolve_file(item).stat().st_mtime_ns, before)
 
     def test_refresh_discovers_flat_part_by_filename(self) -> None:
         """验证投稿目录中无记录的分 P 按文件名恢复编号，临时流不会被登记；无返回值。"""
-        record = tool.get_video_info(self.settings, self.bvid, self.title)
+        record = library.get_video_info(self.settings, self.bvid, self.title)
         record.path.parent.mkdir(parents=True)
         source = record.path.parent / f"片段2_{self.bvid}_p2.mp4"
         source.write_bytes(b"video")
@@ -430,10 +445,10 @@ class VideoMetadataTests(unittest.TestCase):
     def test_refresh_auth_failure_still_migrates_local_info(self) -> None:
         """验证认证失败时仍完成本地迁移并记录缺失原站信息，不触发下载或拼接；无返回值。"""
         old = self.legacy()
-        args = tool.parse_args(["--refresh-metadata"])
-        with patch.object(metadata, "probe_media", return_value={**self.probe, "errors": []}), patch.object(tool, "authenticated_session", side_effect=tool.ToolError("expired")), patch.object(tool, "make_downloader") as download, patch.object(tool, "merge_parts") as merge:
-            self.assertEqual(tool.refresh_metadata(self.settings, args, "ffmpeg"), 2)
-        record = tool.get_video_info(self.settings, self.bvid)
+        args = cli_entry.parse_args(["--refresh-metadata"])
+        with patch.object(metadata, "probe_media", return_value={**self.probe, "errors": []}), patch.object(auth, "authenticated_session", side_effect=errors.ToolError("expired")), patch.object(download_service, "make_downloader") as download, patch.object(merge_service, "merge_parts") as merge:
+            self.assertEqual(library.refresh_metadata(self.settings, args, "ffmpeg"), 2)
+        record = library.get_video_info(self.settings, self.bvid)
         self.assertIsNone(record.data["uploader"])
         self.assertIn("expired", record.data["errors"][0])
         self.assertFalse(old.exists())
@@ -443,19 +458,19 @@ class VideoMetadataTests(unittest.TestCase):
     def test_refresh_remote_metadata_preserves_completion(self) -> None:
         """验证 UP 主信息经补生成更新，且不重置已有完成状态；无返回值。"""
         self.legacy()
-        args = tool.parse_args(["--refresh-metadata"])
+        args = cli_entry.parse_args(["--refresh-metadata"])
         session = MagicMock()
         data = {"bvid": self.bvid, "title": self.title, "owner": {"mid": 123, "name": "测试 UP"}, "videos": 2}
-        with patch.object(metadata, "probe_media", return_value={**self.probe, "errors": []}), patch.object(tool, "authenticated_session", return_value=session), patch.object(tool, "ensure_login"), patch.object(tool, "api_json", return_value={"data": data}):
-            self.assertEqual(tool.refresh_metadata(self.settings, args, "ffmpeg"), 0)
-        record = tool.get_video_info(self.settings, self.bvid)
+        with patch.object(metadata, "probe_media", return_value={**self.probe, "errors": []}), patch.object(auth, "authenticated_session", return_value=session), patch.object(auth, "ensure_login"), patch.object(api, "api_json", return_value={"data": data}):
+            self.assertEqual(library.refresh_metadata(self.settings, args, "ffmpeg"), 0)
+        record = library.get_video_info(self.settings, self.bvid)
         self.assertEqual(record.data["uploader"], {"id": 123, "name": "测试 UP"})
         self.assertEqual(record.data["files"][0]["status"], "completed")
 
     def test_extra_media_does_not_replace_confirmed_part(self) -> None:
         """验证同分 P 的历史容器只作为附加视频登记，不覆盖续传使用的路径和签名；无返回值。"""
         self.legacy()
-        record = tool.get_video_info(self.settings, self.bvid)
+        record = library.get_video_info(self.settings, self.bvid)
         original_path = record.data["files"][0]["path"]
         (record.path.parent / f"older_{self.bvid}_p1.mkv").write_bytes(b"old-container")
         with patch.object(metadata, "probe_media", return_value=self.probe):
@@ -467,21 +482,21 @@ class VideoMetadataTests(unittest.TestCase):
 
     def test_extraction_failure_updates_pending_status(self) -> None:
         """验证传输前提取信息失败也将预登记分 P 标为失败；无返回值。"""
-        args = tool.parse_args(["--url", self.bvid])
-        target = tool.VideoTarget(f"https://www.bilibili.com/video/{self.bvid}?p=1", 123, 1, 2)
+        args = cli_entry.parse_args(["--url", self.bvid])
+        target = models.VideoTarget(f"https://www.bilibili.com/video/{self.bvid}?p=1", 123, 1, 2)
         session, downloader = MagicMock(), MagicMock()
         downloader.__enter__.return_value = downloader
-        downloader.extract_info.side_effect = tool.ToolError("extract failed")
+        downloader.extract_info.side_effect = errors.ToolError("extract failed")
         source = {"bvid": self.bvid, "title": self.title, "owner": {"mid": 1, "name": "test"}, "videos": 2}
-        with patch.object(tool, "load_settings", return_value=self.settings), patch.object(tool, "resolve_ffmpeg", return_value="ffmpeg"), patch.object(tool, "authenticated_session", return_value=session), patch.object(tool, "ensure_login", return_value={}), patch.object(tool, "resolve_targets", return_value=[target]), patch.object(tool, "api_json", return_value={"data": source}), patch.object(tool, "make_downloader", return_value=downloader):
-            self.assertEqual(tool.run(args), 2)
-        record = tool.get_video_info(self.settings, self.bvid)
+        with patch.object(configuration, "load_settings", return_value=self.settings), patch.object(media, "resolve_ffmpeg", return_value="ffmpeg"), patch.object(auth, "authenticated_session", return_value=session), patch.object(auth, "ensure_login", return_value={}), patch.object(api, "resolve_targets", return_value=[target]), patch.object(api, "api_json", return_value={"data": source}), patch.object(download_service, "make_downloader", return_value=downloader):
+            self.assertEqual(application.run(args), 2)
+        record = library.get_video_info(self.settings, self.bvid)
         self.assertEqual(record.data["files"][0]["status"], "failed")
-        self.assertIn("extract failed", record.data["files"][0]["errors"])
+        self.assertIn("extract failed", record.data["files"][0]["errors"][0])
 
     def test_atomic_replace_failure_keeps_original_and_cleans_temporary(self) -> None:
         """验证原子替换失败不破坏已有内容，且清理临时写入文件；无返回值。"""
-        record = tool.get_video_info(self.settings, self.bvid, self.title)
+        record = library.get_video_info(self.settings, self.bvid, self.title)
         record.save()
         original = record.path.read_bytes()
         record.data["title"] = "新标题"
@@ -492,21 +507,21 @@ class VideoMetadataTests(unittest.TestCase):
 
     def test_invalid_paths_and_metadata_fail_without_overwrite(self) -> None:
         """验证路径越界和损坏的新信息文件被拒绝，且不会被默认值覆盖；无返回值。"""
-        record = tool.get_video_info(self.settings, self.bvid, self.title)
+        record = library.get_video_info(self.settings, self.bvid, self.title)
         for relative in ("../../outside.mp4", "C:/outside.mp4"):
-            with self.subTest(relative=relative), self.assertRaises(tool.ToolError):
+            with self.subTest(relative=relative), self.assertRaises(errors.ToolError):
                 record.resolve_file({"path": relative})
         record.save()
         record.path.write_text("{broken", encoding="utf-8")
-        with self.assertRaises(tool.ToolError):
-            tool.get_video_info(self.settings, self.bvid)
+        with self.assertRaises(errors.ToolError):
+            library.get_video_info(self.settings, self.bvid)
         self.assertEqual(record.path.read_text(encoding="utf-8"), "{broken")
 
     def test_refresh_mode_rejects_conflicting_arguments(self) -> None:
         """验证信息更新模式与下载目标、全部分 P 和其他模式互斥；无返回值。"""
         for arguments in (["--url", self.bvid], ["--all-parts"], ["--login-only"], ["--list-formats"], ["--merge-video", self.bvid]):
             with self.subTest(arguments=arguments), self.assertRaises(SystemExit):
-                tool.parse_args(["--refresh-metadata", *arguments])
+                cli_entry.parse_args(["--refresh-metadata", *arguments])
 
 
 if __name__ == "__main__":

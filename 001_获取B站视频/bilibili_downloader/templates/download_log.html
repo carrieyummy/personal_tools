@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B 站任务进度</title>
+<style>
+:root { color-scheme:light; font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif; color:#263448; background:#f3f5f9; }
+* { box-sizing:border-box; } body { margin:0; padding:24px 30px; } h1 { font-size:25px; margin:0; } h2 { font-size:15px; margin:0; } p { margin:0; }
+.intro { color:#607086; margin:5px 0 18px; } .toolbar { display:flex; gap:18px; align-items:center; margin-bottom:18px; flex-wrap:wrap; }
+input[type=search] { padding:9px 12px; width:360px; border:1px solid #cad4e1; border-radius:6px; font:inherit; }
+.export { padding:8px 13px; background:#1a579e; color:white; border-radius:6px; text-decoration:none; }
+.run { background:white; margin-bottom:18px; border:1px solid #dce3ed; border-radius:9px; } .run-summary { padding:14px 18px; font-weight:600; cursor:pointer; background:#eaf0f8; border-radius:9px; } .run-content { padding:16px; }
+.overview { display:grid; grid-template-columns:minmax(200px,1fr) minmax(200px,1fr) auto; gap:32px; align-items:center; margin-bottom:16px; } .overview-time { font-size:22px; font-weight:600; }
+.table-wrap { overflow-x:auto; border:1px solid #dce3ed; border-radius:7px; } table { width:100%; min-width:1000px; border-collapse:collapse; text-align:left; table-layout:fixed; }
+th { color:#607086; white-space:nowrap; font-size:12px; font-weight:400; } th,td { padding:9px 12px; border-bottom:1px solid #e6ebf2; vertical-align:middle; overflow-wrap:anywhere; } tr:last-child td { border-bottom:0; }
+th:nth-child(1) { width:29%; } th:nth-child(2) { width:11%; } th:nth-child(3) { width:24%; } th:nth-child(4) { width:12%; } th:nth-child(5) { width:13%; } th:nth-child(6) { width:11%; }
+.task-row { background:#eaf0f8; } .phase-row td { padding:6px 26px; color:#607086; font-size:12px; background:#fafbfd; } .entry-row td:first-child { padding-left:42px; } .entry-row.selected { background:#f0f6ff; }
+.text-button { padding:0; border:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; } .text-button:hover { color:#166ab8; } button:focus-visible,a:focus-visible { outline:2px solid #166ab8; outline-offset:3px; }
+.muted,small { color:#607086; font-size:12px; } small { display:block; } .number,.duration { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.error-summary { color:#aa3030; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.badge { display:inline-block; border-radius:5px; padding:2px 8px; background:#edf0f5; white-space:nowrap; font-size:12px; }
+.completed,.reused { background:#e0f4e9; color:#176740; } .downloading,.merging,.processing,.preparing,.running,.queued { background:#e0edff; color:#1a579e; } .failed,.interrupted { background:#fde6e6; color:#aa3030; } .warning,.retry,.skipped { background:#fff0d7; color:#8f5908; }
+.progress-label { display:flex; justify-content:space-between; gap:8px; font-size:12px; } .progress-track { height:6px; background:#e9eef5; border-radius:3px; overflow:hidden; margin-top:5px; } .progress-fill { height:100%; background:#2166b5; }
+.progress-track.done .progress-fill { background:#247049; } .progress-track.error .progress-fill { background:#b83b3b; } .progress-track.indeterminate .progress-fill { width:32%; animation:progress 1.6s ease-in-out infinite alternate; }
+.phase-progress + .phase-progress { margin-top:7px; } .phase-progress .progress-track { height:4px; margin-top:3px; }
+.detail-panel { margin-top:14px; border:1px solid #dce3ed; border-radius:7px; padding:14px 16px; } .detail-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; } .detail-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px 24px; margin-top:12px; }
+.detail-value { overflow-wrap:anywhere; } .detail-message { margin-top:12px; white-space:pre-wrap; overflow-wrap:anywhere; } .detail-panel a { display:inline-block; color:#166ab8; margin-top:8px; overflow-wrap:anywhere; } .detail-progress { margin-top:12px; max-width:640px; }
+.notice { padding:10px 14px; border-radius:7px; background:#fff0d7; color:#8f5908; margin-bottom:16px; } .empty { padding:20px; color:#607086; } [hidden] { display:none !important; }
+@keyframes progress { from { transform:translateX(0); } to { transform:translateX(210%); } } @media(prefers-reduced-motion:reduce) { .progress-track.indeterminate .progress-fill { animation:none; } }
+</style>
+</head><body>
+<h1>B 站任务进度</h1><p class="intro" id="connection"></p><div id="storage" class="notice" hidden></div>
+<div class="toolbar"><input type="search" id="search" placeholder="搜索任务、标题、BV 号、分 P 或错误原因" aria-label="搜索日志"><label><input type="checkbox" id="errors"> 只看失败、中断和提示</label><a class="export" id="export" href="/snapshot">导出 HTML</a></div>
+<main id="runs"></main><script id="download-log-data" type="application/json"><!--DATA--></script>
+<script>
+const live = __LIVE__;
+const labels = __LABELS__;
+const interval = __INTERVAL_MS__;
+const search = document.getElementById('search'), errors = document.getElementById('errors'), runs = document.getElementById('runs'), connection = document.getElementById('connection');
+const terminal = new Set(['completed','reused','failed','interrupted','skipped','warning']);
+const attention = new Set(['failed','interrupted','warning','skipped']);
+const expandedRuns = new Map(), expandedTasks = new Map(), selectedEntries = new Map();
+let revision = -1, currentData, receivedAt = performance.now(), connected = live, timer, clockTimer;
+// 创建 tag 元素，text 为可选纯文本，className 为可选样式类；返回元素，避免执行日志中的 HTML。
+function node(tag, text, className) { const result = document.createElement(tag); if(text !== undefined && text !== null) result.textContent = text; if(className) result.className = className; return result; }
+// 将非负 seconds 秒格式化为 HH:MM:SS；小时可超过 24，未知值返回 --:--:--。
+function duration(seconds) {
+  if(typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '--:--:--';
+  const value = Math.floor(seconds);
+  return [Math.floor(value/3600),Math.floor(value/60)%60,value%60].map(function(part) { return String(part).padStart(2,'0'); }).join(':');
+}
+// 将 ISO 时间 value 按记录时区显示为 YYYY:MM:DD HH:MM:SS；空值返回破折号。
+function dateTime(value) { return value ? value.slice(0,10).replaceAll('-',':')+' '+value.slice(11,19) : '—'; }
+// 将字节速度 value 转为十进制 MB/s 文本；未知值返回破折号。
+function speed(value) { return typeof value === 'number' && Number.isFinite(value) ? (value/1000000).toFixed(2)+' MB/s' : '—'; }
+// 将字节数 value 转为十进制 MB 文本；未知值返回破折号。
+function bytes(value) { return typeof value === 'number' && Number.isFinite(value) ? (value/1000000).toFixed(2)+' MB' : '—'; }
+// 判断 entry 是否有可用成品；带提示的完成项必须具有路径；返回布尔值。
+function successful(entry) { return ['completed','reused'].includes(entry.status) || (entry.status === 'warning' && Boolean(entry.path)); }
+// 为状态 status 创建标签；text 可覆盖默认中文名称；返回元素。
+function badge(status, text) { return node('span',text || labels[status],'badge '+status); }
+// 为 label 和可选百分比 value 创建进度条；status 控制状态色，right 可覆盖右侧文本；返回元素。
+function progress(label, value, status, right) {
+  const result = node('div'), known = typeof value === 'number' && Number.isFinite(value), percent = known ? Math.max(0,Math.min(100,value)) : null;
+  const heading = node('div',undefined,'progress-label'); heading.append(node('span',label),node('span',right === undefined ? (known ? percent.toFixed(1)+'%' : '—') : right,'number'));
+  const track = node('div',undefined,'progress-track'); track.setAttribute('role','progressbar'); track.setAttribute('aria-label',label); track.setAttribute('aria-valuemin','0'); track.setAttribute('aria-valuemax','100');
+  if(known) track.setAttribute('aria-valuenow',String(percent)); else track.setAttribute('aria-valuetext',label);
+  if(!known && ['downloading','merging','processing','preparing','running'].includes(status)) track.classList.add('indeterminate');
+  if(['completed','reused'].includes(status)) track.classList.add('done'); if(['failed','interrupted'].includes(status)) track.classList.add('error');
+  const fill = node('div',undefined,'progress-fill'); if(known) fill.style.width = percent+'%'; else if(!track.classList.contains('indeterminate')) fill.style.width = '0%';
+  track.append(fill); result.append(heading,track); return result;
+}
+// 按 entry 状态生成真实进度；当前流结束仍需封装及字幕，不能提前算作分 P 完成；返回元素。
+function entryProgress(entry) {
+  const label = successful(entry) ? '已完成' : entry.status === 'processing' ? '封装及字幕处理' : entry.status === 'pending' ? (entry.kind === '合并' ? '等待分 P 就绪' : '等待下载') : entry.progress_label || (entry.kind === '合并' ? '合并进度' : '当前流');
+  return progress(label,successful(entry) ? 100 : entry.progress,entry.status);
+}
+// 将 run 内条目按明确任务标识分组；独立离线合并也有任务容器；返回有序数组。
+function groupTasks(run) {
+  const groups = new Map();
+  run.entries.forEach(function(entry) { const key = entry.task || entry.id; if(!groups.has(key)) groups.set(key,{key:run.id+':'+key,title:entry.title,task:entry.task,parent:null,children:[]}); const group = groups.get(key); if(entry.kind === '任务') { group.parent = entry; group.title = entry.title; } else group.children.push(entry); });
+  return Array.from(groups.values());
+}
+// 汇总 group 状态；执行中的合并覆盖父任务的等待状态；返回状态键。
+function groupStatus(group) {
+  if(group.parent && terminal.has(group.parent.status)) return group.parent.status;
+  for(const status of ['merging','downloading','processing','preparing']) if(group.children.some(function(entry) { return entry.status === status; })) return status;
+  if(group.parent) return group.parent.status;
+  if(group.children.some(function(entry) { return !terminal.has(entry.status); })) return 'pending';
+  return group.children.some(function(entry) { return attention.has(entry.status); }) ? 'warning' : 'completed';
+}
+// 汇总 entries 的独立P就绪数与下载版本数；返回同时标明两种单位的文本。
+function downloadCount(entries) {
+  const parts = new Map(); entries.forEach(function(entry) { const key = (entry.task || '')+':'+(entry.source_part || entry.part); if(!parts.has(key)) parts.set(key,[]); parts.get(key).push(entry); });
+  return Array.from(parts.values()).filter(function(items) { return items.every(successful); }).length+'/'+parts.size+' P · '+entries.filter(successful).length+'/'+entries.length+' 版本';
+}
+// 为 group 分别生成下载版本和拼接进度条；返回阶段容器。
+function groupProgress(group) {
+  const result = node('div');
+  ['下载','合并'].forEach(function(kind) {
+    const entries = group.children.filter(function(entry) { return entry.kind === kind; }); if(!entries.length) { result.append(node('small',kind === '合并' ? '无合并活动' : '无下载活动')); return; }
+    const count = entries.filter(successful).length, active = kind === '合并' ? entries.find(function(entry) { return entry.status === 'merging'; }) : null;
+    const bar = active ? progress('当前合并组',active.progress,'merging',(typeof active.progress === 'number' ? active.progress.toFixed(1)+'%' : '处理中')+' · '+count+'/'+entries.length+' 组') : progress(kind === '下载' ? '下载就绪' : '合并完成',count*100/entries.length,count === entries.length ? 'completed' : '',kind === '下载' ? downloadCount(entries) : count+'/'+entries.length+' 组');
+    bar.className = 'phase-progress'; result.append(bar);
+  }); return result;
+}
+// 汇总 group 下载均速：字节求和、有效传输区间取并集，排除排队并避免并发区间重复计时；返回字节/秒或 null。
+function groupSpeed(group) {
+  const downloads = group.children.filter(function(entry) { return entry.kind === '下载' && entry.metric_intervals && entry.metric_intervals.length; });
+  const intervals = downloads.flatMap(function(entry) { return entry.metric_intervals; }).slice().sort(function(a,b) { return a[0]-b[0]; });
+  let seconds = 0, start = null, end = null;
+  intervals.forEach(function(pair) { if(start === null) { start = pair[0]; end = pair[1]; } else if(pair[0] <= end) end = Math.max(end,pair[1]); else { seconds += end-start; start = pair[0]; end = pair[1]; } });
+  if(start !== null) seconds += end-start; return seconds > 0 ? downloads.reduce(function(sum,entry) { return sum+entry.processed_bytes; },0)/seconds : null;
+}
+// 为可选 ISO 开始 start 和结束 finish 创建耗时元素；运行中由统一时钟刷新；返回元素。
+function elapsedElement(start, finish) { const result = node('span','--:--:--','duration'); result.dataset.started = start || ''; result.dataset.finished = finish || ''; return result; }
+// 根据 group 父任务或实际子项取得起止时间；返回两项字符串数组。
+function groupTimes(group) {
+  if(group.parent) return [group.parent.active_started,group.parent.finished];
+  const starts = group.children.map(function(entry) { return entry.active_started; }).filter(Boolean).sort();
+  const finish = group.children.every(function(entry) { return terminal.has(entry.status); }) ? group.children.map(function(entry) { return entry.finished; }).filter(Boolean).sort().at(-1) : '';
+  return [starts[0],finish];
+}
+// 按服务器采样时间及本页单调时钟刷新耗时；离线、结束或断线时冻结；无参数及返回值。
+function updateTimes() {
+  if(!currentData) return;
+  const now = Date.parse(currentData.captured_at)+(live && connected && !currentData.closed ? performance.now()-receivedAt : 0);
+  runs.querySelectorAll('[data-started]').forEach(function(element) { const start = Date.parse(element.dataset.started), end = element.dataset.finished ? Date.parse(element.dataset.finished) : now; element.textContent = duration(Number.isFinite(start) && Number.isFinite(end) ? Math.max(0,(end-start)/1000) : null); });
+}
+// 判断 entry 是否同时匹配 query 和异常开关；返回布尔值。
+function matches(entry, query) { return (!errors.checked || attention.has(entry.status)) && [entry.title,entry.task,entry.part,entry.detail,entry.quality].join(' ').toLowerCase().includes(query); }
+// 将 run/group 中的 entry 展示在 host 详情容器，并标记选中行；无返回值。
+function showDetail(run, group, entry, host) {
+  selectedEntries.set(run.id,entry.id); const panel = node('section',undefined,'detail-panel'); panel.dataset.entryId = entry.id;
+  const heading = node('div',undefined,'detail-heading'); heading.append(node('h2',group.title+' / '+(entry.part || entry.kind)),badge(entry.status)); panel.append(heading);
+  const grid = node('div',undefined,'detail-grid');
+  const fields = [['开始时间',dateTime(entry.active_started)],['更新时间',dateTime(entry.updated)],['结束时间',dateTime(entry.finished)],['已耗时',elapsedElement(entry.active_started,entry.finished)],['平均速度',speed(entry.average_speed_bps)],['预计剩余',duration(entry.eta_seconds)],[entry.kind === '合并' ? '已输出 / 源数据总量' : '当前流已下载 / 总量',bytes(entry.current_bytes)+' / '+bytes(entry.total_bytes)],[entry.kind === '合并' ? '输出吞吐量计时' : '有效传输耗时',duration(entry.metric_seconds)],['画质',entry.quality || '—']];
+  fields.forEach(function(field) { const item = node('div'), value = node('div',undefined,'detail-value number'); value.append(typeof field[1] === 'string' ? document.createTextNode(field[1]) : field[1]); item.append(node('div',field[0],'muted'),value); grid.append(item); }); panel.append(grid);
+  const bar = entryProgress(entry); bar.className = 'detail-progress'; panel.append(bar,node('p',entry.detail,'detail-message'),node('small',entry.kind === '合并' ? '平均速度为输出吞吐量；百分比按已处理媒体时间计算。' : '平均速度仅计算本次传输字节，排除已有断点；当前流进度不代表整个分 P 已完成。'));
+  if(entry.groups && entry.groups.length) panel.append(node('p','用于拼接组：'+entry.groups.join('；')));
+  if(entry.file_url) { const link = node('a',entry.path); link.href = entry.file_url; panel.append(link); } host.replaceChildren(panel);
+  host.parentElement.querySelectorAll('.entry-row').forEach(function(row) { row.classList.toggle('selected',row.dataset.entryId === entry.id); }); updateTimes();
+}
+// 将 entry 行插入 body 并保留异常原因摘要；run/group 是归属信息，host 是下方详情容器；无返回值。
+function appendEntry(body, run, group, entry, host) {
+  const row = node('tr',undefined,'entry-row'); row.dataset.entryId = entry.id; row.dataset.status = entry.status; row.dataset.kind = entry.kind;
+  const title = node('td'), select = node('button',entry.part || entry.title,'text-button'); select.type = 'button'; select.addEventListener('click',function() { showDetail(run,group,entry,host); }); title.append(select,node('small',entry.quality));
+  if(attention.has(entry.status) && entry.detail) { const reason = node('small',entry.detail,'error-summary'); reason.title = entry.detail; title.append(reason); }
+  const state = node('td'); state.append(badge(entry.status,entry.kind === '合并' && entry.status === 'pending' ? '等待分 P' : null)); const bar = node('td'); bar.append(entryProgress(entry)); const spent = node('td'); spent.append(elapsedElement(entry.active_started,entry.finished));
+  const average = node('td',speed(entry.average_speed_bps),'number'); if(entry.kind === '合并') average.append(node('small','处理吞吐量'));
+  row.append(title,state,bar,spent,average,node('td',duration(entry.eta_seconds),'duration')); body.append(row);
+}
+// 渲染 data 内存快照；force 表示本地筛选或折叠，保留运行、任务展开状态及滚动位置；无返回值。
+function render(data, force) {
+  currentData = data; if(data.revision === revision && !force) return; revision = data.revision;
+  const position = window.scrollY, fragment = document.createDocumentFragment();
+  data.runs.slice().reverse().forEach(function(run,index) {
+    const groups = groupTasks(run), section = node('details',undefined,'run'); section.dataset.id = run.id; section.open = expandedRuns.has(run.id) ? expandedRuns.get(run.id) : index === 0;
+    section.addEventListener('toggle',function() { expandedRuns.set(run.id,section.open); }); section.append(node('summary','第 '+(data.runs.length-index)+' 次 · '+dateTime(run.started)+' · '+run.label+' · '+labels[run.status],'run-summary'));
+    const content = node('div',undefined,'run-content'), overview = node('div',undefined,'overview'), description = node('div');
+    description.append(node('p','任务 '+groups.length+' · 进行中 '+groups.filter(function(group) { return !terminal.has(groupStatus(group)); }).length+' · 需关注 '+groups.filter(function(group) { return attention.has(groupStatus(group)); }).length),node('p',run.detail || '下载与合并分别统计','muted'));
+    const downloads = run.entries.filter(function(entry) { return entry.kind === '下载'; }), merges = run.entries.filter(function(entry) { return entry.kind === '合并'; }), totals = node('div');
+    if(downloads.length) { const ready = downloads.filter(successful).length; totals.append(progress('分 P 已就绪',ready*100/downloads.length,'',downloadCount(downloads))); } if(merges.length) totals.append(node('small','合并完成 '+merges.filter(successful).length+'/'+merges.length+' 组'));
+    const elapsed = node('div'), clock = elapsedElement(run.started,run.finished); clock.classList.add('overview-time'); elapsed.append(node('p','运行总耗时','muted'),clock); overview.append(description,totals,elapsed); content.append(overview);
+    const wrapper = node('div',undefined,'table-wrap'), table = node('table'), head = node('thead'), headings = node('tr'); ['任务 / 阶段 / 项目','状态','进度','已耗时','平均速度','预计剩余'].forEach(function(title) { headings.append(node('th',title)); }); head.append(headings); table.append(head);
+    const body = node('tbody'), detail = node('div'); detail.setAttribute('aria-live','polite'); const query = search.value.trim().toLowerCase(); let chosen;
+    groups.forEach(function(group,groupIndex) {
+      const entries = group.children.filter(function(entry) { return matches(entry,query); }), parentMatches = group.parent && matches(group.parent,query); if(!entries.length && !parentMatches) return;
+      const open = query || errors.checked ? true : expandedTasks.has(group.key) ? expandedTasks.get(group.key) : index === 0 && groupIndex === 0;
+      const row = node('tr',undefined,'task-row'); row.dataset.taskKey = group.key; const title = node('td'), toggle = node('button',(open ? '▾ ' : '▸ ')+group.title,'text-button'); toggle.type = 'button'; toggle.setAttribute('aria-expanded',String(Boolean(open)));
+      toggle.addEventListener('click',function() { expandedTasks.set(group.key,!open); render(currentData,true); const next = Array.from(runs.querySelectorAll('.task-row')).find(function(item) { return item.dataset.taskKey === group.key; }); if(next) next.querySelector('button').focus({preventScroll:true}); }); title.append(toggle,node('small',group.task));
+      if(group.parent && group.parent.detail && attention.has(group.parent.status)) title.append(node('small',group.parent.detail)); const state = node('td'); state.append(badge(groupStatus(group),group.children.some(function(entry) { return entry.status === 'failed'; }) && groupStatus(group) === 'warning' ? '部分失败' : null));
+      const bars = node('td'); bars.append(groupProgress(group)); const spent = node('td'); spent.append(elapsedElement(...groupTimes(group))); const average = node('td',speed(groupSpeed(group)),'number'); average.append(node('small','下载平均')); row.append(title,state,bars,spent,average,node('td','--:--:--','duration')); body.append(row);
+      if(open) ['下载','合并'].forEach(function(kind) { const children = entries.filter(function(entry) { return entry.kind === kind; }); if(!children.length) return; const phase = node('tr',undefined,'phase-row'), cell = node('td',kind); cell.colSpan = 6; phase.append(cell); body.append(phase); children.forEach(function(entry) { appendEntry(body,run,group,entry,detail); if(selectedEntries.get(run.id) === entry.id || (!selectedEntries.has(run.id) && !chosen)) chosen = [group,entry]; }); });
+      if(parentMatches && !group.children.length) { const reason = node('tr'), message = node('td',group.parent.detail || '任务尚未创建下载或合并项'); message.colSpan = 6; reason.append(message); body.append(reason); }
+    });
+    if(!body.children.length) { const row = node('tr'), message = node('td','暂无匹配活动','empty'); message.colSpan = 6; row.append(message); body.append(row); }
+    table.append(body); wrapper.append(table); content.append(wrapper,detail); section.append(content); fragment.append(section); if(chosen) showDetail(run,chosen[0],chosen[1],detail);
+  }); runs.replaceChildren(fragment);
+  const storage = document.getElementById('storage'); storage.hidden = !data.storage_error; storage.textContent = data.storage_error ? '日志尚未保存到磁盘，下载和合并继续：'+data.storage_error : ''; updateTimes(); window.scrollTo(0,position);
+}
+// 从本机内存接口获取最新快照；断线时冻结耗时并保留最后状态；无参数及返回值。
+async function refresh() {
+  try { const response = await fetch('/api/state',{cache:'no-store'}); if(!response.ok) throw new Error('HTTP '+response.status); const data = await response.json(); receivedAt = performance.now(); connected = true; render(data);
+    connection.textContent = data.closed ? '运行已结束 · 当前为最终状态' : '实时连接 · 每 '+interval/1000+' 秒更新 · 平均速度 MB/s · 日期 YYYY:MM:DD · 耗时 HH:MM:SS'; if(!data.closed) timer = setTimeout(refresh,interval); else clearInterval(clockTimer);
+  } catch(error) { connected = false; clearInterval(clockTimer); updateTimes(); connection.textContent = '连接已断开 · 以下为最后接收的数据，最终状态请查看程序保存的离线快照'; }
+}
+search.addEventListener('input',function() { render(currentData,true); }); errors.addEventListener('change',function() { render(currentData,true); });
+const initial = JSON.parse(document.getElementById('download-log-data').textContent); render(initial); document.getElementById('export').hidden = !live;
+if(live) { clockTimer = setInterval(updateTimes,1000); refresh(); } else connection.textContent = '离线快照 · 已内嵌全部数据 · 耗时固定为导出时的状态';
+</script></body></html>
