@@ -30,6 +30,7 @@ class NativeV5:
         self.device = None
         self.session = None
         self.directory = None
+        self.cenc_mode = profile.get("cenc_mode")
         native = latest_dll(profile["dll_root"], profile["dll_name"])
         if ctypes.sizeof(ctypes.c_void_p) != 8:
             raise ValueError("需要 64 位 Python")
@@ -47,6 +48,8 @@ class NativeV5:
             self.set_mode = self._bind(offsets["set_mode"], integer, pointer, integer, ctypes.c_char_p)
             self.decode = self._bind(offsets["decrypt"], integer, pointer, pointer,
                                     ctypes.POINTER(integer), pointer, integer)
+            if "set_cenc_sample" in offsets:
+                self.set_cenc_sample = self._bind(offsets["set_cenc_sample"], integer, pointer, pointer, integer, pointer, integer)
             self.device, self.session = self.allocate(), self.allocate()
             if not self.device or not self.session:
                 raise MemoryError("SDK 上下文分配失败")
@@ -81,6 +84,24 @@ class NativeV5:
         if not 0 <= size.value <= len(data):
             raise ValueError("SDK 返回非法输出长度")
         return output.raw[:size.value]
+
+    def configure_cenc(self) -> None:
+        """启用配置所声明的 CENC 模式；IV 和子样本信息由每个样本单独提交，无返回值。"""
+        if type(self.cenc_mode) is not int or not hasattr(self, "set_cenc_sample"):
+            raise ValueError("当前 SDK 适配配置未声明已核验的 CENC 能力")
+        self._check(self.set_mode(self.session, self.cenc_mode, None), "cenc_mode")
+
+    def decrypt_cenc(self, data: bytes, iv: bytes, subsamples: bytes) -> bytes:
+        """处理 CENC 样本 data；iv 为已核验的 8 字节 IV，subsamples 为每项 6 字节的网络序范围表；返回等长明文。"""
+        if len(iv) != 8 or len(subsamples) % 6:
+            raise ValueError("CENC IV 长度或子样本表格式尚未适配")
+        iv_buffer = ctypes.create_string_buffer(iv)
+        table = ctypes.create_string_buffer(subsamples)
+        self._check(self.set_cenc_sample(self.session, iv_buffer, len(subsamples) // 6, table, len(subsamples)), "cenc_sample")
+        result = self.decrypt(data)
+        if len(result) != len(data):
+            raise ValueError("CENC 处理结果长度发生变化")
+        return result
 
     def close(self) -> None:
         """释放本对象的 SDK 上下文和 DLL 搜索目录句柄；可重复调用，无返回值。"""

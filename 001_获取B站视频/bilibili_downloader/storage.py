@@ -55,6 +55,7 @@ def apply_changes(boundary: Path, moves: list[tuple[Path, Path]], records: list[
     所有目标先检查冲突；异常时恢复媒体、记录原始字节及已创建的空目录，无返回值。
     删除记录遗留的空父目录在最外层事务成功后清理；保留非空目录、链接及下载根目录。
     commit 只应修改 records/deletes 列出的 JSON，不应再执行媒体移动。
+    记录备份读取及回滚共用 record_io_lock，避免 Windows 读句柄阻止并发原子替换。
     """
     boundary = boundary.resolve()
     deletes = deletes or []
@@ -73,7 +74,8 @@ def apply_changes(boundary: Path, moves: list[tuple[Path, Path]], records: list[
         validate_path(path, boundary)
         if path.exists() and not path.is_file():
             raise ToolError(f'记录路径不是文件：{path}')
-    originals = {path: path.read_bytes() if path.exists() else None for path in [*records, *deletes]}
+    with record_io_lock:
+        originals = {path: path.read_bytes() if path.exists() else None for path in [*records, *deletes]}
     moved: list[tuple[Path, Path]] = []
     created: list[Path] = []
     cleanup = _pending_directory_cleanup.get()
@@ -102,10 +104,11 @@ def apply_changes(boundary: Path, moves: list[tuple[Path, Path]], records: list[
     except BaseException as exc:
         for path, content in originals.items():
             try:
-                if content is None:
-                    path.unlink(missing_ok=True)
-                elif not path.exists() or path.read_bytes() != content:
-                    path.write_bytes(content)
+                with record_io_lock:
+                    if content is None:
+                        path.unlink(missing_ok=True)
+                    elif not path.exists() or path.read_bytes() != content:
+                        path.write_bytes(content)
             except OSError as error:
                 exc.add_note(f'记录回滚失败：{path}：{error}')
         for old, new in reversed(moved):

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from qsv_local.discovery import discover
 from qsv_local.download_state import DownloadStatus
+from qsv_local.storage import fingerprint
 from tests.support import ProjectCase
 
 
@@ -97,3 +98,19 @@ class DownloadGuardTests(ProjectCase):
         before = path.read_bytes()
         self.assertIsNone(DownloadStatus(self.config).reason(source))
         self.assertEqual(path.read_bytes(), before)
+
+    def test_changed_album_metadata_stops_before_conversion(self):
+        """指纹读取后专辑元数据变化时跳过任务，不按旧名称发布；无参数或返回值。"""
+        source = self.source()
+        def changed(path, buffer_bytes, cached=None, **kwargs):
+            """读取 path 指纹后更改客户端下载记录；其余参数透传，返回已计算指纹。"""
+            result = fingerprint(path, buffer_bytes, cached, **kwargs)
+            if path == source:
+                self.metadata[source]["AlbumID"] = "7654301"
+                self.write_downloads()
+            return result
+        with patch("qsv_local.batch.fingerprint", side_effect=changed):
+            result, converter = self.batch()
+        self.assertEqual((result["completed"], result["pending_downloads"]), (0, 1))
+        converter.assert_not_called()
+        self.assertFalse(list(self.output.rglob("*.mp4")))

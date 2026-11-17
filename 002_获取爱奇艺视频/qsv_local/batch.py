@@ -11,7 +11,7 @@ from threading import Event
 
 from .activity_log import Journal
 from .discovery import Task, discover
-from .download_state import DownloadNotReady, DownloadStatus, require_completed
+from .download_state import DownloadNotReady, DownloadStatus, path_key, require_completed
 from .migration import migrate
 from .records import DirectoryIndex
 from .runtime import TaskCancelled, check_cancel
@@ -51,8 +51,8 @@ class Pipeline:
         self.devices = [name for name in ("gpu", "cpu") if config["decode_verification"][name]]
         if not self.devices:
             raise ValueError("decode_verification.cpu/gpu 至少开启一个")
-        # 两个额外槽分别供准备和发布使用，等待队列也计入此总上限。
-        self.limit = len(self.devices) + 2
+        # 等待阶段的任务也计入配置的在途上限。
+        self.limit = config["max_in_flight"]
         self.jobs: list[Job] = []
         self.active: dict[Future, Job] = {}
         self.indexes: dict[Path, DirectoryIndex | Exception] = {}
@@ -78,6 +78,8 @@ class Pipeline:
             reason = self.download_status.reason(task.source)
             if reason:
                 raise DownloadNotReady(reason)
+            if self.download_status.metadata.get(path_key(task.source)) != task.metadata:
+                raise DownloadNotReady("客户端下载命名元数据发生变化")
             self.notify(job)("reading", detail="检查内容指纹及历史版本", work_dir=str(work))
             folder = task.target.parent
             if folder not in self.indexes:
@@ -106,6 +108,8 @@ class Pipeline:
         reason = self.download_status.reason(task.source)
         if reason:
             raise DownloadNotReady(reason)
+        if self.download_status.metadata.get(path_key(task.source)) != task.metadata:
+            raise DownloadNotReady("客户端下载命名元数据发生变化")
         current = task.source.stat()
         if (current.st_size, current.st_mtime_ns) != (source_fp["size_bytes"], source_fp["mtime_ns"]):
             job.stage = "fingerprinting"
@@ -136,13 +140,13 @@ class Pipeline:
         """复制已验证 job 并返回成品和当前源指纹；仅工作线程调用，不更新索引；发布完成后标记以便中断回收。"""
         check_cancel(self.cancel)
         report = job.report
-        require_completed(self.config, job.task.source)
+        require_completed(self.config, job.task.source, expected=job.task.metadata)
         current = fingerprint(job.task.source, self.config["copy_buffer_bytes"], report["source_fingerprint"],
                               cancel_event=self.cancel)
         if current["sha256"] != report["source_fingerprint"]["sha256"]:
             raise RuntimeError("发布前源文件发生变化")
         self.notify(job)("publishing", detail="校验复制成品并保存目录索引")
-        require_completed(self.config, job.task.source)
+        require_completed(self.config, job.task.source, expected=job.task.metadata)
         output_fp = publish(Path(report["candidate"]), job.target, report["output_fingerprint"]["sha256"],
                             self.config["copy_buffer_bytes"], cancel_event=self.cancel)
         job.published = True

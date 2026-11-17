@@ -1,0 +1,141 @@
+# 链接下载与只读缓存专项配置；客户端只需打开任意正片并暂停一次。
+# 不启动或切换当前播放窗口，不调用 DownloadEx、下载派发或下载设置接口。
+# 所有相对路径以本文件为基准，安装目录和客户端路径复用主配置。
+main_config: config.yaml
+download_list: ../download_list/download_list.yaml
+cache_root: 'E:\qycache\temp_cache'
+report_dir: ../research/results/playback_cache
+network:
+  use_environment_proxy: false
+  timeout_seconds: 20
+  max_response_bytes: 8388608
+  user_agent: Mozilla/5.0
+  allowed_hosts: [qy.net, www.iqiyi.com, iqiyi.com]
+  # 当前客户端 qysdk 的 decodeTvId / base36-XOR 规则；用于普通 /v_*.html 播放页，不依赖页面脚本执行。
+  play_url_id:
+    xor_mask: 0x75706971676c
+    legacy_threshold: 900000
+    legacy_offset: 900000
+    legacy_multiplier: 100
+  video_info_url: https://pcw-api.iqiyi.com/video/video/baseinfo/{tvid}
+  # 整剧上映日期仅取专辑 publishTime；同一批次按 AlbumID 缓存，不使用单集或更新日期。
+  album_info_url: https://pcw-api.iqiyi.com/album/album/baseinfo/{album_id}
+  # 日期展示的 UTC 偏移，单位分钟；北京时间为 UTC+08:00。
+  album_date_utc_offset_minutes: 480
+  episode_list_url: 'https://pcw-api.iqiyi.com/albums/album/avlistinfo?aid={album_id}&page={page}&size={page_size}'
+  episode_page_size: 200
+  max_episode_pages: 100
+native:
+  process_name: QyKernel.exe
+  module: HCDNClientNet.dll
+  sha256: ad87734759977fa1a4404589509b25626593a24c43fcb69d1d9c3d1cae25fa80
+  # 当前版本 CPgfDBManager 的 RTTI、调用方及 SELECT 实测相互核对；升级后重新分析。
+  manager_vtable_rva: 0xafcba8
+  database_pointer_offset: 0x10
+  sqlite_exec_rva: 0x599e00
+  scan_max_region_bytes: 67108864
+  scan_max_total_bytes: 536870912
+  max_rows: 512
+  max_text_bytes: 4096
+playback:
+  process_name: QyPlayer.exe
+  capture_seconds: 20
+  followup_seconds: 0.1
+  cleanup_timeout_seconds: 2
+  cleanup_poll_seconds: 0.05
+  max_requests: 128
+  max_text_bytes: 16384
+  max_headers: 64
+  max_body_bytes: 8388608
+  hosts: [cache.video.iqiyi.com, liveats-vod.video.iqiyi.com]
+  dash_host: cache.video.iqiyi.com
+  dash_path: /dash
+  resource_host_suffix: .video.iqiyi.com
+  # 原生调度实测的媒体 CDN；原生账号请求头不会转发到这些节点。
+  cdn_host_suffixes: [.video.iqiyi.com, .video.qiyi.com, .71edge.com]
+  # 请求由独立播放预读接口生成；不切换当前播放窗口，也不调用离线下载接口。
+  request:
+    bitstream: 800
+    hdr_type: 8
+    frame_rate: 0
+    movie_type: 1
+    vrs_param: ''
+    extra: {}
+    bitstream_extend_info: {}
+    audio_language: 0
+    audio_type: 0
+    audio_channel_type: 0
+    audio_extend_info: {}
+  selection:
+    # 当前正式能力仅验收最高档；次高等排名的精确选档尚未适配，不开放为成功路径。
+    supported_ranks: [1]
+    # 最高组内保留原生当前选中编码；不同编码不会重复占用清晰度排名。
+    prefer_native_selected: true
+    # 每集分别按声明分辨率档、增强档、码率档、帧率分组；1 表示最高组，不按编码体积排名。
+    rank_fields: [bid, enhanced, br, fr]
+    # 同档优先使用已验证的原生 HDR/编码；无法处理所选档时失败，不切换到更低档。
+    hdr_preference: [8, 4, 2, -1, 0]
+    codec_preference: [1, 2, 5]
+    supported_codecs: [1, 2, 5]
+    supported_formats: [ts, 265ts, dash]
+    sdr_request_hdr: 0
+  audio_selection:
+    # 同一匹配语言内按原生音质档和声道类型排名，不使用媒体体积。
+    rank_fields: [bid, ct]
+    # 当前SDK音频类型枚举与字符串转换函数核对；AAC已通过独立资源实测。
+    codec_types: {dolby: 1, aac: 2, dts: 3}
+    output_codecs: {dolby: [eac3, ac3], aac: [aac], dts: [dts, dca]}
+    # 分段调度前缀读取每次原生响应的 data.dd（含 /videos 路径），不固定域名，不转发账号请求头。
+  programs:
+    factory: CreateMctoProgramsManager
+    destroy: DestoryMctoProgramsManager
+    push_front_rva: 0x25a0e0
+    delete_rva: 0x259500
+    status_rva: 0x2599a0
+    # 已以原生调用方、真实输入和跨电视剧请求核验；C 输入为当前版本的 packed 布局。
+    input_size: 0x51e
+    fields:
+      bitstream: 0x0
+      hdr_type: 0x4
+      frame_rate: 0xc
+      bitstream_extend_info: 0x10
+      audio_language: 0x210
+      audio_type: 0x214
+      audio_channel_type: 0x218
+      # 与原生输入日志调用方核对：三项音轨整数后紧接512字节扩展文本；0x41c为字幕语言。
+      audio_extend_info: 0x21c
+      movie_type: 0x420
+      tvid: 0x424
+      vid: 0x464
+      charge: 0x4f8
+      vrs_param: 0x4fe
+      extra: 0x516
+    capacities:
+      bitstream_extend_info: 512
+      audio_extend_info: 512
+      tvid: 64
+      vid: 128
+  media_probe:
+    # 显式使用 --sample-media 时，按清单相对位置选取短分段，包含中后部以避免只验证明文片头。
+    positions: [0.0, 0.5, 1.0]
+    max_segment_bytes: 16777216
+  media_download:
+    workers: 4
+    attempts: 3
+    retry_seconds: 1
+    duration_tolerance_seconds: 2
+    progress_seconds: 5
+    # 单个MP4片段结构处理的内存上限；整集下载仍按主配置缓冲流式写盘。
+    max_fragment_bytes: 67108864
+  qtp:
+    module: libqtpclient.dll
+    sha256: b1422e0bae4160e8b6759365a3f059551bdd4264c990c008ccfc2cf34761daa8
+    url_option: 10017
+    header_option: 10022
+    user_option: 10002
+  player:
+    module: mctoplayer.dll
+    sha256: 47f669d197025b03ba77c782c35dc5eeed81434b33627719d12710da3f9d34df
+    # 由 QTP 回调调用方及实测确认；升级必须重新核验，不能只替换摘要。
+    body_rva: 0xc9750
+    complete_rva: 0xc9890

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import ExitStack
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 from queue import Empty, Queue
@@ -19,23 +18,58 @@ from .configuration import read_config
 from .errors import AuthenticationError, Cancelled, SourceChanged, ToolError
 from .hls import download, playlists
 from .media import gpu_probe, mux, verify
+from .scheduler import run_pipeline
+from .series import date_prefix
 from .storage import DirectoryLock, Publisher, atomic_json, digest, safe_name
 from .tasks import Episode, catalog, describe, requests, resolved, streams
 
 
+@dataclass
+class DownloadedEpisode:
+    """下载完成的单集现场；episode/source/identity 标识源，directory/manifests 指向本地现场。
+
+    evidence 包含原始分片字节、时长等证据；started 为单调起始时间，timings 保存各阶段秒数。
+    """
+
+    episode: Episode
+    source: dict[str, Any]
+    identity: str
+    directory: Path
+    manifests: list[Path]
+    evidence: dict[str, Any]
+    started: float
+    timings: dict[str, float]
+
+
 class Pipeline:
-    """有界阶段执行器；config/client/log/publisher 提供配置、接口、记录和提交，cancel/auth_stop 控制停止派发。"""
+    """提供独立下载与后处理阶段；共享 config/client/log/publisher，cancel/auth_stop 控制停止。"""
 
     def __init__(self, config: dict[str, Any], client: NativeClient, log: Activity, publisher: Publisher, cancel: Event, auth_stop: Event):
-        """初始化各资源槽；各参数为本批共享服务；无返回值，不创建嵌套线程池。"""
+        """保存各共享服务并初始化封装、验证及发布槽；各参数为本批服务和停止事件；无返回值。"""
         self.config, self.client, self.log, self.publisher, self.cancel, self.auth_stop = config, client, log, publisher, cancel, auth_stop
-        self.download_slots = BoundedSemaphore(config["download"]["threads"])
         self.mux_slots = BoundedSemaphore(config["pipeline"]["mux_slots"])
         self.publish_slots = BoundedSemaphore(config["pipeline"]["publish_slots"])
         self.devices = Queue()
         for device in ("gpu", "cpu"):
             if config["decode_verification"][device]:
                 self.devices.put(device)
+
+    def stage(self, episode: Episode, name: str, progress: str = "", message: str = "") -> None:
+        """记录 episode 的 name 阶段；progress/message 为脱敏进度和说明，附加清单备注；无返回值。"""
+        note = f"（备注：{episode.note}）" if episode.note else ""
+        self.log.update(episode.key, f"{episode.series} · 第{episode.index}集", name, progress, message + note)
+
+    def failure(self, episode: Episode, error: Exception) -> str:
+        """结算 episode 的 error；认证错误停止新下载，取消保留现场；返回已记录的终态字符串。"""
+        if isinstance(error, AuthenticationError):
+            self.auth_stop.set()
+            status = "认证失效"
+        elif isinstance(error, Cancelled):
+            status = "取消"
+        else:
+            status = "失败"
+        self.stage(episode, status, message=safe_message(error))
+        return status
 
     def acquire(self, semaphore: BoundedSemaphore) -> None:
         """可取消地获取 semaphore；参数为阶段信号量；成功无返回值。"""
@@ -54,132 +88,112 @@ class Pipeline:
             except Empty:
                 continue
 
-    def item(self, episode: Episode) -> str:
-        """处理 episode 并在源变更时新建版本；返回最终状态，旧版本现场不会被覆盖。"""
+    def download_episode(self, episode: Episode) -> DownloadedEpisode | str:
+        """下载 episode 并按配置重试源变化；返回现场载荷或复用/认证失效/失败终态，其他异常交调度器结算。"""
         for attempt in range(self.config["download"]["refresh_attempts"] + 1):
             try:
-                return self.attempt(episode)
+                return self.transfer(episode)
+            except AuthenticationError:
+                self.auth_stop.set()
+                raise
             except SourceChanged as error:
-                self.log.update(episode.key, episode.title, "源版本变化", message=safe_message(error))
+                self.stage(episode, "源版本变化", message=safe_message(error))
                 if attempt == self.config["download"]["refresh_attempts"]:
-                    self.log.update(episode.key, episode.title, "失败", message="源持续变化，已保留全部版本现场")
-                    return "失败"
+                    return self.failure(episode, ToolError("源持续变化，已保留全部版本现场"))
         raise AssertionError("不可达的源刷新状态")
 
-    def attempt(self, episode: Episode) -> str:
-        """处理单集 episode；返回成功/复用/失败/取消/认证失效状态，所有失败写日志且禁止发布。"""
+    def transfer(self, episode: Episode) -> DownloadedEpisode | str:
+        """解析并顺序下载单集 episode；返回完整现场或复用/认证失效终态，不占用后处理资源。"""
+        check_cancel(self.cancel)
         started = time.monotonic()
-        label = f"{episode.series} · 第{episode.index}集"
-        timings = {}
-
-        def stage(name: str, progress: str = "", message: str = "") -> None:
-            """更新本集阶段；name/progress/message 为脱敏展示；无返回值。"""
-            note = f"（备注：{episode.note}）" if episode.note else ""
-            self.log.update(episode.key, label, name, progress, message + note)
-
-        try:
-            if self.auth_stop.is_set():
-                stage("未开始", message="登录失效，已停止派发")
-                return "认证失效"
-            self.acquire(self.download_slots)
-            try:
-                if self.auth_stop.is_set():
-                    stage("未开始", message="登录失效，已停止派发")
-                    return "认证失效"
-                stage("解析画质")
-                stream = resolved(self.client, episode)
-                source = describe(stream)
-                media = playlists(self.client.transport, stream["disp"]["info"])
-                expected_duration = float(stream["ftime"])
-                if any(abs(item.duration - expected_duration) > self.config["verification"]["duration_tolerance_seconds"] for item in media):
-                    raise ToolError("源清单时长与正片元数据不符，拒绝下载预览片段")
-                identity = digest({"clip_id": episode.clip_id, "video_id": episode.video_id, "source": source,
-                                   "playlists": [item.identity for item in media]})
-                stage("检查复用")
-                record = self.publisher.reusable(episode.key, identity)
-                if record:
-                    stage("复用", message=record["path"])
-                    return "复用"
-                directory = self.config["work_dir"] / episode.clip_id / episode.video_id / identity
-                directory.mkdir(parents=True, exist_ok=True)
-                atomic_json(directory / "source.json", {"episode": asdict(episode), "source": source, "identity": identity}, self.config["logging"])
-                stage("下载", message=f"{source['standardName']} · {source['videoFormat']} · {source['videoWidth']}×{source['videoHeight']}")
-                before = time.monotonic()
-
-                def refresh():
-                    """使用相同具体源续签；无参数；返回新内存清单，源变化由下层明确拒绝。"""
-                    renewed = resolved(self.client, episode, stream)
-                    return playlists(self.client.transport, renewed["disp"]["info"])
-
-                manifests, evidence = download(self.client.transport, media, directory, self.config, refresh,
-                                               lambda done, total: stage("下载", f"{done}/{total}"), self.cancel)
-                timings["download_seconds"] = round(time.monotonic() - before, 3)
-            finally:
-                self.download_slots.release()
-            self.acquire(self.mux_slots)
-            try:
-                stage("封装")
-                before = time.monotonic()
-                candidate = directory / "candidate.mp4"
-                mux(self.config, manifests, candidate, self.cancel)
-                timings["mux_seconds"] = round(time.monotonic() - before, 3)
-            finally:
-                self.mux_slots.release()
-            stage("等待验证")
-            device = self.device()
-            try:
-                stage(f"完整解码({device})")
-                validation = verify(self.config, candidate, device, evidence["durations"], source, self.cancel)
-            finally:
-                self.devices.put(device)
-            self.acquire(self.publish_slots)
-            try:
-                stage("发布")
-                naming = self.config["naming"]
-                context = {"clip_id": episode.clip_id, "video_id": episode.video_id, "index": episode.index,
-                           "title": safe_name(episode.series, naming["max_title_length"])}
-                series_stem = naming["series_template"].format_map(context)
-                if len(series_stem) > naming["max_filename_length"]:
-                    raise ToolError("剧集目录名超过 naming.max_filename_length，请调整标题长度或模板")
-                series = safe_name(series_stem, naming["max_filename_length"])
-                context["title"] = safe_name(episode.title, naming["max_title_length"])
-                context["quality"] = safe_name(f"{source['standardName']}_{source['videoFormat']}_{source['videoWidth']}x{source['videoHeight']}" + ("_HDR" if source.get("isHdr") else "_SDR"), naming["max_title_length"])
-                stem = naming["episode_template"].format_map(context)
-                if len(stem) > naming["max_filename_length"]:
-                    raise ToolError("成品文件名超过 naming.max_filename_length，请调整标题长度或模板")
-                filename = safe_name(stem, naming["max_filename_length"]) + ".mp4"
-                timings["total_seconds"] = round(time.monotonic() - started, 3)
-                record = self.publisher.publish(candidate, Path(series) / filename, episode.key, identity,
-                                                 {"source": source, "hls": evidence, "verification": validation, "timings": timings})
-                try:
-                    atomic_json(directory / "report.json", record, self.config["logging"])
-                except OSError:
-                    stage("发布完成", message="成品与索引已提交，工作目录副本报告写入失败")
-            finally:
-                self.publish_slots.release()
-            stage("成功", message=record["path"])
-            if not self.config["download"]["keep_intermediates"]:
-                try:
-                    for track in directory.glob("track_*"):
-                        if track.is_dir():
-                            shutil.rmtree(track)
-                    candidate.unlink(missing_ok=True)
-                    (directory / "segments.json").unlink(missing_ok=True)
-                except OSError:
-                    stage("成功", message=record["path"] + "；部分中间文件清理失败")
-            return "成功"
-        except AuthenticationError as error:
-            self.auth_stop.set()
-            stage("认证失效", message=safe_message(error))
+        if self.auth_stop.is_set():
+            self.stage(episode, "未开始", message="登录失效，已停止派发")
             return "认证失效"
-        except Cancelled:
-            stage("取消", message="现场已保留")
-            return "取消"
-        except SourceChanged:
-            raise
-        except Exception as error:
-            stage("失败", message=safe_message(error))
-            return "失败"
+        self.stage(episode, "解析画质")
+        stream = resolved(self.client, episode)
+        source = describe(stream)
+        media = playlists(self.client.transport, stream["disp"]["info"])
+        expected_duration = float(stream["ftime"])
+        if any(abs(item.duration - expected_duration) > self.config["verification"]["duration_tolerance_seconds"] for item in media):
+            raise ToolError("源清单时长与正片元数据不符，拒绝下载预览片段")
+        identity = digest({"clip_id": episode.clip_id, "video_id": episode.video_id, "source": source,
+                           "playlists": [item.identity for item in media]})
+        self.stage(episode, "检查复用")
+        record = self.publisher.reusable(episode.key, identity)
+        if record:
+            self.stage(episode, "复用", message=record["path"])
+            return "复用"
+        directory = self.config["work_dir"] / episode.clip_id / episode.video_id / identity
+        directory.mkdir(parents=True, exist_ok=True)
+        atomic_json(directory / "source.json", {"episode": asdict(episode), "source": source, "identity": identity}, self.config["logging"])
+        self.stage(episode, "下载", message=f"{source['standardName']} · {source['videoFormat']} · {source['videoWidth']}×{source['videoHeight']}")
+        before = time.monotonic()
+
+        def refresh():
+            """使用相同具体源续签；无参数；返回新内存清单，源变化由下层明确拒绝。"""
+            renewed = resolved(self.client, episode, stream)
+            return playlists(self.client.transport, renewed["disp"]["info"])
+
+        manifests, evidence = download(self.client.transport, media, directory, self.config, refresh,
+                                       lambda done, total: self.stage(episode, "下载", f"{done}/{total}"), self.cancel)
+        return DownloadedEpisode(episode, source, identity, directory, manifests, evidence, started,
+                                 {"download_seconds": round(time.monotonic() - before, 3)})
+
+    def process_episode(self, task: DownloadedEpisode) -> str:
+        """对 task 的完整现场封装、验证、发布并按配置清理；返回成功，异常交调度器记录且保留现场。"""
+        episode, directory, source, timings = task.episode, task.directory, task.source, task.timings
+        self.acquire(self.mux_slots)
+        try:
+            self.stage(episode, "封装")
+            before = time.monotonic()
+            candidate = directory / "candidate.mp4"
+            mux(self.config, task.manifests, candidate, self.cancel)
+            timings["mux_seconds"] = round(time.monotonic() - before, 3)
+        finally:
+            self.mux_slots.release()
+        self.stage(episode, "等待验证")
+        device = self.device()
+        try:
+            self.stage(episode, f"完整解码({device})")
+            validation = verify(self.config, candidate, device, task.evidence["durations"], source, self.cancel)
+        finally:
+            self.devices.put(device)
+        self.acquire(self.publish_slots)
+        try:
+            self.stage(episode, "发布")
+            naming = self.config["naming"]
+            context = {"clip_id": episode.clip_id, "video_id": episode.video_id, "index": episode.index,
+                       "title": safe_name(episode.series, naming["max_title_length"])}
+            series_stem = date_prefix(naming, episode.release_date) + naming["series_template"].format_map(context)
+            if len(series_stem) > naming["max_filename_length"]:
+                raise ToolError("剧集目录名超过 naming.max_filename_length，请调整标题长度或模板")
+            series = safe_name(series_stem, naming["max_filename_length"])
+            context["title"] = safe_name(episode.title, naming["max_title_length"])
+            context["quality"] = safe_name(f"{source['standardName']}_{source['videoFormat']}_{source['videoWidth']}x{source['videoHeight']}" + ("_HDR" if source.get("isHdr") else "_SDR"), naming["max_title_length"])
+            stem = naming["episode_template"].format_map(context)
+            if len(stem) > naming["max_filename_length"]:
+                raise ToolError("成品文件名超过 naming.max_filename_length，请调整标题长度或模板")
+            filename = safe_name(stem, naming["max_filename_length"]) + ".mp4"
+            timings["total_seconds"] = round(time.monotonic() - task.started, 3)
+            record = self.publisher.publish(candidate, Path(series) / filename, episode.key, task.identity,
+                                             {"source": source, "hls": task.evidence, "verification": validation, "timings": timings})
+            try:
+                atomic_json(directory / "report.json", record, self.config["logging"])
+            except OSError:
+                self.stage(episode, "发布完成", message="成品与索引已提交，工作目录副本报告写入失败")
+        finally:
+            self.publish_slots.release()
+        self.stage(episode, "成功", message=record["path"])
+        if not self.config["download"]["keep_intermediates"]:
+            try:
+                for track in directory.glob("track_*"):
+                    if track.is_dir():
+                        shutil.rmtree(track)
+                candidate.unlink(missing_ok=True)
+                (directory / "segments.json").unlink(missing_ok=True)
+            except OSError:
+                self.stage(episode, "成功", message=record["path"] + "；部分中间文件清理失败")
+        return "成功"
 
 
 def run(args) -> int:
@@ -262,38 +276,22 @@ def run(args) -> int:
                         failed = True
                         log.update(f"catalog/{index}", task.note or task.url, "选集失败", message=safe_message(error))
 
-            source = iter(incoming())
-            futures, exhausted = set(), False
-            with ThreadPoolExecutor(max_workers=config["pipeline"]["max_in_flight"], thread_name_prefix="mgtv") as executor:
-                try:
-                    while futures or not exhausted:
-                        while not exhausted and not auth_stop.is_set() and len(futures) < config["pipeline"]["max_in_flight"]:
-                            try:
-                                episode = next(source)
-                            except StopIteration:
-                                exhausted = True
-                                break
-                            futures.add(executor.submit(pipeline.item, episode))
-                        if auth_stop.is_set():
-                            exhausted = True
-                        if not futures:
-                            break
-                        done, futures = wait(futures, timeout=config["runtime"]["cancel_poll_interval_seconds"], return_when=FIRST_COMPLETED)
-                        for future in done:
-                            status = future.result()
-                            counts[status] = counts.get(status, 0) + 1
-                            failed |= status in ("失败", "认证失效")
-                except KeyboardInterrupt:
-                    interrupted = True
-                    cancel.set()
-                    print("正在取消并回收任务，断点已保留……", flush=True)
-                    for future in futures:
-                        future.cancel()
+            def complete(episode: Episode, status: str | None, error: Exception | None) -> None:
+                """在主线程结算 episode 的 status/error 并更新汇总；无返回值。"""
+                nonlocal failed
+                if error is not None:
+                    status = pipeline.failure(episode, error)
+                counts[status] = counts.get(status, 0) + 1
+                failed |= status in ("失败", "认证失效")
+
+            run_pipeline(incoming(), config, pipeline.download_episode, pipeline.process_episode, complete, cancel, auth_stop,
+                         downloaded_size=lambda task: task.evidence["bytes"], waiting=pipeline.stage)
             if auth_stop.is_set():
                 failed = True
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, Cancelled):
             cancel.set()
             interrupted = True
+            print("任务已取消，线程与子进程已回收，断点已保留。", flush=True)
         except Exception as error:
             failed = True
             log.update("batch", "批次", "失败", message=safe_message(error))

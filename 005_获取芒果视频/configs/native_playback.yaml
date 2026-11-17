@@ -47,6 +47,11 @@ catalog:
     dataType: '1'
     definitionType: '4'
   page_parameter: 'page'
+series_metadata:
+  # 专辑页面内的整剧上映日期；必须对应同一 clipId，不用单集更新时间或系统日期替代。
+  page_url: 'https://www.mgtv.com/h/{clip_id}.html'
+  release_date_field: 'releaseTime'
+  max_page_bytes: 2000000
 dispatch:
   # 优先使用原生接口内嵌清单；缺失时仅调度同一具体源，不改用其他画质或编码。
   scheme: 'https'

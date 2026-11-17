@@ -6,7 +6,6 @@ from urllib.parse import parse_qs, urlsplit
 import xml.etree.ElementTree as ET
 
 from .native import HEADER_SIZE
-from .configuration import series_directory_name
 
 
 def discover(config: dict, video_id: str | None = None) -> dict:
@@ -34,7 +33,8 @@ def discover(config: dict, video_id: str | None = None) -> dict:
     if not title or not series or series in (".", ".."):
         raise ValueError("下载记录中的剧集标题为空")
     series_id = record.get("vbarid", "")
-    series_directory_name(config, series, series_id)
+    if re.fullmatch(r"[A-Za-z0-9]+", series_id) is None:
+        raise ValueError("下载记录中的整剧编号 vbarid 必须是非空字母数字串")
     if int(record["download_size"]) != int(record["fs"]):
         raise ValueError("下载记录中的已下载大小与资源大小不一致")
     return {"video_id": record["id"], "title": title, "series": series, "series_id": series_id,

@@ -210,7 +210,7 @@ class NativeCompatibilityTests(unittest.TestCase):
     def test_changed_dll_during_batch_is_validated_before_extraction(self):
         """还原槽已持有时可验收；加载前再次变化时重试，并使用更新指纹处理剧集。"""
         self.config["output_path"] = self.root / "output"
-        task = {**self.task, "series": "series", "series_id": "samplecid", "fid": "sample.hls"}
+        task = {**self.task, "series": "series", "series_id": "samplecid", "fid": "sample.hls", "release_date": "2020-02-03"}
         outcome = []
         attempts = []
 

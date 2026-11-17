@@ -205,7 +205,7 @@ class SplitStorageTests(unittest.TestCase):
             Path(command[-1]).write_bytes(b'merged')
             return subprocess.CompletedProcess(command, 0, '', '')
 
-        with patch.object(runtime, 'run_process', side_effect=concatenate), patch.object(MergedVideoInfo, 'save', side_effect=OSError('full')), self.assertRaises(OSError):
+        with patch.object(runtime, 'run_process', side_effect=concatenate), patch.object(metadata, 'probe_media', return_value={'errors': []}), patch.object(MergedVideoInfo, 'save', side_effect=OSError('full')), self.assertRaises(OSError):
             merging.merge_parts(self.settings, 'ffmpeg', source, quality=self.quality)
         self.assertEqual(list(folder.glob('*.mp4')), [])
         self.assertFalse((folder / 'video_info.json').exists())

@@ -46,6 +46,24 @@ class PipelineTests(ProjectCase):
         """等待测试 event，最多十秒；超时使测试失败以避免死锁，无返回值。"""
         self.assertTrue(event.wait(10), "测试阶段协调超时")
 
+    def test_configured_inflight_limit_applies_to_local_batch(self):
+        """本地转换按配置限制在途数量，设为一时逐项完成；无返回值。"""
+        self.config["max_in_flight"] = 1
+        self.source("series/one.qsv")
+        self.source("series/two.qsv")
+        counts, original = [], Pipeline.admit
+
+        def admit(pipeline):
+            """执行 pipeline 原接纳逻辑并记录在途数；无返回值。"""
+            original(pipeline)
+            counts.append(len(pipeline.jobs))
+
+        with patch.object(Pipeline, "admit", admit):
+            result, _ = self.batch()
+        self.assertEqual((result["completed"], result["failed"]), (2, 0))
+        self.assertTrue(counts)
+        self.assertLessEqual(max(counts), self.config["max_in_flight"])
+
     def test_mux_overlaps_next_preparation(self):
         """首项封装等待下一项准备，证明 SDK 槽在封装期间可复用；无参数或返回值。"""
         self.source("series/one.qsv")
@@ -159,6 +177,7 @@ class PipelineTests(ProjectCase):
     def test_all_stages_overlap_with_bounded_inflight_and_single_device_slots(self):
         """同时观察准备、CPU、GPU 和发布四个阶段，验证各阶段唯一槽及在途总上限；无参数和返回值。"""
         self.config["decode_verification"] = {"cpu": True, "gpu": True}
+        self.config["max_in_flight"] = 4  # 本用例需要观察四个同时在途的阶段。
         for number in range(8):
             self.source(f"series/video{number}.qsv")
         cpu_started, second_gpu, publishing, overlap = Event(), Event(), Event(), Event()
@@ -219,7 +238,7 @@ class PipelineTests(ProjectCase):
             """以正式发布参数 source/target/digest/buffer_bytes/cancel_event 复制，首项等待重叠观察；返回成品指纹。"""
             enter("publishing")
             try:
-                if target.stem == "video0":
+                if target == self.target("series/video0.qsv"):
                     publishing.set()
                     self.signal(overlap)
                 return publish(source, target, digest, buffer_bytes, cancel_event=cancel_event)
@@ -233,8 +252,8 @@ class PipelineTests(ProjectCase):
         self.assertEqual((result["completed"], result["failed"]), (8, 0), self.console.getvalue())
         self.assertTrue(overlap.is_set())
         self.assertEqual(dict(peaks), {"preparing": 1, "gpu": 1, "cpu": 1, "publishing": 1})
-        self.assertLessEqual(max(inflight), sum(self.config["decode_verification"].values()) + 2)
-        self.assertEqual(len(read_json(self.output / "series/video_info.json")["files"]), 8)
+        self.assertLessEqual(max(inflight), self.config["max_in_flight"])
+        self.assertEqual(len(read_json(self.target("series/video0.qsv").parent / "video_info.json")["files"]), 8)
 
     def test_cpu_only_still_prepares_next_file_during_verification(self):
         """只启用 CPU 时不检查 GPU，准备下一文件仍与当前验证重叠；无参数和返回值。"""
@@ -271,7 +290,7 @@ class PipelineTests(ProjectCase):
             result, _ = self.batch()
         self.assertEqual(result["completed"], 1)
         self.assertEqual(verifier.call_args.args[4], "gpu")
-        index = read_json(self.output / "series/video_info.json")
+        index = read_json(self.target().parent / "video_info.json")
         self.assertEqual(index["files"][0]["verification"]["device"], "gpu")
         log = read_json(self.output / self.config["logging"]["state_file"])
         self.assertEqual(log["runs"][-1]["entries"][0]["verification"]["device"], "gpu")
@@ -325,10 +344,10 @@ class PipelineTests(ProjectCase):
         with patch.object(self, "fake_verify", side_effect=verify), patch.object(Pipeline, "commit", commit):
             result, _ = self.batch()
         self.assertEqual((result["completed"], result["failed"]), (1, 1), self.console.getvalue())
-        index = read_json(self.output / "series/video_info.json")
-        self.assertEqual([item["path"] for item in index["files"]], ["two.mp4"])
+        index = read_json(self.target("series/two.qsv").parent / "video_info.json")
+        self.assertEqual([item["path"] for item in index["files"]], [self.target("series/two.qsv").name])
         self.assertEqual(attempted, [("one.qsv", "gpu"), ("two.qsv", "cpu")])
-        self.assertTrue((self.output / "series/two.mp4").is_file())
+        self.assertTrue(self.target("series/two.qsv").is_file())
 
     def test_index_write_failure_preserves_previous_success_and_removes_uncommitted_output(self):
         """第二个成品提交失败，仅撤销该成品，不损失先前成功记录；无参数和返回值。"""
@@ -344,9 +363,9 @@ class PipelineTests(ProjectCase):
         with patch("qsv_local.records.atomic_json", side_effect=fail_second):
             result, _ = self.batch()
         self.assertEqual((result["completed"], result["failed"]), (1, 1))
-        index = read_json(self.output / "series/video_info.json")
+        index = read_json(self.target("series/one.qsv").parent / "video_info.json")
         self.assertEqual(len(index["files"]), 1)
-        self.assertEqual(len(list((self.output / "series").glob("*.mp4"))), 1)
+        self.assertEqual(len(list(self.target("series/one.qsv").parent.glob("*.mp4"))), 1)
 
     def test_interrupt_cancels_other_device_and_rolls_back_uncommitted_publication(self):
         """发布后提交前中断，取消另一个验证设备并删除未登记成品，保留两个候选；无参数和返回值。"""
@@ -375,6 +394,6 @@ class PipelineTests(ProjectCase):
         self.assertTrue(cpu_cancelled.is_set())
         self.assertEqual(list(self.output.rglob("*.mp4")), [])
         self.assertEqual(len(list(self.work.rglob("validated.partial.mp4"))), 2)
-        index = read_json(self.output / "series/video_info.json")
+        index = read_json(self.target("series/one.qsv").parent / "video_info.json")
         self.assertEqual(index["files"], [])
         self.assertTrue(all(item["status"] == "interrupted" for item in index["conversion_results"]))

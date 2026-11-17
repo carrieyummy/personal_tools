@@ -1,10 +1,28 @@
 """读取 YAML 配置并统一解析路径；不复制配置中的运行参数默认值。"""
 
 from pathlib import Path
+from string import Formatter
 import math
 import codecs
 
 import yaml
+
+from .naming import validate_component
+
+
+def validate_concurrency(config: dict) -> None:
+    """校验 config 的下载线程、等待容量和后处理上限；配置无效时抛出 ValueError，无返回值。"""
+    download = config.get("download")
+    if not isinstance(download, dict):
+        raise ValueError("download 必须为 YAML 对象")
+    for name, value in (("download.threads", download.get("threads")),
+                        ("max_in_flight", config.get("max_in_flight"))):
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{name} 必须为正整数")
+    capacity = download.get("queue_capacity_gb")
+    if (type(capacity) not in (int, float) or capacity < 1 / 1024**3
+            or capacity > (2**63 - 1) / 1024**3 or not math.isfinite(capacity)):
+        raise ValueError("download.queue_capacity_gb 必须为可表示至少一字节的大于零的有限数字")
 
 
 def read_config(path: Path) -> dict:
@@ -13,6 +31,7 @@ def read_config(path: Path) -> dict:
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError("配置必须是 YAML 对象")
+    validate_concurrency(config)
     for name in ("input_root", "output_path", "work_dir", "native_profile", "ffmpeg_path"):
         config[name] = resolve_path(config[name], path.parent)
     if not config["input_root"].is_dir():
@@ -27,7 +46,7 @@ def read_config(path: Path) -> dict:
     for name in ("output_path", "work_dir"):
         if config[name].exists() and not config[name].is_dir():
             raise ValueError(f"{name} 必须是目录：{config[name]}")
-    for name in ("copy_buffer_bytes", "max_pes_bytes", "process_timeout_seconds"):
+    for name in ("copy_buffer_bytes", "max_pes_bytes", "process_timeout_seconds", "max_in_flight"):
         value = config[name]
         if type(value) is not int or value <= 0:
             raise ValueError(f"{name} 必须为正整数")
@@ -38,6 +57,21 @@ def read_config(path: Path) -> dict:
         raise ValueError("decode_verification 必须包含 cpu、gpu 两个布尔开关")
     if not (devices["cpu"] or devices["gpu"]):
         raise ValueError("decode_verification.cpu/gpu 至少开启一个")
+    naming = config.get("naming")
+    if not isinstance(naming, dict):
+        raise ValueError("naming 必须为 YAML 对象")
+    for key, expected in (("series_template", {"title", "series_id"}), ("episode_template", {"index", "title"})):
+        template = naming.get(key)
+        if not isinstance(template, str) or not template:
+            raise ValueError(f"naming.{key} 必须为非空字符串")
+        fields = {field for _, field, _, _ in Formatter().parse(template) if field is not None}
+        if fields != expected:
+            raise ValueError(f"naming.{key} 必须包含且仅包含：{', '.join(sorted(expected))}")
+        try:
+            sample = template.format(title="标题", series_id="123", index=1)
+        except (ValueError, KeyError, IndexError) as error:
+            raise ValueError(f"naming.{key} 模板格式无效") from error
+        validate_component(sample)
     guard = config["download_guard"]
     if not isinstance(guard, dict):
         raise ValueError("download_guard 必须为 YAML 对象")

@@ -1,5 +1,15 @@
-purpose: 保存 v5 适配调研材料；正式转换只使用 configs/config.yaml 及其 native_profile。
+purpose: 保存 v5 和播放 SDK 调研材料；正式入口为 decode_qsv.py 和 download_iqiyi.py，运行参数从 configs/ 中的 YAML 读取。
 format_methods: formats.yaml
+playback_cache_probe:
+  script: inspect_playback_cache.py
+  config: ../configs/playback.yaml
+  purpose: 只读查询链接对应的主 PGF 播放缓存索引；不调用客户端离线下载或修改缓存。
+  status: 已验证部分 4K TS 缓存样本；完整媒体获取由下方独立的 playback_session_probe 研究。
+playback_session_probe:
+  script: probe_playback.py
+  config: ../configs/playback.yaml
+  purpose: 从已初始化的播放 SDK 按任务 quality 请求清单指定集，不切换可见播放器；可验证短段或完整获取该集。
+  status: 已验证一次暂停后三个电视剧的资源解析；内嵌MPD的AV1/CENC、旧HLS与独立最高AAC音轨均已整集解码、发布和重复复用验收，客户端下载记录保持不变。正式入口支持逐剧逐集网页、全剧目录、流式获取、分段断点及验证候选续发，最高视频与音轨分开选档；证据与适配边界见 link_download_findings.md。
 license_probe:
   script: ../tests/probe_native_v5.py
   arguments:

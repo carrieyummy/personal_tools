@@ -84,6 +84,13 @@ def read_config(path: Path) -> dict[str, Any]:
             positive(config[section][field], f"{section}.{field}", integer=field in ("threads", "buffer_bytes", "refresh_attempts", "mux_slots", "publish_slots", "max_in_flight", "max_json_bytes"))
     for section, field in (("download", "retries"), ("logging", "write_retries")):
         positive(config[section][field], f"{section}.{field}", integer=True, zero=True)
+    try:
+        capacity = config["download"]["queue_capacity_gb"]
+    except KeyError as error:
+        raise ToolError("缺少 download.queue_capacity_gb 配置") from error
+    positive(capacity, "download.queue_capacity_gb")
+    if capacity < 1 / 1024**3 or not math.isfinite(capacity * 1024**3):
+        raise ToolError("download.queue_capacity_gb 必须为有限正数且至少为 1 字节")
     positive(config["download"]["quality"], "download.quality", integer=True)
     positive(config["verification"]["duration_tolerance_seconds"], "verification.duration_tolerance_seconds", zero=True)
     positive(config["naming"]["max_title_length"], "naming.max_title_length", integer=True)
@@ -109,11 +116,31 @@ def read_config(path: Path) -> dict[str, Any]:
     for section, key in (("playback", "endpoint"), ("catalog", "endpoint")):
         if not str(profile[section][key]).startswith("https://"):
             raise ToolError(f"{section}.endpoint 必须使用 HTTPS")
+    from urllib.parse import urlsplit
+    metadata = profile["series_metadata"]
+    address = metadata["page_url"]
+    if not isinstance(address, str) or {field for _, field, _, _ in Formatter().parse(address) if field is not None} != {"clip_id"}:
+        raise ToolError("series_metadata.page_url 必须包含唯一的 clip_id 模板字段")
+    parsed = urlsplit(address.format_map({"clip_id": "1"}))
+    if parsed.scheme != "https" or not parsed.hostname or not (parsed.hostname == "mgtv.com" or parsed.hostname.endswith(".mgtv.com")) or parsed.query or parsed.fragment:
+        raise ToolError("series_metadata.page_url 必须为芒果官方 HTTPS 专辑页面")
+    if not isinstance(metadata["release_date_field"], str) or not re.fullmatch(r"[A-Za-z_$][\w$]*", metadata["release_date_field"]):
+        raise ToolError("series_metadata.release_date_field 必须是有效字段名")
+    positive(metadata["max_page_bytes"], "series_metadata.max_page_bytes", integer=True)
+    prefix = config["naming"]["series_date_prefix"]
+    if not isinstance(prefix, str):
+        raise ToolError("naming.series_date_prefix 必须是字符串")
+    parsed_prefix = list(Formatter().parse(prefix))
+    if [field for _, field, _, _ in parsed_prefix if field is not None] != ["release_date"] or any(spec or conversion for _, field, spec, conversion in parsed_prefix if field is not None):
+        raise ToolError("naming.series_date_prefix 必须且只能包含一次 release_date")
+    rendered_prefix = prefix.format_map({"release_date": "2000-01-02"})
+    if re.search(r'[<>:"/\\|?*\s]', rendered_prefix):
+        raise ToolError("上映日期前缀不能包含路径分隔符、空白或 Windows 非法字符")
     positive(config["naming"]["max_filename_length"], "naming.max_filename_length", integer=True)
     if config["naming"]["max_filename_length"] > 240:
         raise ToolError("max_filename_length 不能超过 Windows 单段文件名上限预留值 240")
     for key, required, allowed in (("series_template", {"title", "clip_id"}, {"title", "clip_id"}),
-                                   ("episode_template", {"index", "title", "quality", "video_id"}, {"index", "title", "quality", "video_id", "clip_id"})):
+                                   ("episode_template", {"index", "title", "quality"}, {"index", "title", "quality", "video_id", "clip_id"})):
         fields = {field for _, field, _, _ in Formatter().parse(config["naming"][key]) if field is not None}
         if not required.issubset(fields) or not fields.issubset(allowed):
             raise ToolError(f"naming.{key} 缺少必要字段或包含未知字段")

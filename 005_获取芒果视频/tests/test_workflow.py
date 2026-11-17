@@ -84,10 +84,11 @@ class ManifestTests(BaseCase):
         def row(number, kind=1, status=1):
             """构造目录条目；number/kind/status 为编号、类型和上线状态；返回接口字典。"""
             return {"clipId": "1", "videoId": str(number), "videoIndex": number, "name": str(number), "status": status, "type": kind}
-        first = {"pageTotal": 2, "total": 2, "clipInfo": {"clipName": "原站"}, "list": [row(1), row(2, 2)]}
+        first = {"pageTotal": 2, "total": 2, "clipInfo": {"clipId": "1", "clipName": "原站"}, "list": [row(1), row(2, 2)]}
         second = {**first, "list": [row(3, status=0)]}
         from unittest.mock import Mock
         client = Mock()
+        client.series_release_date.return_value = "2000-01-02"
         client.catalog_page.side_effect = [first, second]
         result = catalog(client, Request("https://www.mgtv.com/b/1/1.html", 1, True))
         self.assertEqual([item.video_id for item in result], ["1", "3"])
@@ -178,16 +179,19 @@ class HLSTests(BaseCase):
         return parse_media(f"#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\na.ts{suffix}\n#EXTINF:2,\nb.ts{suffix}\n#EXT-X-ENDLIST\n", self.url)
 
     def test_resume_hash_and_signature_refresh(self):
-        """恢复时校验已完成资源，签名变化不重下；篡改分片必须重下；无参数/返回值。"""
+        """恢复时校验分片并统计断点字节，签名变化不重下且不计其他现场文件；篡改分片重下；无参数/返回值。"""
         self.routes.update({"/a.ts": (200, {}, b"aaa"), "/b.ts": (200, {}, b"bbb")})
         directory = self.root / "segments"
         call = lambda media: download(self.transport, [media], directory, self.config, lambda: [media], lambda *args: None, self.cancel)
-        call(self.media("?token=first"))
+        expected_bytes = sum(len(self.routes[path][2]) for path in ("/a.ts", "/b.ts"))
+        self.assertEqual(call(self.media("?token=first"))[1]["bytes"], expected_bytes)
+        (directory / "candidate.mp4").write_bytes(b"previous candidate")
+        (directory / "track_0" / "unused.bin").write_bytes(b"historical fragment")
         self.hits.clear()
-        call(self.media("?token=second"))
+        self.assertEqual(call(self.media("?token=second"))[1]["bytes"], expected_bytes)
         self.assertFalse(self.hits)
         (directory / "track_0" / "000000.bin").write_bytes(b"bad")
-        call(self.media())
+        self.assertEqual(call(self.media())[1]["bytes"], expected_bytes)
         self.assertEqual(len(self.hits), 1)
         self.assertNotIn("token", (directory / "segments.json").read_text())
 
@@ -231,9 +235,62 @@ class HLSTests(BaseCase):
         self.assertEqual(len(selected), 2)
         paths, evidence = download(self.transport, selected, self.root / "fmp4", self.config, lambda: selected, lambda *args: None, self.cancel)
         self.assertEqual(evidence["resources"], 3)
+        self.assertEqual(evidence["bytes"], sum(len(self.routes[path][2]) for path in ("/init.mp4", "/video.mp4", "/audio.aac")))
         self.assertEqual(len(paths), 2)
         self.assertIn(("/video.mp4", "bytes=2-4"), self.hits)
         self.assertIn("#EXT-X-MAP", paths[0].read_text())
+
+    def test_pipeline_real_media_publication_and_reuse(self):
+        """通过正式入口运行回环 HLS、真实封装/完整解码/发布，再验证指纹复用和清理；无参数/返回值。"""
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from urllib.parse import urlsplit
+
+        from local.application import run
+        from local.tasks import Episode
+
+        directory = self.root / "synthetic"
+        directory.mkdir()
+        generated = directory / "generated.m3u8"
+        command = base(self.config) + ["-f", "lavfi", "-i", "testsrc2=size=64x64:rate=5:duration=2",
+                                      "-f", "lavfi", "-i", "sine=frequency=1000:duration=2", "-c:v", "libx264", "-g", "5", "-c:a", "aac",
+                                      "-f", "hls", "-hls_time", "1", "-hls_segment_filename", str(directory / "original_%03d.ts"), str(generated)]
+        process(command, directory / "generate.log", self.config, self.cancel)
+        media = parse_media(generated.read_text(), self.url)
+        self.routes["/index.m3u8"] = (200, {}, generated.read_bytes())
+        for resource in media.resources:
+            path = urlsplit(resource.url).path
+            self.routes[path] = (200, {}, (directory / Path(path).name).read_bytes())
+        self.config["decode_verification"].update(cpu=True, gpu=False)
+        self.config["download"]["keep_intermediates"] = False
+        self.config["logging"]["port"] = 0
+        episode = Episode("1", "2", 1, "合成单集", "合成剧集", True, self.config["download"]["quality"], release_date="2000-01-02")
+        stream = {"fileId": "synthetic", "fileHash": "synthetic_hash", "definition": "fixture", "ftime": str(media.duration),
+                  "standardName": "测试画质", "videoWidth": "64", "videoHeight": "64", "videoFormat": "H264", "audioFormat": "AAC",
+                  "disp": {"info": self.url}}
+        args = SimpleNamespace(config=self.config["config_path"], url=["https://www.mgtv.com/b/1/2.html"],
+                               all_parts=False, login_only=False, list_formats=False)
+        with patch("local.application.read_config", return_value=self.config), \
+                patch("local.application.NativeClient", return_value=Mock(transport=self.transport)), \
+                patch("local.application.catalog", return_value=[episode]), patch("local.application.resolved", return_value=stream):
+            self.assertEqual(run(args), 0)
+            self.hits.clear()
+            self.assertEqual(run(args), 0)
+        index = json.loads((self.config["output_path"] / self.config["logging"]["index_file"]).read_text(encoding="utf-8"))
+        records = index["videos"][episode.key]
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(Path(record["path"]).parts[0], self.config["naming"]["series_date_prefix"].format(release_date=episode.release_date) + self.config["naming"]["series_template"].format(title=episode.series, clip_id=episode.clip_id))
+        self.assertNotIn(episode.release_date, Path(record["path"]).name)
+        self.assertEqual(record["hls"]["bytes"], sum(len(self.routes[urlsplit(item.url).path][2]) for item in media.resources))
+        self.assertEqual(record["verification"]["exit_code"], 0)
+        self.assertGreater(record["verification"]["decoded_frames"], 0)
+        self.assertTrue((self.config["output_path"] / record["path"]).is_file())
+        state = json.loads((self.config["output_path"] / self.config["logging"]["state_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(state["runs"][-1]["items"][episode.key]["stage"], "复用")
+        self.assertEqual(self.hits, [("/index.m3u8", None)])
+        self.assertFalse(list(self.config["work_dir"].rglob("candidate.mp4")))
+        self.assertFalse(list(self.config["work_dir"].rglob("track_*")))
 
 
 class StorageTests(BaseCase):

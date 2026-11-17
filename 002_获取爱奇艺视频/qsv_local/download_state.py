@@ -10,11 +10,14 @@ class DownloadNotReady(RuntimeError):
     """表示客户端未确认下载完成；调用方应跳过该视频，不将其视为可转换内容。"""
 
 
-def require_completed(config: dict, source: Path) -> None:
-    """在打开 source 内容之前按 config 重新核对客户端状态；未完成时抛出 DownloadNotReady，完成时无返回值。"""
-    reason = DownloadStatus(config).reason(source)
+def require_completed(config: dict, source: Path, *, expected: tuple | None = None) -> None:
+    """按 config 核对 source 状态及可选 expected 命名元数据；不一致时抛 DownloadNotReady，无返回值。"""
+    status = DownloadStatus(config)
+    reason = status.reason(source)
     if reason:
         raise DownloadNotReady(f"{source.name}：{reason}")
+    if expected is not None and status.metadata.get(path_key(source)) != expected:
+        raise DownloadNotReady(f"{source.name}：客户端下载命名元数据发生变化")
 
 
 def path_key(path: Path) -> str:
@@ -28,7 +31,7 @@ class DownloadStatus:
     def __init__(self, config: dict):
         """保存 config 中的 download_guard 设置；构造时不接触视频或数据库，无返回值。"""
         self.settings = config["download_guard"]
-        self.completed, self.active = set(), set()
+        self.completed, self.active, self.metadata = set(), set(), {}
 
     def refresh(self) -> None:
         """以 SQLite 只读事务加载完成及进行中 XML；编码按配置读取，未知格式报错，不创建或修复客户端文件。"""
@@ -47,7 +50,7 @@ class DownloadStatus:
         required = (settings["completed_record"], settings["active_record"])
         if any(name.casefold() not in records for name in required):
             raise ValueError("客户端下载数据库缺少完成或进行中记录，禁止读取视频")
-        completed, active = set(), set()
+        completed, active, metadata = set(), set(), {}
         for record, destination in ((settings["completed_record"], completed), (settings["active_record"], active)):
             blob = records[record.casefold()]
             if not isinstance(blob, bytes):
@@ -67,8 +70,14 @@ class DownloadStatus:
                     str(state) for state in settings["completed_states"]
                 }:
                     continue
-                destination.add(path_key(Path(folder) / name))
-        self.completed, self.active = completed, active
+                key = path_key(Path(folder) / name)
+                destination.add(key)
+                if destination is completed:
+                    values = (item.get("AlbumID"), item.get("AlbumName"), item.get("vedioorder"))
+                    if key in metadata and metadata[key] != values:
+                        raise ValueError(f"同一下载路径存在冲突的命名元数据：{name}")
+                    metadata[key] = values
+        self.completed, self.active, self.metadata = completed, active, metadata
 
     def reason(self, source: Path, *, refresh: bool = True) -> str | None:
         """检查 source 是否明确完成；refresh 决定是否重新查询数据库，返回不可处理原因，完成时返回 None。

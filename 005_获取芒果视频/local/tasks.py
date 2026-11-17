@@ -23,7 +23,7 @@ class Request:
 
 @dataclass(frozen=True)
 class Episode:
-    """源站正片；编号为数字串，index 为集序号，title/series 为源站标题，released 表示已上线。"""
+    """源站正片；编号为数字串，index 为集序号，title/series 为源站标题，released 表示已上线，release_date 为整剧上映日。"""
 
     clip_id: str
     video_id: str
@@ -33,6 +33,7 @@ class Episode:
     released: bool
     quality: int
     note: str = ""
+    release_date: str = ""
 
     @property
     def key(self) -> str:
@@ -95,6 +96,9 @@ def catalog_rows(client: NativeClient, request: Request) -> list[Episode]:
     if len({str(row.get("videoId")) for row in rows if int(row["type"]) == 1}) != int(first["total"]):
         raise ToolError("选集总数与完整分页结果不符")
     title = str(first["clipInfo"]["clipName"])
+    if str(first["clipInfo"]["clipId"]) != clip_id:
+        raise ToolError("选集接口返回的专辑编号与目标不一致")
+    release_date = client.series_release_date(clip_id)
     selected = [row for row in rows if int(row["type"]) == 1 and (request.all_parts or str(row["videoId"]) == linked_id)]
     if not selected:
         raise ToolError("链接对应视频不在正片目录中")
@@ -103,7 +107,7 @@ def catalog_rows(client: NativeClient, request: Request) -> list[Episode]:
         if str(row["clipId"]) != clip_id or not str(row["videoId"]).isdigit():
             raise ToolError("选集条目编号不一致")
         result.append(Episode(clip_id, str(row["videoId"]), int(row["videoIndex"]), str(row.get("nname") or row["name"]), title,
-                              int(row["status"]) == 1, request.quality, request.note))
+                              int(row["status"]) == 1, request.quality, request.note, release_date))
     return sorted(result, key=lambda episode: (episode.index, episode.video_id))
 
 

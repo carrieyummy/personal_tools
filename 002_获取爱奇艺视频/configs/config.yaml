@@ -24,10 +24,35 @@ download_guard:
   # 只读查询客户端下载元数据的锁等待秒数，必须为大于零的有限数字。
   database_timeout_seconds: 2
 
-# 输出根目录：保留相对 input_root 的目录层级，首次转换仅将源文件扩展名改为 .mp4。
+# 输出根目录：剧集目录和视频文件名由下方 naming 模板与客户端下载记录决定。
 # 每个视频目录独立保存 video_info.json；内容变化时保留旧成品，新成品追加本地时间戳。
 # 自动跳过按大小、纳秒修改时间缓存 SHA-256；两者都未变化的外部内容改写无法被缓存检查发现。
 output_path: 'Z:\003_电视剧'
+
+# 链接下载模式：任务中的 all-parts 优先于下载清单的全局值，再读取这里。
+# true 展开链接专辑的可用正片；false 仅处理链接指定的一集。
+download:
+  all_parts: true
+  # 同时解析或下载的剧集数；每集仍按专项配置并发下载分片。
+  threads: 5
+  # 已下载且等待后处理的分片容量，单位 GiB；空队列允许单集超限。
+  queue_capacity_gb: 20
+
+# 链接模式逐集独立选择音轨；1 表示原生声明的最高可用音质，不按文件大小排名。
+audio:
+  quality: 1
+
+# 最大后处理剧集数；本地缓存转换使用同一上限，须为正整数。
+max_in_flight: 5
+
+# title 为客户端下载记录中的专辑名，series_id 为专辑 ID；index 为记录中的集序。
+# 视频模板中的 title 为原 QSV 文件名（不含扩展名）；非法字符和空白替换为下划线。
+naming:
+  # 仅新启动的链接下载使用整剧上映日期前缀；不改本地 QSV 命名或运行中旧脚本的原有模板。
+  # release_date 为专辑 publishTime 对应的日期，支持 Python 日期格式；此配置只影响文件夹。
+  playback_date_prefix: '{release_date:%Y-%m-%d}_'
+  series_template: '{title}_iqiyi_{series_id}'
+  episode_template: '{index:03d}_{title}'
 
 # 批次工作根目录：每次运行、每个视频使用独立子目录，保存中间媒体、日志及报告。
 # 旧单文件模式的根层 report.json 若证明成品有效，首次访问该源时自动迁移到新的目录布局。
@@ -45,7 +70,7 @@ ffmpeg_path: 'C:\ProgramData\miniconda3\envs\test_regression_py3.12\Lib\site-pac
 # GPU 使用 NVIDIA CUDA 硬解；不可用时明确报错，不自动切换 CPU。
 # 指纹、准备/SDK、封装、解码后的完整性检查和发布各使用独立单任务槽。
 # 不同视频的这些阶段可重叠；解码槽在 FFmpeg 结束后即可处理下一视频。
-# 在途文件上限为启用设备数加两个阶段槽，达到上限暂停准备，避免中间文件持续堆积。
+# 在途文件上限由 max_in_flight 控制，达到上限暂停准备，避免中间文件持续堆积。
 decode_verification:
   cpu: true
   gpu: true
@@ -66,10 +91,17 @@ keep_intermediates: false
 
 # 实时网页、历次运行日志和离线 HTML 报告；以下文件名均相对 output_path，不填写目录。
 logging:
+  # 链接下载的历史和离线报告独立保存；相对 output_path，不与 QSV 转换历史混用。
+  playback_state_file: 'iqiyi_download_log.json'
+  playback_html_file: 'iqiyi_download_log.html'
+  # 链接批次启动后自动打开本机进度网页；失败时仍在终端打印地址。
+  open_browser: true
+  # 批次结束时等待网页确认最终版本的最长秒数，无网页连接时立即结束。
+  final_state_timeout_seconds: 10
   # 历次运行的 JSON 文件名；与各视频目录的 video_info.json 独立保存。
-  state_file: 'conversion_log.json'
+  state_file: 'iqiyi_conversion_log.json'
   # 离线报告命名基准；导出时追加本地时间 yymmdd_hhmmss，重名追加序号，不覆盖历史报告。
-  html_file: 'conversion_log.html'
+  html_file: 'iqiyi_conversion_log.html'
   # 只监听 127.0.0.1；0 自动分配端口，固定端口可填写 1～65535。
   port: 0
   # 实时页面刷新间隔，单位秒，必须为大于零的有限数字。

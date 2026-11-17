@@ -14,10 +14,10 @@ from tests.support import ProjectCase
 
 
 class DiscoveryTests(ProjectCase):
-    """覆盖目录选择、目录镜像与配置边界。"""
+    """覆盖目录选择、客户端下载元数据映射与配置边界。"""
 
     def test_recursive_mapping_and_selection_deduplicate(self):
-        """递归发现大小写扩展名，重叠目录选择不重复；无参数或返回值。"""
+        """递归发现大小写扩展名，重叠目录选择不重复，目标按当前模板生成；无参数或返回值。"""
         self.source("group/sub/one.QSV")
         self.source("other/two.qsv")
         self.source("group/ignored.txt")
@@ -25,7 +25,28 @@ class DiscoveryTests(ProjectCase):
         self.write_config()
         tasks = discover(read_config(self.config_path))
         self.assertEqual([task.relative.as_posix() for task in tasks], ["group/sub/one.QSV"])
-        self.assertEqual(tasks[0].target, self.output / "group/sub/one.mp4")
+        self.assertEqual(tasks[0].target, self.target("group/sub/one.QSV"))
+
+    def test_album_identity_and_episode_order_are_taken_from_record(self):
+        """使用记录中的专辑名称、ID 和真实集序，而非扫描顺序；无参数或返回值。"""
+        source = self.source("input_dir/source.qsv")
+        self.metadata[source].update(AlbumID="7654301", AlbumName="原始剧名", vedioorder="12")
+        self.write_downloads()
+        task = discover(self.config)[0]
+        self.assertEqual(task.target, self.target("input_dir/source.qsv"))
+        self.assertEqual(task.metadata, ("7654301", "原始剧名", "12"))
+
+    def test_missing_or_invalid_naming_metadata_is_rejected(self):
+        """记录缺失专辑 ID、剧名或正集序时停止映射，不生成猜测名称；无参数或返回值。"""
+        source = self.source()
+        original = deepcopy(self.metadata[source])
+        for field, value in (("AlbumID", ""), ("AlbumID", "../bad"), ("AlbumName", ""),
+                             ("vedioorder", "0"), ("vedioorder", "1.5")):
+            with self.subTest(field=field, value=value):
+                self.metadata[source] = {**original, field: value}
+                self.write_downloads()
+                with self.assertRaises(ValueError):
+                    discover(self.config)
 
     def test_invalid_selections_are_rejected(self):
         """列表类型、根目录外路径和单文件选择在写出前报错；无参数或返回值。"""
@@ -65,7 +86,7 @@ class BatchTests(ProjectCase):
             second, converter = self.batch()
         self.assertEqual(second["reused"], 1)
         converter.assert_not_called()
-        data = read_json(self.output / "series/video_info.json")
+        data = read_json(self.target().parent / "video_info.json")
         self.assertEqual(len(data["files"]), 1)
         self.assertEqual([item["status"] for item in data["conversion_results"]], ["completed", "reused"])
 
@@ -78,7 +99,7 @@ class BatchTests(ProjectCase):
         result, converter = self.batch()
         self.assertEqual(result["reused"], 1)
         converter.assert_not_called()
-        data = read_json(self.output / "series/video_info.json")
+        data = read_json(self.target().parent / "video_info.json")
         self.assertEqual(data["sources"]["series/episode.qsv"]["mtime_ns"], source.stat().st_mtime_ns)
 
     def test_source_versions_are_preserved_with_timestamp_collision_suffix(self):
@@ -131,7 +152,7 @@ class BatchTests(ProjectCase):
     def test_unknown_mp4_is_a_conflict(self):
         """无成功记录的同名 MP4 不覆盖也不追认；无参数或返回值。"""
         self.source()
-        existing = self.output / "series/episode.mp4"
+        existing = self.target()
         existing.parent.mkdir(parents=True)
         existing.write_bytes(b"user-file")
         result, converter = self.batch()
@@ -150,19 +171,19 @@ class BatchTests(ProjectCase):
         """损坏目录索引保持原样，其他目录继续转换；无参数或返回值。"""
         self.source("a/one.qsv")
         self.source("b/two.qsv")
-        broken = self.output / "a/video_info.json"
+        broken = self.target("a/one.qsv").parent / "video_info.json"
         broken.parent.mkdir(parents=True)
         broken.write_text("{broken", encoding="utf-8")
         result, _ = self.batch()
         self.assertEqual((result["completed"], result["failed"]), (1, 1), self.console.getvalue())
         self.assertEqual(broken.read_text(encoding="utf-8"), "{broken")
-        self.assertTrue((self.output / "b/two.mp4").exists())
+        self.assertTrue(self.target("b/two.qsv").exists())
 
     def test_index_write_failure_rolls_back_new_media_and_preserves_history(self):
         """新版本索引保存失败时移除本次成品，旧成品与旧索引保持一致；无参数或返回值。"""
         source = self.source()
         self.batch()
-        path = self.output / "series/video_info.json"
+        path = self.target().parent / "video_info.json"
         before, files = path.read_bytes(), list(path.parent.glob("*.mp4"))
         source.write_bytes(b"new-content")
         with patch("qsv_local.records.atomic_json", side_effect=OSError("模拟保存失败")):
@@ -186,14 +207,14 @@ class BatchTests(ProjectCase):
         with patch.object(self, "fake_prepare", side_effect=selective):
             result, _ = self.batch()
         self.assertEqual((result["completed"], result["failed"]), (1, 1))
-        data = read_json(self.output / "series/video_info.json")
+        data = read_json(self.target("series/one.qsv").parent / "video_info.json")
         self.assertEqual([entry["status"] for entry in data["conversion_results"]], ["failed", "completed"])
 
     def test_invalid_success_proof_is_not_reused(self):
         """成功证明损坏时不追认或覆盖现有成品，索引原样保留；无参数或返回值。"""
         self.source()
         self.batch()
-        path = self.output / "series/video_info.json"
+        path = self.target().parent / "video_info.json"
         data = read_json(path)
         data["files"][0]["verification"]["frames"] = 0
         atomic_json(path, data)
@@ -213,7 +234,7 @@ class BatchTests(ProjectCase):
             with self.assertRaises(KeyboardInterrupt):
                 run_batch(self.config)
         converter.assert_called_once()
-        data = read_json(self.output / "series/video_info.json")
+        data = read_json(self.target("series/one.qsv").parent / "video_info.json")
         self.assertEqual(data["conversion_results"][-1]["status"], "interrupted")
         log = read_json(self.output / self.config["logging"]["state_file"])
         self.assertEqual(log["runs"][-1]["status"], "interrupted")
@@ -232,7 +253,7 @@ class MigrationTests(ProjectCase):
         self.assertFalse(old.exists())
         self.assertFalse((self.work / "report.json").exists())
         converter.assert_not_called()
-        new = self.output / "series/episode.mp4"
+        new = self.target()
         self.assertEqual(fingerprint(new, self.config["copy_buffer_bytes"])["sha256"], report["output_sha256"])
         data = read_json(new.parent / "video_info.json")
         archive = Path(data["files"][0]["work_dir"])
@@ -249,9 +270,9 @@ class MigrationTests(ProjectCase):
         result, converter = self.batch()
         self.assertEqual((result["migrated"], result["completed"]), (1, 1))
         converter.assert_called_once()
-        self.assertEqual((self.output / "series/episode.mp4").read_bytes(), old_bytes)
+        self.assertEqual(self.target().read_bytes(), old_bytes)
         self.assertFalse(old.exists())
-        self.assertEqual(len(read_json(self.output / "series/video_info.json")["files"]), 2)
+        self.assertEqual(len(read_json(self.target().parent / "video_info.json")["files"]), 2)
 
     def test_migration_retries_after_index_write_failure(self):
         """目标已复制但索引失败时保留旧成品与恢复记录，下次继续完成；无参数或返回值。"""
@@ -276,7 +297,7 @@ class MigrationTests(ProjectCase):
         self.assertEqual((second["migrated"], second["reused"]), (1, 1))
         converter.assert_not_called()
         self.assertFalse(old.exists())
-        self.assertEqual(len(read_json(self.output / "series/video_info.json")["files"]), 1)
+        self.assertEqual(len(read_json(self.target().parent / "video_info.json")["files"]), 1)
 
     def test_tampered_old_output_is_not_moved(self):
         """旧成品与原成功摘要不符时保留原位并报告失败；无参数或返回值。"""
@@ -286,7 +307,7 @@ class MigrationTests(ProjectCase):
         result, converter = self.batch()
         self.assertEqual(result["failed"], 1)
         self.assertTrue(old.exists())
-        self.assertFalse((self.output / "series/episode.mp4").exists())
+        self.assertFalse(self.target().exists())
         converter.assert_not_called()
 
 

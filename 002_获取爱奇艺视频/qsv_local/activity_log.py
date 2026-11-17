@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from threading import Event, RLock, Thread
 import time
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 from uuid import uuid4
 
 from .storage import atomic_json, read_json, time_tag, timestamp
@@ -19,17 +19,22 @@ VERIFY_STAGES = {"waiting_verification", "verifying", "checking", "publishing"}
 class Journal:
     """管理一次批次及历史日志；HTTP 只读取内存，网页查看不占用 JSON 文件。"""
 
-    def __init__(self, config: dict):
-        """按 config 加载历史并启动本机服务；历史格式错误在写入前抛错，返回初始化实例。"""
+    def __init__(self, config: dict, *, mode: str = "qsv"):
+        """按 config 加载历史并启动服务；mode 为 qsv 或 playback，决定阶段、日志文件和模板，返回初始化实例。"""
+        if mode not in ("qsv", "playback"):
+            raise ValueError("未知的日志模式")
+        self.mode = mode
+        self.phases = ("download", "processing") if mode == "playback" else ("conversion", "verification")
         self.config, self.lock = config, RLock()
         self.root = config["output_path"]
-        self.path = self.root / config["logging"]["state_file"]
+        self.path = self.root / config["logging"]["playback_state_file" if mode == "playback" else "state_file"]
         self.closed, self.storage_error = False, ""
+        self.final_ack, self.has_client = Event(), False
         self.snapshot_path = None
         self.last_write = float("-inf")
         self.write_event, self.writer_stop = Event(), Event()
         self.writer = None
-        self.template = Path(__file__).with_name("templates").joinpath("conversion_log.html").read_text(encoding="utf-8")
+        self.template = Path(__file__).with_name("templates").joinpath("playback_log.html" if mode == "playback" else "conversion_log.html").read_text(encoding="utf-8")
         self.data = read_json(self.path) if self.path.exists() else {"version": 1, "runs": []}
         if self.data.get("version") != 1 or not isinstance(self.data.get("runs"), list):
             raise ValueError(f"运行日志格式无效，保留原数据：{self.path}")
@@ -39,17 +44,18 @@ class Journal:
                 raise ValueError(f"运行历史格式无效：{self.path}")
             for entry in run["entries"]:
                 if (not isinstance(entry, dict) or not isinstance(entry.get("id"), str)
-                        or not all(isinstance(entry.get(phase), dict) for phase in ("conversion", "verification"))):
+                        or not all(isinstance(entry.get(phase), dict) for phase in self.phases)):
                     raise ValueError(f"运行历史条目无效：{self.path}")
                 if entry.get("status") not in TERMINAL:
                     entry.update(status="interrupted", detail="上次运行已中断", finished=timestamp())
-                    for phase in ("conversion", "verification"):
+                    for phase in self.phases:
                         if entry[phase].get("status") not in TERMINAL:
                             entry[phase]["status"] = "interrupted"
             if run.get("status") == "running":
                 run.update(status="interrupted", finished=timestamp())
         self.run = {"id": uuid4().hex, "started": timestamp(), "finished": "", "status": "running",
-                    "entries": [], "summary": {}}
+                    "entries": [], "summary": {}, "mode": mode, "catalog_status": "resolving" if mode == "playback" else "ready"}
+        self.data.setdefault("revision", 0)
         self.server = ThreadingHTTPServer(("127.0.0.1", config["logging"]["port"]), self._handler())
         self.server.daemon_threads = True
         self.data["runs"].append(self.run)
@@ -78,10 +84,21 @@ class Journal:
                 route = unquote(urlsplit(self.path).path)
                 try:
                     if route == "/":
+                        journal.has_client = True
                         self._send(journal.render(live=True).encode("utf-8"), "text/html; charset=utf-8")
                     elif route == "/api/state":
+                        journal.has_client = True
                         self._send(json.dumps(journal.snapshot(live=True), ensure_ascii=False).encode("utf-8"),
                                    "application/json; charset=utf-8")
+                    elif route == "/api/ack":
+                        revision = parse_qs(urlsplit(self.path).query).get("revision")
+                        with journal.lock:
+                            valid = journal.closed and revision == [str(journal.data["revision"])]
+                        if not valid:
+                            self.send_error(409)
+                        else:
+                            self._send(b"{}", "application/json")
+                            journal.final_ack.set()
                     elif route == "/export":
                         path = journal.export()
                         if path is None:
@@ -135,10 +152,10 @@ class Journal:
                 for entry in self.run["entries"]:
                     if entry["status"] not in TERMINAL:
                         entry.update(status="interrupted" if exc else "skipped", finished=timestamp())
-                        for phase in ("conversion", "verification"):
+                        for phase in self.phases:
                             if entry[phase]["status"] not in TERMINAL:
                                 entry[phase]["status"] = entry["status"]
-                if not exc and any(entry["status"] == "failed" for entry in self.run["entries"]):
+                if not exc and (any(entry["status"] == "failed" for entry in self.run["entries"]) or self.run.get("catalog_errors")):
                     status = "warning"
                 self.run.update(status=status, finished=timestamp())
                 self.closed = True
@@ -147,6 +164,9 @@ class Journal:
             self.write_event.set()
             self.writer.join()
             self.export()
+            if self.mode == "playback" and self.has_client:
+                if not self.final_ack.wait(self.config["logging"]["final_state_timeout_seconds"]):
+                    print("网页终态确认超时；完整结果已保存到离线报告。", file=sys.stderr, flush=True)
         finally:
             self.server.shutdown()
             self.server.server_close()
@@ -166,10 +186,28 @@ class Journal:
             self.write()
             return entry
 
+    def add_episode(self, video: dict, quality: int, audio_quality: int) -> dict:
+        """新增 video 单集进度；quality/audio_quality 为实际配置排名，返回线程安全更新所需条目。"""
+        with self.lock:
+            if self.mode != "playback" or self.closed:
+                raise RuntimeError("当前日志不能新增链接剧集")
+            entry = {"id": uuid4().hex, "directory": video["album_id"], "series_title": video["title"],
+                     "release_date": video.get("release_date"),
+                     "episode": video["episode"], "tvid": video["tvid"], "title": video["episode_title"],
+                     "source_relative": f"{video['title']}/第{video['episode']}集", "status": "pending", "stage": "",
+                     "detail": "", "progress": None, "started": "", "finished": "", "output": "", "work_dir": "",
+                     "quality_rank": quality, "audio_quality_rank": audio_quality,
+                     "download": {"status": "pending"}, "processing": {"status": "pending"}}
+            self.run["entries"].append(entry)
+            self.write()
+            return entry
+
     def update(self, entry: dict, stage: str | None = None, *, status: str | None = None,
                progress: float | None = None, detail: str | None = None, device: str | None = None, **fields) -> None:
         """更新 entry 的 stage/status、progress、detail 及 fields；device 可记录实际 cpu/gpu；状态立即保存，进度按配置节流。"""
         with self.lock:
+            if self.closed or entry["status"] in TERMINAL:
+                return
             changed_stage = stage is not None and stage != entry["stage"]
             if not entry["started"]:
                 entry["started"] = timestamp()
@@ -177,7 +215,7 @@ class Journal:
                 entry.update(stage=stage, progress=None)
             entry.update(fields)
             if device is not None:
-                entry["verification"]["device"] = device
+                entry["processing" if self.mode == "playback" else "verification"]["device"] = device
             if detail is not None:
                 entry["detail"] = detail
             if progress is not None:
@@ -186,18 +224,23 @@ class Journal:
                 entry["status"] = status
             elif stage:
                 entry["status"] = "running"
-            phase = "verification" if entry["stage"] in VERIFY_STAGES else "conversion"
+            if self.mode == "playback":
+                phase = "download" if entry["stage"] in {"", "pending", "waiting_source", "resolving_source", "authorizing", "checking_reuse", "downloading"} else "processing"
+            else:
+                phase = "verification" if entry["stage"] in VERIFY_STAGES else "conversion"
             entry[phase].update(status=entry["status"], stage=entry["stage"], progress=entry["progress"])
-            if phase == "verification":
-                entry["conversion"]["status"] = "completed"
+            if self.mode == "playback":
+                entry[phase].update({key: value for key, value in fields.items() if key in {"current_bytes", "total_bytes", "speed_bps", "eta_seconds"}})
+            if phase == self.phases[1]:
+                entry[self.phases[0]].update(status="completed", progress=100.0)
             if entry["status"] in TERMINAL:
                 entry["finished"] = timestamp()
                 if status in {"completed", "reused"}:
-                    for name in ("conversion", "verification"):
+                    for name in self.phases:
                         entry[name].update(status=status, progress=100.0)
                     entry["progress"] = 100.0
-                elif phase == "conversion":
-                    entry["verification"]["status"] = "skipped"
+                elif phase == self.phases[0]:
+                    entry[self.phases[1]]["status"] = "skipped"
             now = time.monotonic()
             if changed_stage or status or now - self.last_write >= self.config["logging"]["progress_interval_seconds"]:
                 self.write()
@@ -206,6 +249,7 @@ class Journal:
         """请求保存当前内存历史；启动时同步保存，运行时由写盘线程合并请求，无参数或返回值。"""
         with self.lock:
             self.last_write = time.monotonic()
+            self.data["revision"] += 1
             if self.writer is None:
                 self._persist(deepcopy(self.data))
             else:
@@ -259,7 +303,7 @@ class Journal:
                         continue
                     target = Path(entry[field])
                     if field == "work_dir":
-                        target /= "report.json"
+                        target /= entry.get("report_file", "full_report.json" if self.mode == "playback" else "report.json")
                     target = target.resolve()
                     if target.is_relative_to(root):
                         entry[url_field] = prefix + quote(target.relative_to(root).as_posix()) if live else target.as_uri()
@@ -275,7 +319,7 @@ class Journal:
     def export(self) -> Path | None:
         """独占创建带时间戳的离线报告；重名追加序号，返回新路径；失败提示但不影响已生成媒体。"""
         with self.lock:
-            base = Path(self.config["logging"]["html_file"]).stem + "_" + time_tag()
+            base = Path(self.config["logging"]["playback_html_file" if self.mode == "playback" else "html_file"]).stem + "_" + time_tag()
             number = 0
             while True:
                 suffix = "" if number == 0 else f"_{number:02d}"

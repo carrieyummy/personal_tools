@@ -1,7 +1,5 @@
 """以阶段替身和真实同步验证资源上限、跨阶段重叠、取消与发布隔离；不以此替代实网媒体验收。"""
 
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from threading import Event, Lock
 import time
 from types import SimpleNamespace
@@ -9,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from local.application import Pipeline
 from local.errors import AuthenticationError, Cancelled, SourceChanged, ToolError
+from local.scheduler import run_pipeline
 from local.tasks import Episode
 from tests.test_workflow import BaseCase
 
@@ -22,6 +21,18 @@ class PipelineTests(BaseCase):
         publisher.reusable.return_value = None
         publisher.publish.side_effect = lambda source, path, *args: {"path": path.as_posix()}
         return Pipeline(self.config, Mock(), Mock(), publisher, self.cancel, Event())
+
+    def execute(self, pipeline, items):
+        """通过正式两池调度 pipeline 的 items；返回终态列表，错误按正式阶段结算。"""
+        statuses = []
+
+        def complete(episode, status, error):
+            """结算 episode 的 status/error 并保存终态；无返回值。"""
+            statuses.append(pipeline.failure(episode, error) if error is not None else status)
+
+        run_pipeline(items, self.config, pipeline.download_episode, pipeline.process_episode, complete,
+                     self.cancel, pipeline.auth_stop, downloaded_size=lambda task: task.evidence["bytes"], waiting=pipeline.stage)
+        return statuses
 
     def test_stage_limits_and_overlap(self):
         """同一批任务必须遵守每个配置槽且能跨阶段重叠；无参数/返回值。"""
@@ -48,7 +59,7 @@ class PipelineTests(BaseCase):
 
         def downloading(transport, initial, directory, config, refresh, progress, cancel):
             """模拟下载；参数与生产下载一致；返回本地清单和媒体证据。"""
-            return occupancy("download", ([directory / "local.m3u8"], {"durations": [1]}))
+            return occupancy("download", ([directory / "local.m3u8"], {"durations": [1], "bytes": 1}))
 
         def muxing(config, manifests, candidate, cancel):
             """模拟封装；参数与生产封装一致；写候选文件并返回 None。"""
@@ -62,11 +73,10 @@ class PipelineTests(BaseCase):
         original_publish = pipeline.publisher.publish.side_effect
         pipeline.publisher.publish.side_effect = lambda *args: occupancy("publish", original_publish(*args))
         count = self.config["pipeline"]["max_in_flight"] + 1
-        items = [Episode("1", str(index), index, f"测试{index}", "测试", True, 1) for index in range(1, count + 1)]
+        items = [Episode("1", str(index), index, f"测试{index}", "测试", True, 1, release_date="2000-01-02") for index in range(1, count + 1)]
         with patch("local.application.resolved", return_value=stream), patch("local.application.playlists", return_value=media), \
                 patch("local.application.download", side_effect=downloading), patch("local.application.mux", side_effect=muxing), patch("local.application.verify", side_effect=verifying):
-            with ThreadPoolExecutor(max_workers=self.config["pipeline"]["max_in_flight"]) as executor:
-                statuses = list(executor.map(pipeline.item, items))
+            statuses = self.execute(pipeline, items)
         self.assertEqual(statuses, ["成功"] * count)
         self.assertLessEqual(maximum["download"], self.config["download"]["threads"])
         self.assertLessEqual(maximum["mux"], self.config["pipeline"]["mux_slots"])
@@ -81,13 +91,14 @@ class PipelineTests(BaseCase):
         pipeline = self.pipeline()
         item = Episode("1", "2", 1, "测试", "测试", True, 1)
         with patch("local.application.resolved", side_effect=AuthenticationError("过期")) as request:
-            self.assertEqual(pipeline.item(item), "认证失效")
-            self.assertEqual(pipeline.item(item), "认证失效")
+            self.assertEqual(self.execute(pipeline, [item]), ["认证失效"])
+            self.assertEqual(pipeline.download_episode(item), "认证失效")
             self.assertEqual(request.call_count, 1)
         pipeline.publisher.publish.assert_not_called()
         pipeline = self.pipeline()
         self.cancel.set()
-        self.assertEqual(pipeline.item(item), "取消")
+        with self.assertRaises(Cancelled):
+            self.execute(pipeline, [item])
         pipeline.publisher.publish.assert_not_called()
 
     def test_verification_failure_never_publishes(self):
@@ -102,9 +113,9 @@ class PipelineTests(BaseCase):
             path.write_bytes(b"unverified")
 
         with patch("local.application.resolved", return_value=stream), patch("local.application.playlists", return_value=[SimpleNamespace(duration=1, identity="playlist")]), \
-                patch("local.application.download", return_value=([], {"durations": [1]})), patch("local.application.mux", side_effect=candidate), \
+                patch("local.application.download", return_value=([], {"durations": [1], "bytes": 1})), patch("local.application.mux", side_effect=candidate), \
                 patch("local.application.verify", side_effect=ToolError("解码失败")):
-            self.assertEqual(pipeline.item(item), "失败")
+            self.assertEqual(self.execute(pipeline, [item]), ["失败"])
         pipeline.publisher.publish.assert_not_called()
         self.assertTrue(list(self.config["work_dir"].rglob("candidate.mp4")))
 
@@ -112,6 +123,15 @@ class PipelineTests(BaseCase):
         """源变化只重试新版本，未达到上限时允许继续；无参数/返回值。"""
         pipeline = self.pipeline()
         item = Episode("1", "2", 1, "测试", "测试", True, 1)
-        with patch.object(pipeline, "attempt", side_effect=[SourceChanged("更新"), "成功"]) as attempt:
-            self.assertEqual(pipeline.item(item), "成功")
+        with patch.object(pipeline, "transfer", side_effect=[SourceChanged("更新"), "复用"]) as attempt:
+            self.assertEqual(self.execute(pipeline, [item]), ["复用"])
             self.assertEqual(attempt.call_count, 2)
+
+    def test_continuously_changed_source_stops_at_configured_limit(self):
+        """持续源变化按配置停止，禁止入队和发布；无参数/返回值。"""
+        pipeline = self.pipeline()
+        item = Episode("1", "2", 1, "测试", "测试", True, 1)
+        with patch.object(pipeline, "transfer", side_effect=SourceChanged("持续更新")) as attempt:
+            self.assertEqual(self.execute(pipeline, [item]), ["失败"])
+        self.assertEqual(attempt.call_count, self.config["download"]["refresh_attempts"] + 1)
+        pipeline.publisher.publish.assert_not_called()

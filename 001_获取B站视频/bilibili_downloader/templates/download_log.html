@@ -20,7 +20,7 @@ th:nth-child(1) { width:27%; } th:nth-child(2) { width:9%; } th:nth-child(3) { w
 .muted,small { color:#607086; font-size:12px; } small { display:block; } .number,.duration { font-variant-numeric:tabular-nums; white-space:nowrap; }
 .error-summary { color:#aa3030; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .badge { display:inline-block; border-radius:5px; padding:2px 8px; background:#edf0f5; white-space:nowrap; font-size:12px; }
-.completed,.reused { background:#e0f4e9; color:#176740; } .downloading,.merging,.processing,.preparing,.running,.queued { background:#e0edff; color:#1a579e; } .failed,.interrupted { background:#fde6e6; color:#aa3030; } .warning,.retry,.skipped { background:#fff0d7; color:#8f5908; }
+.completed,.reused { background:#e0f4e9; color:#176740; } .downloading,.merging,.processing,.preparing,.running,.queued,.waiting_queue,.waiting_processing { background:#e0edff; color:#1a579e; } .failed,.interrupted { background:#fde6e6; color:#aa3030; } .warning,.retry,.skipped { background:#fff0d7; color:#8f5908; }
 .progress-label { display:flex; justify-content:space-between; gap:8px; font-size:12px; } .progress-track { height:6px; background:#e9eef5; border-radius:3px; overflow:hidden; margin-top:5px; } .progress-fill { height:100%; background:#2166b5; }
 .progress-track.done .progress-fill { background:#247049; } .progress-track.error .progress-fill { background:#b83b3b; } .progress-track.indeterminate .progress-fill { width:32%; animation:progress 1.6s ease-in-out infinite alternate; }
 .phase-progress + .phase-progress { margin-top:7px; } .phase-progress .progress-track { height:4px; margin-top:3px; }
@@ -74,7 +74,7 @@ function progress(label, value, status, right) {
 }
 // 按 entry 状态生成真实进度；当前流结束仍需封装及字幕，不能提前算作分 P 完成；返回元素。
 function entryProgress(entry) {
-  const label = successful(entry) ? '已完成' : entry.status === 'processing' ? '封装及字幕处理' : entry.status === 'pending' ? (entry.kind === '合并' ? '等待分 P 就绪' : '等待下载') : entry.progress_label || (entry.kind === '合并' ? '合并进度' : '当前流');
+  const label = successful(entry) ? '已完成' : entry.status === 'processing' ? '封装及字幕处理' : ['waiting_queue','waiting_processing'].includes(entry.status) ? labels[entry.status] : entry.status === 'pending' ? (entry.kind === '合并' ? '等待分 P 就绪' : '等待下载') : entry.progress_label || (entry.kind === '合并' ? '合并进度' : '当前流');
   return progress(label,successful(entry) ? 100 : entry.progress,entry.status);
 }
 // 将 run 内条目按明确任务标识分组；独立离线合并也有任务容器；返回有序数组。
@@ -84,10 +84,10 @@ function groupTasks(run) {
   groups.forEach(function(group,key) { group.sizeSummary = run.task_sizes && run.task_sizes[key]; });
   return Array.from(groups.values());
 }
-// 汇总 group 状态；执行中的合并覆盖父任务的等待状态；返回状态键。
+// 汇总 group 状态；子项执行和排队阶段优先于父任务的概括状态；返回状态键。
 function groupStatus(group) {
   if(group.parent && terminal.has(group.parent.status)) return group.parent.status;
-  for(const status of ['merging','downloading','processing','preparing']) if(group.children.some(function(entry) { return entry.status === status; })) return status;
+  for(const status of ['merging','downloading','processing','preparing','waiting_queue','waiting_processing']) if(group.children.some(function(entry) { return entry.status === status; })) return status;
   if(group.parent) return group.parent.status;
   if(group.children.some(function(entry) { return !terminal.has(entry.status); })) return 'pending';
   return group.children.some(function(entry) { return attention.has(entry.status); }) ? 'warning' : 'completed';

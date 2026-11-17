@@ -41,7 +41,7 @@ class ProjectCase(unittest.TestCase):
         # 测试服务始终使用随机端口，避免占用用户明确配置的固定端口。
         self.raw["logging"]["port"] = 0
         self.raw["download_guard"]["database_path"] = str(self.root / "downloads.db")
-        self.downloaded, self.downloading = set(), set()
+        self.downloaded, self.downloading, self.metadata = set(), set(), {}
         self.config_path = self.root / "fixture.yaml"
         self.write_downloads()
         self.write_config()
@@ -61,6 +61,9 @@ class ProjectCase(unittest.TestCase):
         path = self.input / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
+        if path not in self.metadata:
+            order = sum(item.parent == path.parent for item in self.metadata) + 1
+            self.metadata[path] = {"AlbumID": "1234501", "AlbumName": path.parent.name, "vedioorder": str(order)}
         self.downloaded.add(path)
         self.write_downloads()
         return path
@@ -79,12 +82,22 @@ class ProjectCase(unittest.TestCase):
                     ET.SubElement(channels, "Ch", {
                         "SaveDir": str(source.parent), "SaveFileName": source.name,
                         "State": str(settings["completed_states"][0]) if sources is self.downloaded else "active",
+                        **self.metadata.get(source, {}),
                     })
                 data = ET.tostring(root, encoding=settings["xml_encoding"], xml_declaration=True)
                 connection.execute("INSERT OR REPLACE INTO table_file (Name, Data) VALUES (?, ?)", (name, data))
             connection.commit()
         finally:
             connection.close()
+
+    def target(self, relative: str = "series/episode.qsv") -> Path:
+        """按当前配置和测试记录计算 relative 的预期输出路径；返回绝对 Path。"""
+        source = self.input / relative
+        metadata = self.metadata[source]
+        naming = self.raw["naming"]
+        folder = naming["series_template"].format(title=metadata["AlbumName"], series_id=metadata["AlbumID"])
+        name = naming["episode_template"].format(index=int(metadata["vedioorder"]), title=source.stem)
+        return self.output / folder / (name + ".mp4")
 
     def fake_prepare(self, config: dict, source: Path, work: Path, notify, cancel_event=None) -> dict:
         """用合成媒体隔离准备阶段；config/source/work/notify 为正式接口，cancel_event 为取消信号；返回待验证报告。"""

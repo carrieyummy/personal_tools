@@ -1,9 +1,9 @@
-"""在主线程准备多个投稿、确认或自动选择画质，调度共享下载池并按任务收尾拼接。"""
+"""在主线程准备投稿与选流，独立调度原始流下载及封装、字幕和拼接收尾。"""
 
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import Future, ThreadPoolExecutor
+from collections import deque
 from dataclasses import dataclass, field
 from threading import Event
 from typing import Any
@@ -20,7 +20,7 @@ from .config import Settings
 from .errors import DownloadCancelled, ToolError, check_cancel
 from .models import Quality, SubtitleTrack, VideoTarget
 from .manifest import DownloadRequest
-from .scheduler import run_jobs
+from .scheduler import PostTask, run_pipeline
 from .activity_log import Activity, HtmlLog
 from . import runtime
 from . import variants
@@ -122,13 +122,22 @@ class PartPayload:
 
 
 @dataclass(frozen=True)
+class PartTransfer:
+    """传输阶段结果；payload 为选流及认证快照，video 为完整流路径与保存身份，不持有活动会话。"""
+
+    payload: PartPayload
+    video: transfer.DownloadedVideo
+
+
+@dataclass(frozen=True)
 class PartResult:
-    """分P结果：saved_id/errors/path 为记录、错误和成品路径，size_info 将预计及实际大小同步给所有复用任务。"""
+    """分P结果：saved_id/errors/path 为记录、错误和成品路径，size_info 同步大小，reused 表示成品复用。"""
 
     saved_id: str
     errors: list[str]
     path: str = ''
     size_info: dict[str, Any] = field(default_factory=dict)
+    reused: bool = False
 
 
 def job_key(job: PartJob) -> tuple:
@@ -518,23 +527,33 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
     completed: dict[tuple, PartResult | BaseException] = {}
     remaining = {id(submission): {id(job) for job in submission.jobs} for submission in prepared}
     finalized: set[int] = set()
-    merger = ThreadPoolExecutor(max_workers=1, thread_name_prefix='bilibili-merge')
-    finishing: list[tuple[Submission, Future]] = []
+    finishing: deque[PostTask] = deque()
 
     def finish_ready(submission: Submission) -> None:
         """若 submission 的分 P 均已结算，只派发一次使用实际档位的收尾任务；无返回值。"""
         identity = id(submission)
-        if remaining[identity] or identity in finalized:
+        if cancel_event.is_set() or remaining[identity] or identity in finalized:
             return
         finalized.add(identity)
         if submission.activity:
             submission.activity.update('queued', detail='本任务分 P 已处理完，等待合并及收尾')
         check_cancel(cancel_event)
-        finishing.append((submission, merger.submit(runtime.run_bound, controller, finish_submission, settings, executable, submission,
-                                                    journal=journal)))
+
+        def finish() -> None:
+            """按已确定的配置收尾当前 submission；由共享后处理池执行，无参数和返回值。"""
+            finish_submission(settings, executable, submission, journal=journal)
+
+        def finish_complete(error: BaseException | None) -> None:
+            """在主线程将可选 error 记录到 submission，成功时不再更新终态；无返回值。"""
+            if error is not None:
+                submission.failures.append(f'{submission.source_id} 收尾：{error}')
+                if submission.activity:
+                    submission.activity.update('failed', detail='\n'.join(submission.failures))
+
+        finishing.append(PostTask(finish, finish_complete))
 
     def accept(job: PartJob, result: PartResult | BaseException) -> None:
-        """将一次实际传输的 result 应用到 job 所属清单项；返回 None，不在工作线程调用。"""
+        """将后处理完成或失败的 result 应用到 job 所属清单项；返回 None，不在工作线程调用。"""
         if isinstance(result, BaseException):
             try:
                 mark_failure(settings, job, result)
@@ -553,7 +572,7 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
             job.submission.failures.extend(result.errors)
             activity = job.activity
             if activity:
-                status = 'reused' if activity.entry['status'] in ('pending', 'reused', 'preparing') else 'completed'
+                status = 'reused' if result.reused else 'completed'
                 activity.update('warning' if result.errors else status, progress=100,
                                 **job.size_info,
                                 path=result.path,
@@ -626,8 +645,8 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
             accept(job, exc)
             return None
 
-    def execute_part(payload: PartPayload, event: Event) -> PartResult:
-        """在独立线程传输 payload，按 event 协作中止；每次建立独立会话及下载器，返回结果。"""
+    def execute_part(payload: PartPayload, event: Event) -> PartTransfer:
+        """在下载池按 event 传输 payload；使用独立会话及下载器，返回不持有会话的阶段结果。"""
         check_cancel(event)
         job = payload.job
         activity = job.activity
@@ -655,24 +674,42 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
             if settings.threads > 1:
                 downloader.params['noprogress'] = True
             options = {'activity': activity} if activity else {}
-            folder, stem = transfer.save_video(downloader, payload.info, settings, executable,
-                                                job.submission.metadata['title'], job.target.total_parts,
-                                                source_cid=job.target.cid, prepared=True, cancel_event=event, size_tracker=sizes, **options)
-            job.size_info.update(sizes.expected(), actual_size_bytes=payload.info.get('actual_size_bytes'))
-            check_cancel(event)
+            video = transfer.download_video(downloader, payload.info, settings,
+                                            job.submission.metadata['title'], job.target.total_parts,
+                                            source_cid=job.target.cid, prepared=True, cancel_event=event,
+                                            size_tracker=sizes, **options)
+            job.size_info.update(sizes.expected())
+        return PartTransfer(payload, video)
+
+    def process_part(transferred: PartTransfer, event: Event) -> PartResult:
+        """在后处理池封装 transferred 并用独立会话下载字幕；event 控制取消，返回最终分 P 结果。"""
+        check_cancel(event)
+        payload, video = transferred.payload, transferred.video
+        job, activity = payload.job, payload.job.activity
+        if activity:
+            activity.update('processing', progress=None, detail='正在处理媒体及字幕')
+        folder, stem = transfer.finish_video(video, settings, executable, cancel_event=event, activity=activity)
+        job.size_info.update(actual_size_bytes=payload.info.get('actual_size_bytes'))
+        check_cancel(event)
+        with auth.worker_session(payload.snapshot, settings) as session:
             errors = subtitles.fetch_subtitles(session, payload.tracks, folder, stem, settings, cancel_event=event)
         print(f'[{job.submission.source_id} P{job.target.part}] 处理完成', flush=True)
-        return PartResult(payload.info.get('saved_entry_id', models.quality_entry_id(str(payload.info['id']), job.quality)), [*payload.errors, *errors],
-                          payload.info.get('saved_path', str(activity.entry['path']) if activity else ''), dict(job.size_info))
+        return PartResult(payload.info.get('saved_entry_id', models.quality_entry_id(str(payload.info['id']), job.quality)),
+                          [*payload.errors, *errors], payload.info.get('saved_path', ''), dict(job.size_info),
+                          reused=video.existing is not None)
 
-    def execute(payload: PartPayload, event: Event) -> PartResult:
-        """在当前运行上下文中执行 payload，event 控制取消；返回分 P 结果。"""
-        return runtime.run_bound(controller, execute_part, payload, event)
+    def waiting(job: PartJob, status: str) -> None:
+        """为 job 标记 status 等待阶段；用于区分队列容量和后处理排队，无返回值。"""
+        if job.activity:
+            job.activity.update(status, progress=None,
+                                detail='下载完成，等待队列容量' if status == 'waiting_queue' else '已下载，等待后处理')
+
+    def downloaded_size(transferred: PartTransfer) -> int:
+        """返回 transferred 的完整原始流大小，供队列计费；成品复用为零字节。"""
+        return transferred.video.queued_bytes()
 
     def complete(job: PartJob, result: PartResult | None, error: BaseException | None) -> None:
-        """在主线程将 job 的 result/error 分发给所有复用者；取消继续上抛，不触发交互。"""
-        if isinstance(error, (KeyboardInterrupt, DownloadCancelled)):
-            raise KeyboardInterrupt('用户取消下载')
+        """在主线程将 job 的 result/error 分发给所有复用者；取消时保存状态且不再排入拼接，无返回值。"""
         outcome = error if error is not None else result
         if outcome is None:
             raise ToolError('下载任务缺少结果')
@@ -685,22 +722,14 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
         for submission in prepared:
             finish_ready(submission)
         pending = [job for submission in prepared for job in submission.jobs]
-        if pending:
-            run_jobs(pending, settings.threads, prepare, execute, complete, cancel_event)
-        for submission, future in finishing:
-            try:
-                future.result()
-            except Exception as exc:
-                submission.failures.append(f'{submission.source_id} 收尾：{exc}')
-                if submission.activity:
-                    submission.activity.update('failed', detail='\n'.join(submission.failures))
+        run_pipeline(pending, settings, prepare, execute_part, process_part, complete, cancel_event,
+                     downloaded_size=downloaded_size, waiting=waiting, finishers=finishing)
     except BaseException:
         cancel_event.set()
         if controller:
             controller.cancel()
         raise
     finally:
-        merger.shutdown(wait=True, cancel_futures=True)
         for submission in prepared:
             print(f'[{submission.source_id}] 最终目标视频总大小：'
                   + media.summarize_sizes(size_entries([submission]))['text'], flush=True)

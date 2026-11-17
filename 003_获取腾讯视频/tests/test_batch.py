@@ -12,9 +12,15 @@ import xml.etree.ElementTree as ET
 
 from local.batch import Batch, index_path, load_index, slot
 from local.configuration import load_config
-from local.hls import discover_all
+from local.hls import discover_all as discover_cache_tasks
 from local.journal import Journal
 from local.storage import atomic_json, fingerprint, publish
+
+
+def discover_all(config):
+    """按 config 发现合成缓存并补充测试上映日期；返回任务和未就绪项，不访问网络。"""
+    tasks, skipped = discover_cache_tasks(config)
+    return [{**task, "release_date": "2020-02-03"} for task in tasks], skipped
 
 
 class MemoryJournal:
@@ -130,7 +136,7 @@ class BatchTests(unittest.TestCase):
         batch = Batch(self.config, journal)
         entry = journal.add(task)
         folder = index_path(self.config, task).parent
-        expected = self.config["naming"]["series_template"].format(title=task["series"], series_id=task["series_id"])
+        expected = self.config["naming"]["series_template"].format(title=task["series"], series_id=task["series_id"], release_date=task["release_date"])
         self.assertEqual(folder, self.config["output_path"] / expected)
         self.assertNotEqual(folder, index_path(self.config, other).parent)
         folder.mkdir(parents=True)
@@ -159,6 +165,8 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(original.read_bytes(), b"external")
             self.assertNotEqual(Path(result["output"]), original)
             self.assertEqual(len(load_index(index_path(self.config, task))["files"]), 1)
+            self.assertEqual(load_index(index_path(self.config, task))["files"][0]["mtime_ns"],
+                             Path(result["output"]).stat().st_mtime_ns)
             self.assertEqual(batch.job(task, entry)["status"], "reused")
             other_result = batch.job(other, journal.add(other))
             self.assertEqual(other_result["status"], "completed")

@@ -23,16 +23,16 @@ def decode_command(config: dict, source: Path, progress: Path, device: str,
     return command + ["-progress", str(progress), "-f", "null", "-"]
 
 
-def validate_progress(progress: dict, expected_frames: int | None) -> dict:
-    """校验 FFmpeg 最终 progress；expected_frames 为正预期帧数，None 仅用于短片预热；返回验证证明。
+def validate_progress(progress: dict, expected_frames: int | None, *, expected_kind: str = "视频 PES") -> dict:
+    """校验最终 progress；expected_frames 为正预期帧数，None 仅用于预热，expected_kind 说明该格式计数来源；返回验证证明。
 
-    本项目支持的输入每个视频 PES 对应一帧；所有设备均拒绝缺帧、重复帧和丢帧，不保证不同解码器对所有损坏码流报错等价。
+    TS 使用已验证的 PES 对应帧关系，MP4 使用已验证的显示样本计数；所有设备拒绝缺帧、重复帧和丢帧。
     """
     frames = int(progress.get("frame", 0))
     if progress.get("progress") != "end" or frames <= 0:
         raise RuntimeError("FFmpeg 未完成视频解码")
     if expected_frames is not None and frames != expected_frames:
-        raise RuntimeError("解码帧数与原始视频 PES 数不一致")
+        raise RuntimeError(f"解码帧数与原始{expected_kind}数不一致")
     if int(progress.get("dup_frames", 0)) or int(progress.get("drop_frames", 0)):
         raise RuntimeError("解码验证发现重复帧或丢帧")
     return {"frames": frames, "duration_seconds": int(progress["out_time_us"]) / 1000000,

@@ -1,18 +1,20 @@
-"""发现批量任务并建立保留输入目录层级的输出映射。"""
+"""发现批量任务并依据客户端下载元数据建立输出映射。"""
 
 from dataclasses import dataclass
 from pathlib import Path
 
-from .download_state import DownloadStatus
+from .download_state import DownloadStatus, path_key
+from .naming import output_name
 
 
 @dataclass(frozen=True)
 class Task:
-    """不可变任务；source 为绝对 QSV 路径，relative 相对输入根目录，target 为首次输出路径。"""
+    """不可变任务；source 为绝对 QSV 路径，relative 为源相对路径，target 为目标，metadata 为命名元数据。"""
 
     source: Path
     relative: Path
     target: Path
+    metadata: tuple
 
 
 def discover(config: dict, *, pending: list | None = None) -> list[Task]:
@@ -48,12 +50,14 @@ def discover(config: dict, *, pending: list | None = None) -> list[Task]:
     targets = set()
     for source in sorted(sources.values(), key=lambda item: item.relative_to(root).as_posix().casefold()):
         relative = source.relative_to(root)
-        target = (output / relative.with_suffix(".mp4")).resolve()
+        metadata = status.metadata[path_key(source)]
+        folder, name = output_name(config["naming"], metadata, source.stem)
+        target = (output / folder / (name + ".mp4")).resolve()
         if not target.is_relative_to(output):
             raise ValueError(f"输出链接超出 output_path：{target}")
         identity = str(target).casefold()
         if identity in targets:
             raise ValueError(f"多个输入映射到同一输出：{target}")
         targets.add(identity)
-        tasks.append(Task(source, relative, target))
+        tasks.append(Task(source, relative, target, metadata))
     return tasks

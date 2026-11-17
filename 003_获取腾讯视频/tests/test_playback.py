@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 import yaml
 
-from local.configuration import load_config
+from local.configuration import load_config, load_playback_config
 from local.playback.audio import AudioOption, AudioSelector, options
 from local.playback.client import formats
 from local.playback.errors import PlaybackError, SourceChanged
@@ -76,6 +76,14 @@ class PlaybackConfigTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(PlaybackError):
                 normalize_url(value)
 
+    def test_audio_quality_requires_positive_integer(self):
+        """音质排名必须是正整数；错误类型和缺失配置在启动校验时被拒绝，不使用代码默认值。"""
+        for value in (0, -1, True, 1.5, "1", None):
+            config = current_config()
+            config["audio"]["quality"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "audio.quality"):
+                load_playback_config(config, config["config_path"].parent)
+
 
 class CatalogTests(unittest.TestCase):
     """用当前专项配置的模块类型构造分页，检查完整性和正片筛选。"""
@@ -93,7 +101,8 @@ class CatalogTests(unittest.TestCase):
             "page_id": "episodes", "has_next": "false"}, "children_list": {"0": {"cards": rows}}}
         cards = [module]
         if first:
-            cards.append({"type": settings["introduction_card"], "params": {"mod_title": "源站剧名"}})
+            cards.append({"type": settings["introduction_card"], "params": {"mod_title": "源站剧名"},
+                          "children_list": {"0": {"cards": [{"params": {"title": "源站剧名", "report.cid": "cover", "broadcast_time": "2020-02-03"}}]}}})
         return {"CardList": cards}
 
     def setUp(self):
@@ -118,7 +127,7 @@ class CatalogTests(unittest.TestCase):
 
 
 class AudioTests(unittest.TestCase):
-    """验证 VIP 优先、严格阈值交互、变化重选以及实时效果的真实性。"""
+    """验证按配置选择可下载音质、排除滤镜、逐集排名和实际复用原轨结构。"""
 
     def setUp(self):
         """读取当前 audio 配置，用合成音质选项隔离客户端；无返回值。"""
@@ -126,17 +135,23 @@ class AudioTests(unittest.TestCase):
         self.standard = AudioOption("standard", "标准", False, True, 0, "original")
         self.vip = AudioOption("vip", "VIP原轨", True, True, 1, "track")
 
-    def test_prefer_authorized_vip(self):
-        """未达到配置交互阈值时，依据当前 VIP 优先开关选择并复用；不假设用户阈值固定。"""
-        selector = AudioSelector(self.settings, reader=lambda _: "2", interactive=lambda: True)
-        selected = selector.select("cover", [self.standard, self.vip])
-        self.assertEqual(selected.id, self.vip.id)
-        self.assertIs(selector.select("cover", [self.standard, self.vip]), self.vip)
-        selector = AudioSelector(self.settings, reader=lambda _: "1", interactive=lambda: True)
-        self.assertIs(selector.select("cover", [self.standard, replace(self.vip, authorized=False)]), self.standard)
+    def ranked_options(self, count: int) -> list[AudioOption]:
+        """构造 count 个按等级递增的合成可下载轨，混合会员标记；返回独立选项列表，不读取真实账号。"""
+        return [replace(self.standard, id=f"audio{index}", name=f"音源{index}", rank=index,
+                        kind="track", vip=index % 2 == 0) for index in range(count)]
+
+    def test_configured_quality_uses_only_downloadable_sources(self):
+        """依据当前排名配置选择音源；未授权、不可下载或实时滤镜不占排名，也不读取终端输入。"""
+        values = self.ranked_options(max(self.settings["quality"] + 2, 3))
+        excluded = [replace(self.vip, id="locked", rank=len(values) + 1, authorized=False),
+                    replace(self.vip, id="unavailable", rank=len(values) + 2, downloadable=False),
+                    replace(self.vip, id="filter", rank=len(values) + 3, kind="effect")]
+        with patch("builtins.input", side_effect=AssertionError("不能要求用户选择滤镜")):
+            selected = AudioSelector(self.settings).select([*excluded, *values])
+        self.assertIs(selected, values[-self.settings["quality"]])
 
     def test_native_selected_muxed_track_and_vip_effect_are_distinct(self):
-        """原生 al.ai 的已选复用轨与 VIP 实时滤镜分别展示，不把无独立地址的原轨当独立下载。"""
+        """原生 al.ai 的已选复用轨保留真实名称和规格；afl VIP 实时滤镜不进入下载音质列表。"""
         selected = {"id": "synthetic-format", "audiobandwidth": 12345}
         value = {"id": selected["id"], "name": "源站标准", "type": 1, "sl": 1, "lmt": 0, "preview": -1,
                  "fs": 0, "control": 0, "feature": 0, "action": "", "filename": "", "keyid": "", "ul": {"ui": []},
@@ -144,62 +159,47 @@ class AudioTests(unittest.TestCase):
         data = {"al": {"ai": [value]}, "afl": {"afi": [{"name": "clear_voice", "cname": "清澈人声",
                                                         "lmt": 1, "audiofilterparam": "synthetic-filter"}]}}
         values = options(data, {}, selected)
+        self.assertEqual(len(values), 1)
         self.assertEqual(values[0].name, value["name"])
         self.assertEqual(values[0].metadata["track"], value["track"])
         self.assertTrue(values[0].downloadable)
-        self.assertTrue(values[1].vip)
-        self.assertFalse(values[1].downloadable)
-        self.assertEqual(values[1].name, data["afl"]["afi"][0]["cname"])
         value["ul"]["ui"] = [{"url": "https://media.invalid/private"}]
         with self.assertRaises(PlaybackError):
             options(data, {}, selected)
 
-    def test_above_threshold_requires_selection(self):
-        """构造超过实际配置阈值的选项，明确选中用户编号；无终端时必须失败。"""
-        count = max(self.settings["prompt_above"] + 1, 3)
-        values = [replace(self.standard, id=f"audio{index}", name=f"音质{index}", rank=index) for index in range(count)]
-        reader = Mock(return_value="2")
-        selector = AudioSelector(self.settings, reader=reader, interactive=lambda: True)
-        self.assertEqual(selector.select("cover", values).id, values[1].id)
-        self.assertEqual(selector.select("cover", values).id, values[1].id)
-        reader.assert_called_once()
+    def test_insufficient_downloadable_quality_is_rejected(self):
+        """实际可下载档位少于当前配置时明确失败；增加未授权音源或滤镜不能补足数量。"""
+        values = self.ranked_options(self.settings["quality"] - 1)
+        values += [replace(self.vip, authorized=False), replace(self.vip, id="effect", kind="effect")]
         with self.assertRaises(PlaybackError):
-            AudioSelector(self.settings, interactive=lambda: False).select("cover", values)
+            AudioSelector(self.settings).select(values)
 
-    def test_original_source_score_changes_reuse_series_choice(self):
-        """同剧原轨评分随集变化时，档位集合仍相同，应复用已选音质而非再次询问。"""
-        count = max(self.settings["prompt_above"] + 1, 2)
-        values = [self.standard] + [replace(self.vip, id=f"effect{index}", name=f"音效{index}",
-                                           kind="effect", rank=None, downloadable=False) for index in range(count - 1)]
-        reader = Mock(return_value="1")
-        selector = AudioSelector(self.settings, reader=reader, interactive=lambda: True)
-        self.assertEqual(selector.select("cover", values).id, self.standard.id)
-        refreshed = [replace(self.standard, rank=self.standard.rank + 1), *values[1:]]
-        self.assertIs(selector.select("cover", refreshed), refreshed[0])
-        reader.assert_called_once()
+    def test_each_episode_uses_current_quality_ranking(self):
+        """同一选择器按本次音源等级选择，评分或选项变化后不缓存旧档位。"""
+        values = self.ranked_options(self.settings["quality"] + 1)
+        selector = AudioSelector(self.settings)
+        self.assertIs(selector.select(values), values[-self.settings["quality"]])
+        refreshed = [replace(values[0], rank=len(values)), *values[1:]]
+        expected = sorted(refreshed, key=lambda item: item.rank, reverse=True)[self.settings["quality"] - 1]
+        self.assertIs(selector.select(refreshed), expected)
 
-    def test_changed_options_reprompt_and_unknown_ranking(self):
-        """音质集合变化或最高档无可比等级时重新选择，不能静默换档。"""
-        settings = {**self.settings, "prompt_above": max(self.settings["prompt_above"], 3)}
-        reader = Mock(return_value="1")
-        selector = AudioSelector(settings, reader=reader, interactive=lambda: True)
-        selector.select("cover", [self.standard])
-        selector.select("cover", [self.standard, self.vip])
-        reader.assert_called_once()
-        unknown = [replace(self.vip, rank=None), replace(self.vip, id="vip2", rank=None)]
-        selector.select("other", unknown)
-        self.assertEqual(reader.call_count, 2)
+    def test_unknown_quality_ranking_is_rejected(self):
+        """多个可下载音源缺少有限数值等级时不能猜测最高音质，也不退回交互选择。"""
+        values = self.ranked_options(max(self.settings["quality"], 2))
+        for rank in (None, float("nan"), True):
+            with self.subTest(rank=rank), self.assertRaises(PlaybackError):
+                AudioSelector(self.settings).select([replace(values[0], rank=rank), *values[1:]])
 
     def test_runtime_effect_not_mislabelled_as_audio(self):
-        """标准与 VIP 实时滤镜只有两项，标准不重复计数，滤镜不能冒充已下载 VIP 音轨。"""
+        """原始音源不因标准效果重复计档；多个 VIP 滤镜均不进入下载音质列表。"""
         data = {"afl": {"afi": [
             {"name": "standard", "show_name": "标准", "audiofilterparam": "", "vip_limit": 0},
-            {"name": "voice", "show_name": "清澈人声", "audiofilterparam": "runtime-filter", "vip_limit": 1}]}}
+            {"name": "voice", "show_name": "清澈人声", "audiofilterparam": "runtime-filter", "vip_limit": 1},
+            {"name": "surround", "show_name": "立体环绕", "audiofilterparam": "other-filter", "vip_limit": 1}]}}
         values = options(data, {}, {"audiobandwidth": 1000})
-        self.assertEqual(len(values), 2)
-        self.assertFalse(values[1].downloadable)
-        selected = AudioSelector(self.settings, reader=lambda _: "1", interactive=lambda: True).select("cover", values)
-        self.assertEqual(selected.kind, "original")
+        self.assertEqual(len(values), 1)
+        self.assertEqual(values[0].kind, "original")
+        self.assertEqual(values[0].metadata["bitrate"], 1000)
 
     def test_unknown_separate_audio_is_not_silently_ignored(self):
         """公开播放器 al.ai 是独立音轨入口；协议未验证时须明确失败，不能静默只下载标准轨。"""
@@ -218,7 +218,7 @@ class SourceTests(unittest.TestCase):
                           dict(id=2, name="higher", sname="高清", width=96, height=64, vfps=24,
                                videoenh=1, zqe=2, bandwidth=2000, audiobandwidth=2000)]
         self.task = dict(series_id="cover", video_id="video", quality=1)
-        self.selector = AudioSelector(self.config["audio"], reader=lambda _: "1", interactive=lambda: True)
+        self.selector = AudioSelector(self.config["audio"])
         self.client = SimpleNamespace(config=self.config, profile=self.config["playback"],
                                       transport=Mock(), source=self.response)
 

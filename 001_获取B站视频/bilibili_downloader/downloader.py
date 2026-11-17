@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -54,17 +55,59 @@ def make_downloader(context: Any, settings: Settings) -> Any:
     return downloader
 
 
-def save_video(downloader: Any, info: dict[str, Any], settings: Settings, executable: str,
-               video_title: str, total_parts: int, *, source_cid: int, prepared: bool = False,
-               cancel_event: Event | None = None, activity: Activity | None = None,
-               size_tracker: media.StreamSizes | None = None) -> tuple[Path, str]:
-    """保存 info 选中的原始流；settings/executable 控制路径和封装，video_title/total_parts 描述投稿。
+@dataclass
+class DownloadedVideo:
+    """跨阶段传递的原始流与保存身份；info 可写，sources 为完整流路径，existing 表示可复用成品。
 
-    source_cid 为本次查询的正整数内容 ID；只有版本和格式一致才复用，未知旧版本需要显式建立基线。
-    prepared 表示主线程已经整理记录，工作线程只读写当前布局；cancel_event 请求中止并保留当前版本断点。
-    activity 为可选 HTML 日志条目，记录复用、封装及最终文件位置。
-    size_tracker 为可选的所选流大小计量器，供调用方下载回调修正完整文件长度，不记录额外请求。
-    返回媒体目录和文件前缀，记录按 BV/季来源标识加锁；番剧同时核对 EP 身份，下载、封装和探测在锁外执行。
+    folder/stem/base_stem 控制命名，video_id/bvid/part/quality/signature/variant/source_cid 标识来源，
+    mix_quality 控制清理层级，staging/staging_root 为可选断点目录；不持有会话或下载器。
+    """
+
+    info: dict[str, Any]
+    folder: Path
+    stem: str
+    base_stem: str
+    video_id: str
+    bvid: str
+    part: int
+    quality: Quality
+    signature: list[dict[str, Any]]
+    variant: str
+    source_cid: int
+    mix_quality: bool
+    existing: Path | None
+    sources: list[Path] = field(default_factory=list)
+    staging: Path | None = None
+    staging_root: Path | None = None
+
+    def queued_bytes(self) -> int:
+        """返回等待后处理的实际流总字节数；成品复用不占原始流容量，无参数。"""
+        return sum(source.stat().st_size for source in self.sources)
+
+
+def record_transfer_failure(video: DownloadedVideo, settings: Settings, error: BaseException,
+                            cancel_event: Event | None) -> None:
+    """按 settings 为 video 保存 error；cancel_event 区分取消，已完成成品保持状态，无返回值。"""
+    try:
+        with library.video_transaction(settings, video.bvid) as current:
+            item = current.entry(video.video_id, part=video.part, quality=video.quality, variant=video.variant)
+            if item['status'] != 'completed':
+                interrupted = isinstance(error, (KeyboardInterrupt, DownloadCancelled)) or (cancel_event is not None and cancel_event.is_set())
+                item.update(status='interrupted' if interrupted else 'failed', errors=[str(error) or '用户中止'])
+                current.save()
+    except (OSError, ToolError) as write_error:
+        error.add_note(f'下载状态保存失败：{write_error}')
+
+
+def download_video(downloader: Any, info: dict[str, Any], settings: Settings,
+                   video_title: str, total_parts: int, *, source_cid: int, prepared: bool = False,
+                   cancel_event: Event | None = None, activity: Activity | None = None,
+                   size_tracker: media.StreamSizes | None = None) -> DownloadedVideo:
+    """按 info 传输原始流，返回等待后处理的 DownloadedVideo，不执行封装或媒体探测。
+
+    downloader 为本线程下载器，settings 控制目录与下载策略，video_title/total_parts 描述投稿。
+    source_cid 必须为正整数；prepared 表示主线程已整理目录；cancel_event 控制取消并保留断点。
+    activity 为可选日志，size_tracker 为可选流大小计量器；info 在后处理成功后补齐成品信息。
     """
     check_cancel(cancel_event)
     if type(source_cid) is not int or source_cid < 1:
@@ -115,14 +158,10 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
                         format_variant=variants.variant_id(signature), processing='stream copy',
                         status='downloading', errors=[])
             record.save()
+    video = DownloadedVideo(info, folder, stem, base_stem, video_id, bvid, part, quality, signature,
+                            variant, source_cid, record.mix_quality, existing)
     if existing is not None:
-        library.complete_video(settings, bvid, video_id, quality, existing, executable, source_cid=source_cid, variant=variant, part=part)
-        info.update(saved_path=str(existing), actual_size_bytes=existing.stat().st_size)
-        if activity:
-            activity.update('reused', path=str(existing), actual_size_bytes=info['actual_size_bytes'],
-                            detail='来源 CID、本地文件及格式一致，跳过重复传输')
-        print(f'视频已完成，跳过下载：{existing} · 实际大小 {media.format_size(info["actual_size_bytes"])}')
-        return existing.parent, stem
+        return video
     staging_root = folder / '.streams' / video_id
     if record.mix_quality:
         staging_root /= f'qn{quality.code}' if quality.code is not None else 'legacy'
@@ -130,7 +169,8 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
         staging_root /= f"ep{info['episode_id']}"
     staging = staging_root / provenance.stream_version(source_cid, signature)
     staging.mkdir(parents=True, exist_ok=True)
-    sources = []
+    video.staging, video.staging_root = staging, staging_root
+    sources = video.sources
     try:
         for index, fmt in enumerate(formats):
             check_cancel(cancel_event)
@@ -158,6 +198,35 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
             if activity:
                 activity.update(**size_tracker.expected())
             sources.append(source)
+    except (Exception, KeyboardInterrupt) as exc:
+        record_transfer_failure(video, settings, exc, cancel_event)
+        raise
+    return video
+
+
+def finish_video(video: DownloadedVideo, settings: Settings, executable: str, *,
+                 cancel_event: Event | None = None, activity: Activity | None = None) -> tuple[Path, str]:
+    """后处理 video 的流或复用成品；settings/executable 控制保存和无损封装，返回目录及文件前缀。
+
+    cancel_event 控制取消并保留原始流；activity 为可选日志。指纹、探测和发布均在此阶段执行。
+    """
+    info, folder, stem = video.info, video.folder, video.stem
+    formats = media.chosen_formats(info)
+    video_id, bvid, part, quality = video.video_id, video.bvid, video.part, video.quality
+    signature, variant, source_cid = video.signature, video.variant, video.source_cid
+    base_stem, staging, staging_root, sources = video.base_stem, video.staging, video.staging_root, video.sources
+    try:
+        check_cancel(cancel_event)
+        if video.existing is not None:
+            existing = video.existing
+            library.complete_video(settings, bvid, video_id, quality, existing, executable,
+                                   source_cid=source_cid, variant=variant, part=part)
+            info.update(saved_path=str(existing), actual_size_bytes=existing.stat().st_size)
+            if activity:
+                activity.update(path=str(existing), actual_size_bytes=info['actual_size_bytes'],
+                                detail='来源 CID、本地文件及格式一致，跳过重复传输')
+            print(f'视频已完成，跳过下载：{existing} · 实际大小 {media.format_size(info["actual_size_bytes"])}')
+            return existing.parent, stem
         check_cancel(cancel_event)
         if activity:
             activity.update('processing', progress=None, detail='原始流传输完成，正在无损封装')
@@ -199,23 +268,15 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
         if activity:
             activity.update(path=str(destination), actual_size_bytes=info['actual_size_bytes'], detail='视频已保存，正在处理字幕')
     except (Exception, KeyboardInterrupt) as exc:
-        try:
-            with library.video_transaction(settings, bvid) as current:
-                item = current.entry(video_id, part=part, quality=quality, variant=variant)
-                if item['status'] != 'completed':
-                    interrupted = isinstance(exc, (KeyboardInterrupt, DownloadCancelled)) or (cancel_event is not None and cancel_event.is_set())
-                    item.update(status='interrupted' if interrupted else 'failed', errors=[str(exc) or '用户中止'])
-                    current.save()
-        except (OSError, ToolError) as write_error:
-            exc.add_note(f'下载状态保存失败：{write_error}')
+        record_transfer_failure(video, settings, exc, cancel_event)
         raise
     for source in sources:
         source.unlink(missing_ok=True)
     cleanup = [staging, staging.parent, staging.parent.parent]
-    if record.mix_quality:
+    if video.mix_quality:
         cleanup.append(staging.parent.parent.parent)
     if info.get('episode_id') is not None:
-        cleanup.append(staging_root.parent.parent if not record.mix_quality else staging_root.parent.parent.parent)
+        cleanup.append(staging_root.parent.parent if not video.mix_quality else staging_root.parent.parent.parent)
     for directory in cleanup:
         try:
             directory.rmdir()
@@ -224,3 +285,21 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
             pass
     print(f'视频已保存（原编码，无重新编码）：{destination} · 实际大小 {media.format_size(info["actual_size_bytes"])}')
     return folder, stem
+
+
+def save_video(downloader: Any, info: dict[str, Any], settings: Settings, executable: str,
+               video_title: str, total_parts: int, *, source_cid: int, prepared: bool = False,
+               cancel_event: Event | None = None, activity: Activity | None = None,
+               size_tracker: media.StreamSizes | None = None) -> tuple[Path, str]:
+    """同步下载并后处理 info，返回媒体目录及前缀，供直接调用者复用同一阶段实现。
+
+    downloader 为下载器，settings/executable 控制下载与封装，video_title/total_parts 描述投稿。
+    source_cid 为正整数，prepared 表示已整理目录，cancel_event 控制取消；activity/size_tracker 可选。
+    批量流程分别调用 download_video/finish_video，由调度器独立限制两阶段并发。
+    """
+    video = download_video(downloader, info, settings, video_title, total_parts, source_cid=source_cid,
+                           prepared=prepared, cancel_event=cancel_event, activity=activity, size_tracker=size_tracker)
+    result = finish_video(video, settings, executable, cancel_event=cancel_event, activity=activity)
+    if video.existing is not None and activity:
+        activity.update('reused', detail='来源 CID、本地文件及格式一致，跳过重复传输')
+    return result

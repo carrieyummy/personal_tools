@@ -91,9 +91,9 @@ class FileSizeIntegrationTests(unittest.TestCase):
         """验证下载前取得预计大小，重复任务及再次运行复用共享实际大小，命令行与日志口径一致；无返回值。"""
         engine, source = self.engine, self.engine.ids[0]
         self.sizes[source + '_p1', 80] = {'filesize': 10_000_000}
-        original = workflow.run_jobs
+        original = workflow.run_pipeline
 
-        def run_jobs(*args: object, **kwargs: object) -> None:
+        def run_pipeline(*args: object, **kwargs: object) -> None:
             """派发 args/kwargs 前检查持久化计划，然后运行原调度器；无返回值。"""
             entries = engine.read_log()['runs'][-1]['entries']
             downloads = [entry for entry in entries if entry['kind'] == '下载']
@@ -103,7 +103,7 @@ class FileSizeIntegrationTests(unittest.TestCase):
             return original(*args, **kwargs)
 
         tasks = [{'url': source}, {'url': source}]
-        with patch.object(workflow, 'run_jobs', run_jobs):
+        with patch.object(workflow, 'run_pipeline', run_pipeline):
             self.assertEqual(engine.run_list(tasks), 0, engine.stderr.getvalue())
         entries = engine.read_log()['runs'][-1]['entries']
         downloads = [entry for entry in entries if entry['kind'] == '下载']

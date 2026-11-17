@@ -379,15 +379,15 @@ class DownloadTests(unittest.TestCase):
                 downloader.extract_info.side_effect = [{"id": f"BV1xx411c7mD_p{p}", "title": "test", 'formats': [
                     {'format_id': '80', 'quality': 80, 'url': 'https://example.com/video', 'ext': 'mp4',
                      'vcodec': 'avc1', 'acodec': 'none', 'width': 64, 'height': 64, 'fps': 5}]} for p in (1, 2, 1, 2)]
-                def save(_downloader: object, info: dict, _settings: object, _ffmpeg: str, _title: str, _total: int, **options: object) -> tuple[Path, str]:
-                    """检查传输前已有全部待下载条目，再模拟保存 info 分 P；其余参数对应下载配置，返回目录和前缀。"""
+                def save(_downloader: object, info: dict, _settings: object, _title: str, _total: int, **options: object) -> object:
+                    """检查传输前已有全部待下载条目，再模拟保存 info 分 P；其余参数对应下载配置，返回可供后处理的隔离替身。"""
                     pending = library.get_video_info(settings, "BV1xx411c7mD")
                     self.assertEqual({item["part"] for item in pending.data["files"]}, {1, 2})
                     self.assertTrue(all(item["status"] == "pending" for item in pending.data["files"]))
                     if failed and info["id"].endswith("p2"):
                         raise errors.ToolError("模拟失败")
-                    return self.folder / info["id"], "test"
-                with patch.object(configuration, "load_settings", return_value=settings), patch.object(media, "resolve_ffmpeg", return_value="ffmpeg"), patch.object(auth, "authenticated_session", return_value=session), patch.object(auth, "ensure_login", return_value={"uname": "test"}), patch.object(api, "resolve_targets", return_value=targets), patch.object(api, "api_json", return_value={"data": {"bvid": "BV1xx411c7mD", "title": "投稿标题", "owner": {"mid": 1, "name": "test"}}}), patch.object(download_service, "make_downloader", return_value=downloader), patch.object(subtitle_service, "list_subtitles", return_value=[]), patch.object(workflow, "print_video_info"), patch.object(download_service, "save_video", side_effect=save), patch.object(subtitle_service, "fetch_subtitles", return_value=[]), patch.object(merge_service, "merge_parts") as merge, patch.object(merge_service, "merge_groups", return_value=group_result) as groups:
+                    return MagicMock(info=info, existing=None, queued_bytes=lambda: 0)
+                with patch.object(configuration, "load_settings", return_value=settings), patch.object(media, "resolve_ffmpeg", return_value="ffmpeg"), patch.object(auth, "authenticated_session", return_value=session), patch.object(auth, "ensure_login", return_value={"uname": "test"}), patch.object(api, "resolve_targets", return_value=targets), patch.object(api, "api_json", return_value={"data": {"bvid": "BV1xx411c7mD", "title": "投稿标题", "owner": {"mid": 1, "name": "test"}}}), patch.object(download_service, "make_downloader", return_value=downloader), patch.object(subtitle_service, "list_subtitles", return_value=[]), patch.object(workflow, "print_video_info"), patch.object(download_service, "download_video", side_effect=save), patch.object(download_service, "finish_video", return_value=(self.folder, "test")), patch.object(subtitle_service, "fetch_subtitles", return_value=[]), patch.object(merge_service, "merge_parts") as merge, patch.object(merge_service, "merge_groups", return_value=group_result) as groups:
                     with patch.object(quality, 'choose_merge_quality', return_value=Quality(80, '1080P')), patch.object(quality, 'available_qualities', return_value={80: Quality(80, '1080P')}), patch.object(quality, 'confirm_ceiling', return_value=Quality(80, '1080P')), patch.object(quality, 'select_quality', side_effect=lambda _downloader, info, _quality: {**info, 'requested_formats': info['formats'], 'selected_quality': {'code': 80, 'name': '1080P'}}):
                         self.assertEqual(application.run(args), expected_exit)
                     self.assertEqual(merge.call_count, expected_merges)

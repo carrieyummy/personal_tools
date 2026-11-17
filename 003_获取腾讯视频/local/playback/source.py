@@ -100,7 +100,7 @@ def resolve(client: NativeClient, task: dict, selector: AudioSelector,
             raise PlaybackError(f"账号可完整获取的档位不足，无法选择第 {task['quality']} 档")
         video = video_info(data)
         available_audio = options(data, video, current)
-        audio = selector.select(cid, available_audio)
+        audio = selector.select(available_audio)
     else:
         current = expected.description["format"]
         audio = expected.audio

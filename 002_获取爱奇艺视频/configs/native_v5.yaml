@@ -18,3 +18,7 @@ rva:
   set_mode: 0x2880
   # 解密媒体数据的函数 RVA。
   decrypt: 0x20c0
+  # 当前 SDK 的 CENC 样本参数接口：上下文、IV、子样本数、网络字节序子样本表、表字节数。
+  set_cenc_sample: 0x1ea0
+# 当前版本原生调用方及实现核对的 CENC 模式；使用票据上下文，不导出票据中的密钥。
+cenc_mode: 6

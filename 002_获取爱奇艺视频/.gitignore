@@ -25,3 +25,6 @@ venv/
 
 # 调研下载的第三方参考仓库，包含其独立 Git 元数据；正式程序不依赖它们。
 /research/third_party/
+
+# 本机链接、播放缓存研究及媒体验证结果；不提交媒体及账号环境信息。
+/research/results/

@@ -19,7 +19,7 @@ from .native import NativeFingerprintMismatch, dll_digest, latest_dll
 from .native_compat import profile_lock, read_profile, update_digest
 from .process import probe_media, read_progress, run_process
 from .runtime import TaskCancelled, check_cancel
-from .storage import atomic_json, fingerprint, output_lock, publish
+from .storage import atomic_json, fingerprint, output_lock, publish, valid_digest
 from .workflow import extract
 
 
@@ -45,7 +45,7 @@ def source_state(config: dict, task: dict, cancel: Event) -> dict:
         current = discover(config, task["video_id"])
     except (ValueError, KeyError, OSError) as error:
         raise PendingDownload(str(error)) from error
-    if current != task:
+    if current != {key: value for key, value in task.items() if key != "release_date"}:
         raise ValueError("客户端记录发生变化")
     try:
         segments, duration = read_segments(task["folder"])
@@ -58,7 +58,7 @@ def source_state(config: dict, task: dict, cancel: Event) -> dict:
         fp = fingerprint(s["path"], config["copy_buffer_bytes"], force=True, cancel_event=cancel)
         values.append({"path": str(s["path"]), "size": fp["size_bytes"], "sha256": fp["sha256"]})
     playlist = fingerprint(task["folder"] / ".m3u8", config["copy_buffer_bytes"], force=True, cancel_event=cancel)
-    if discover(config, task["video_id"]) != task:
+    if discover(config, task["video_id"]) != {key: value for key, value in task.items() if key != "release_date"}:
         raise ValueError("指纹计算期间客户端记录发生变化")
     return {"segments": segments, "duration": duration, "sources": values, "playlist_sha256": playlist["sha256"]}
 
@@ -71,7 +71,7 @@ def same_source(left: dict, right: dict) -> bool:
 
 def index_path(config: dict, task: dict) -> Path:
     """按 config 的输出根目录和命名模板计算 task 的索引路径；task 须含 series/series_id，越界时报错。"""
-    name = series_directory_name(config, task["series"], task["series_id"])
+    name = series_directory_name(config, task["series"], task["series_id"], task["release_date"])
     folder = (config["output_path"] / name).resolve()
     if not folder.is_relative_to(config["output_path"]) or folder == config["output_path"]:
         raise ValueError("剧集输出目录越界")
@@ -86,8 +86,34 @@ def load_index(path: Path) -> dict:
     return result
 
 
-def reusable(config: dict, task: dict, state: dict, index: dict, cancel: Event) -> Path | None:
-    """检查 index 中 task 已验证成品与 state 来源；按 config 重算成品摘要，返回可复用路径或 None。"""
+def check_record(config: dict, location: Path, path: Path, item: dict, cancel: Event, lock: Lock) -> bool:
+    """按配置核对已登记成品 path；location 为索引、item 为记录，cancel 可取消，lock 保护索引；返回是否匹配。
+
+    快速检查仅信任已校验的大小和修改时间；旧记录或属性变化时重算摘要，成功后原子补充时间戳。
+    """
+    if not valid_digest(item.get("sha256")):
+        return False
+    cached = {"size_bytes": item.get("bytes"), "mtime_ns": item.get("mtime_ns"), "sha256": item["sha256"]}
+    actual = fingerprint(path, config["copy_buffer_bytes"], cached, force=config["reuse_check"] == "full", cancel_event=cancel)
+    if actual["sha256"] != item["sha256"]:
+        return False
+    if (item.get("bytes"), item.get("mtime_ns")) != (actual["size_bytes"], actual["mtime_ns"]):
+        with lock:
+            index = load_index(location)
+            for current in index["files"]:
+                if current == item:
+                    current.update(bytes=actual["size_bytes"], mtime_ns=actual["mtime_ns"])
+                    atomic_json(location, index)
+                    break
+                if current == {**item, "bytes": actual["size_bytes"], "mtime_ns": actual["mtime_ns"]}:
+                    break  # 同一旧记录可能已被另一个任务完成升级。
+            else:
+                return False
+    return True
+
+
+def reusable(config: dict, task: dict, state: dict, index: dict, cancel: Event, lock: Lock) -> Path | None:
+    """按配置检查 index 中 task 的来源和成品；cancel 可取消，lock 保护索引，返回可复用路径或 None。"""
     for item in reversed(index["files"]):
         if (item.get("source_type", "download") != "download"
                 or item.get("video_id") != task["video_id"] or item.get("fid") != task["fid"]
@@ -97,8 +123,7 @@ def reusable(config: dict, task: dict, state: dict, index: dict, cancel: Event) 
         path = (index_path(config, task).parent / item["file"]).resolve()
         if not path.is_relative_to(index_path(config, task).parent) or not path.is_file():
             continue
-        fp = fingerprint(path, config["copy_buffer_bytes"], force=True, cancel_event=cancel)
-        if fp["sha256"] == item.get("sha256"):
+        if check_record(config, index_path(config, task), path, item, cancel, lock):
             return path
     return None
 
@@ -304,7 +329,7 @@ class Batch:
                 state = source_state(config, task, cancel)
                 with self.index_lock:
                     index = load_index(index_path(config, task))
-                existing = reusable(config, task, state, index, cancel)
+                existing = reusable(config, task, state, index, cancel, self.index_lock)
                 if existing:
                     latest = source_state(config, task, cancel)
                     if not same_source(state, latest):
@@ -346,7 +371,7 @@ class Batch:
                 path = index_path(config, task)
                 with self.index_lock:
                     index = load_index(path)
-                existing = reusable(config, task, state, index, cancel)
+                existing = reusable(config, task, state, index, cancel, self.index_lock)
                 if existing:
                     report.update(status="reused", output=str(existing))
                     return report
@@ -362,15 +387,17 @@ class Batch:
                         with self.resource(entry, "source_check", self.check):
                             if not same_source(state, source_state(config, task, cancel)):
                                 raise ValueError("复制成品期间源文件或下载状态发生变化")
-                    publish(candidate, target, output_fp["sha256"], config["copy_buffer_bytes"],
-                            cancel_event=cancel, before_publish=check_before_publish)
+                    published_fp = publish(candidate, target, output_fp["sha256"], config["copy_buffer_bytes"],
+                                           cancel_event=cancel, before_publish=check_before_publish)
                     published = True
-                    index["files"].append({"source_type": "download", "video_id": task["video_id"], "fid": task["fid"], "file": target.name,
+                    record = {"source_type": "download", "video_id": task["video_id"], "fid": task["fid"], "file": target.name,
                                            "sources": state["sources"], "playlist_sha256": state["playlist_sha256"],
-                                           "sha256": output_fp["sha256"], "bytes": output_fp["size_bytes"],
+                                           "sha256": published_fp["sha256"], "bytes": published_fp["size_bytes"], "mtime_ns": published_fp["mtime_ns"],
                                            "verification": proof, "media": media, "created": datetime.now().astimezone().isoformat(),
-                                           "work_dir": str(work), "legacy": bool(legacy)})
+                                           "work_dir": str(work), "legacy": bool(legacy)}
                     with self.index_lock:
+                        index = load_index(path)
+                        index["files"].append(record)
                         atomic_json(path, index)
                 except BaseException:
                     if published:
@@ -392,9 +419,14 @@ class Batch:
         finally:
             atomic_json(work / "report.json", report)
 
+    def dispatch_stop_reason(self) -> str | None:
+        """返回批次故障导致的停止派发原因；默认无批次故障，由来源适配层覆盖。"""
+        return None
+
     def run(self, tasks: list[dict]) -> dict:
-        """对 tasks 执行有界流水线；逐项失败继续，取消回收任务；返回状态计数。"""
-        pending = iter((task, self.journal.add(task)) for task in tasks)
+        """对 tasks 执行有界流水线；单项失败继续，批次故障跳过未派发项，取消回收任务；返回状态计数。"""
+        # 派发前登记完整清单，等待中的任务也必须在页面可见。
+        pending = iter([(task, self.journal.add(task)) for task in tasks])
         active = {}
         summary = {"completed": 0, "reused": 0, "failed": 0, "interrupted": 0, "skipped": 0}
         self.summary = summary
@@ -403,6 +435,13 @@ class Batch:
             exhausted = False
             while active or not exhausted:
                 while not exhausted and len(active) < self.config["max_in_flight"]:
+                    reason = self.dispatch_stop_reason()
+                    if reason:
+                        exhausted = True
+                        for task, entry in pending:
+                            summary["skipped"] += 1
+                            self.journal.update(entry, status="skipped", detail=reason)
+                        break
                     try:
                         task, entry = next(pending)
                     except StopIteration:
@@ -449,21 +488,27 @@ def run_batch(config: dict) -> dict:
     """按 config 获取输出锁、自动验收变化的 DLL 并处理批次；返回汇总，故障保留记录并向上传播。"""
     with output_lock(config["output_path"]):
         tasks, skipped = discover_all(config)
+        from .premiere import add_cache_dates
+        tasks, date_errors = add_cache_dates(config, tasks)
         journal = Journal(config)
         print(f"实时日志：{journal.url}", flush=True)
-        summary = {"total": len(tasks) + len(skipped), "completed": 0, "reused": 0, "failed": 0,
+        summary = {"total": len(tasks) + len(skipped) + len(date_errors), "completed": 0, "reused": 0, "failed": len(date_errors),
                    "interrupted": 0, "skipped": len(skipped)}
         status = "failed"
         batch = Batch(config, journal)
         try:
-            try:
-                batch.ensure_native_compatibility(tasks)
-            except Exception:
-                summary["native_validation"] = "failed"
-                raise
             for item in skipped:
                 entry = journal.add(item)
                 journal.update(entry, status="skipped", detail=item["detail"])
+            for item in date_errors:
+                entry = journal.add(item)
+                journal.update(entry, status="failed", detail=item["detail"])
+            if tasks:
+                try:
+                    batch.ensure_native_compatibility(tasks)
+                except Exception:
+                    summary["native_validation"] = "failed"
+                    raise
             for key, count in batch.run(tasks).items():
                 summary[key] += count
             status = "warning" if summary["failed"] else "completed"

@@ -61,8 +61,8 @@ def run_process(command: list[str], log_path: Path, config: dict,
                 process.wait()
 
 
-def probe_media(config: dict, path: Path, log_path: Path, *, cancel_event: Event | None = None) -> dict:
-    """按 config 探测 path 的实际属性并保存 log_path；cancel_event 可取消；缺失属性写 null 与原因，返回字典。"""
+def probe_media(config: dict, path: Path, log_path: Path, *, cancel_event: Event | None = None, require_video: bool = True) -> dict:
+    """按 config 探测 path 并保存 log_path；cancel_event 可取消，require_video 控制纯音轨校验；返回属性与缺失原因。"""
     run_process([str(config["ffmpeg_path"]), "-hide_banner", "-nostdin", "-i", str(path),
                  "-map", "0:v:0?", "-map", "0:a:0?", "-t", "0", "-c", "copy", "-f", "null", "-"],
                 log_path, config, cancel_event=cancel_event)
@@ -80,4 +80,11 @@ def probe_media(config: dict, path: Path, log_path: Path, *, cancel_event: Event
         "audio_codecs": [line.split("Audio:", 1)[1].strip().split()[0].rstrip(",") for line in audio],
     }
     result["errors"] = [f"文件未提供 {key}" for key, value in result.items() if value is None or value == []]
+    if not require_video:
+        result["errors"] = [f"文件未提供 {key}" for key in ("duration_seconds", "audio_codecs") if result[key] is None or result[key] == []]
+    # FFmpeg 可能先打印解码器名，例如 av1 (libaom-av1) (Main)；编码档次是 FourCC 之前的最后一个描述。
+    descriptions = [value for value in re.findall(r"\(([^)]+)\)", video.split(",", 1)[0]) if "/" not in value and not value.startswith("lib")]
+    result["video_profile"] = descriptions[-1] if descriptions else None
+    result["pixel_format"] = next(iter(re.findall(r"\b((?:yuv|yuva|gbrp|rgb|gray)[a-z0-9]+)(?=[,( ])", video)), None)
+    result["audio_layouts"] = [match[1] if (match := re.search(r"\b\d+ Hz,\s*([^,]+)", line)) else None for line in audio]
     return result

@@ -4,23 +4,18 @@ from copy import deepcopy
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import mimetypes
 from pathlib import Path
-from threading import RLock, Thread
+import re
+from threading import Condition, RLock, Thread
 import time
+from urllib.parse import parse_qs, quote, urlsplit
 from uuid import uuid4
 
 from .storage import atomic_json, timestamp
 
 
-PAGE = """<!doctype html><html lang="zh"><meta charset="utf-8"><title>腾讯视频转换</title>
-<style>body{font:15px sans-serif;margin:2em;max-width:1000px}table{border-collapse:collapse;width:100%}
-td,th{border-bottom:1px solid #ddd;text-align:left;padding:.6em}pre{white-space:pre-wrap}</style>
-<h1>腾讯视频转换</h1><p id="info"></p><table><thead><tr><th>剧集</th><th>状态</th><th>阶段</th><th>进度</th><th>详情</th></tr></thead><tbody id="rows"></tbody></table>
-<script>const live=__LIVE__,interval=__INTERVAL__;let data=__DATA__;
-function render(d){document.getElementById('info').textContent='批次：'+d.id+'　状态：'+d.status+'　开始：'+d.started;
-const body=document.getElementById('rows');body.replaceChildren();for(const e of d.entries){let tr=document.createElement('tr');
-for(const v of [e.title||e.video_id,e.status,e.stage,e.progress==null?'':e.progress.toFixed(1)+'%',e.detail||'']){let td=document.createElement('td');td.textContent=v||'';tr.appendChild(td)}body.appendChild(tr)}}
-render(data);if(live)setInterval(()=>fetch('/state').then(r=>r.json()).then(render).catch(()=>{}),interval);</script></html>"""
+PAGE = Path(__file__).with_name("templates").joinpath("download_log.html").read_text(encoding="utf-8")
 
 
 class Journal:
@@ -29,6 +24,10 @@ class Journal:
     def __init__(self, config: dict):
         """按 config 创建 JSON 历史、本地 HTTP 服务和批次；记录格式损坏时拒绝覆盖。"""
         self.config, self.lock = config, RLock()
+        self.condition = Condition(self.lock)
+        self.clients = {}
+        self.receipts = set()
+        self.closed = False
         self.started_monotonic = time.monotonic()
         self.path = config["output_path"] / config["logging"]["state_file"]
         self.history = json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {"version": 1, "runs": []}
@@ -56,7 +55,7 @@ class Journal:
         self.url = f"http://127.0.0.1:{self.server.server_port}/"
 
     def handler(self):
-        """创建只提供本批次页面和状态的 HTTP 处理器，返回处理器类。"""
+        """创建回环页面、历史快照、终态确认和受限成品访问的处理器，返回处理器类。"""
         journal = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -67,29 +66,103 @@ class Journal:
                 return
 
             def do_GET(self):
-                """响应页面或状态请求；其他路径返回 404，无返回值。"""
-                with journal.lock:
-                    data = deepcopy(journal.run)
-                if self.path == "/":
-                    body, kind = journal.render(data, True).encode("utf-8"), "text/html; charset=utf-8"
-                elif self.path == "/state":
-                    body, kind = json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
+                """响应页面、快照、确认或已登记成品；拒绝外部 Host 和未知路径，无返回值。"""
+                if self.headers.get("Host") != urlsplit(journal.url).netloc:
+                    self.send_error(403)
+                    return
+                parsed = urlsplit(self.path)
+                query = parse_qs(parsed.query)
+                client = query.get("client", [""])[0]
+                attachment = None
+                if parsed.path == "/":
+                    client = uuid4().hex
+                    with journal.condition:
+                        journal.clients[client] = time.monotonic()
+                    body, kind = journal.render(journal.snapshot(), True, client).encode("utf-8"), "text/html; charset=utf-8"
+                elif parsed.path == "/state":
+                    with journal.condition:
+                        if client in journal.clients:
+                            journal.clients[client] = time.monotonic()
+                    body, kind = json.dumps(journal.snapshot(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
+                elif parsed.path == "/ack":
+                    with journal.condition:
+                        if not journal.closed or client not in journal.clients or query.get("run", [""])[0] != journal.run["id"]:
+                            self.send_error(409)
+                            return
+                    body, kind = b"{}", "application/json; charset=utf-8"
+                elif parsed.path == "/snapshot":
+                    body, kind = journal.render(journal.snapshot(), False).encode("utf-8"), "text/html; charset=utf-8"
+                    attachment = f"{Path(journal.config['logging']['html_file']).stem}_{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex[:8]}.html"
+                elif re.fullmatch(r"/files/\d+/\d+", parsed.path):
+                    run_index, entry_index = (int(item) for item in parsed.path.split("/")[2:])
+                    with journal.lock:
+                        try:
+                            entry = journal.history["runs"][run_index]["entries"][entry_index]
+                            target = Path(entry["output"]).resolve()
+                            root = journal.config["output_path"].resolve()
+                            allowed = entry.get("status") in ("completed", "reused") and target.is_relative_to(root) and target.is_file()
+                        except (IndexError, KeyError, TypeError, OSError, ValueError):
+                            allowed = False
+                    if not allowed:
+                        self.send_error(404)
+                        return
+                    try:
+                        with target.open("rb") as stream:
+                            self.send_response(200)
+                            self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
+                            self.send_header("Content-Length", str(target.stat().st_size))
+                            self.send_header("Cache-Control", "no-store")
+                            self.send_header("X-Content-Type-Options", "nosniff")
+                            self.end_headers()
+                            while chunk := stream.read(1024 * 1024):
+                                self.wfile.write(chunk)
+                    except (OSError, ConnectionError):
+                        pass
+                    return
                 else:
                     self.send_error(404)
                     return
                 self.send_response(200)
                 self.send_header("Content-Type", kind)
                 self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                if attachment:
+                    self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(attachment))
                 self.end_headers()
-                self.wfile.write(body)
+                try:
+                    self.wfile.write(body)
+                    self.wfile.flush()
+                    if parsed.path == "/ack":
+                        with journal.condition:
+                            journal.receipts.add(client)
+                            journal.condition.notify_all()
+                except (ConnectionError, OSError):
+                    pass
 
         return Handler
 
-    def render(self, data: dict, live: bool) -> str:
-        """将 data 转为安全自包含 HTML；live 控制是否定时刷新，返回页面字符串。"""
+    def snapshot(self) -> dict:
+        """返回历史的展示白名单快照；隐藏内部状态和来源对象，避免向页面泄露敏感数据。"""
+        with self.lock:
+            runs = []
+            for run_index, run in enumerate(self.history["runs"]):
+                item = {key: deepcopy(run[key]) for key in ("id", "started", "finished", "status", "summary", "elapsed_seconds", "authentication") if key in run}
+                item["entries"] = []
+                for entry_index, entry in enumerate(run["entries"]):
+                    row = {key: deepcopy(entry[key]) for key in ("video_id", "title", "groups", "status", "stage", "detail", "progress", "stages", "resources", "device", "output", "authentication") if key in entry}
+                    if row.get("status") in ("completed", "reused") and row.get("output"):
+                        row["file_url"] = f"/files/{run_index}/{entry_index}"
+                    item["entries"].append(row)
+                runs.append(item)
+            return {"runs": runs, "closed": self.closed, "current_id": self.run["id"], "captured_at": timestamp()}
+
+    def render(self, data: dict, live: bool, client: str = "") -> str:
+        """将白名单 data 渲染为自包含 HTML；live 启用轮询，client 是服务生成的页面标识。"""
         payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-        return PAGE.replace("__DATA__", payload).replace("__LIVE__", "true" if live else "false").replace(
-            "__INTERVAL__", str(int(self.config["logging"]["refresh_interval_seconds"] * 1000)))
+        return PAGE.replace("__LIVE__", "true" if live else "false").replace(
+            "__INTERVAL__", str(int(self.config["logging"]["refresh_interval_seconds"] * 1000))).replace(
+            "__CLIENT__", json.dumps(client)).replace("__DATA__", payload)
 
     def save(self) -> None:
         """将当前历史原子保存并更新写盘时间，无返回值；调用者持有锁。"""
@@ -97,10 +170,12 @@ class Journal:
         self.last_write = time.monotonic()
 
     def add(self, task: dict) -> dict:
-        """为任务 task 新增进度条目，返回该条目；task 必须包含 video_id 和 title。"""
+        """为任务 task 新增进度条目并保留 URL 分组，返回条目；task 必须包含 video_id。"""
         with self.lock:
             entry = {"video_id": task["video_id"], "title": task.get("title", task["video_id"]),
                      "status": "pending", "stage": "", "detail": "", "progress": None, "stages": {}, "resources": {}}
+            if "groups" in task:
+                entry["groups"] = deepcopy(task["groups"])
             self.run["entries"].append(entry)
             self.save()
             return entry
@@ -143,11 +218,23 @@ class Journal:
                 self.run.update(status=status, summary=summary, finished=timestamp(),
                                 elapsed_seconds=round(time.monotonic() - self.started_monotonic, 3))
                 self.save()
-                snapshot = deepcopy(self.run)
+                self.closed = True
+                snapshot = self.snapshot()
             base = Path(self.config["logging"]["html_file"]).stem
             path = self.path.parent / f"{base}_{datetime.now():%Y%m%d_%H%M%S}_{self.run['id'][:8]}.html"
             with path.open("x", encoding="utf-8") as stream:
                 stream.write(self.render(snapshot, False))
+            with self.condition:
+                timeout = self.config["logging"]["final_state_timeout_seconds"]
+                cutoff = time.monotonic() - max(timeout, self.config["logging"]["refresh_interval_seconds"])
+                active = {client for client, seen in self.clients.items() if seen >= cutoff}
+                deadline = time.monotonic() + timeout
+                while active - self.receipts:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        print("等待页面确认最终状态超时，请查看离线报告。", flush=True)
+                        break
+                    self.condition.wait(remaining)
             return path
         finally:
             self.server.shutdown()

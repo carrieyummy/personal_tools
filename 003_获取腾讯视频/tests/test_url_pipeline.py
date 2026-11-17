@@ -10,11 +10,12 @@ import tempfile
 from threading import Thread, Event
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from local.batch import load_index
 from local.playback.application import UrlBatch, task_index
 from local.playback.audio import AudioOption
+from local.playback.client import NativeClient
 from local.playback.errors import PlaybackError, SourceChanged
 from local.playback.hls import parse_media
 from local.playback.source import Resolved
@@ -81,7 +82,7 @@ class UrlPipelineTests(unittest.TestCase):
         self.config["decode_verification"] = {"cpu": True, "gpu": False}
         self.config["network"]["proxy"] = ""  # 回环测试强制直连，隔离用户实网代理。
         self.task = {"source_type": "url", "series_id": "cover", "video_id": "video", "series": "合成剧",
-                     "title": "合成集", "index": 1, "quality": self.config["download"]["quality"], "note": ""}
+                     "title": "合成集", "index": 1, "quality": self.config["download"]["quality"], "note": "", "release_date": "2020-02-03"}
         content = (self.root / "media/sample.m3u8").read_text(encoding="utf-8")
         manifest = parse_media(content, f"http://127.0.0.1:{self.server.server_port}/sample.m3u8")
         audio = AudioOption("original", "原始音轨", False, True, 0, "original")
@@ -112,8 +113,24 @@ class UrlPipelineTests(unittest.TestCase):
         self.assertEqual(old.read_bytes(), b"old cached output")
         records = load_index(index)["files"]
         self.assertEqual(len(records), 2)
+        self.assertEqual(records[-1]["mtime_ns"], (index.parent / records[-1]["file"]).stat().st_mtime_ns)
         self.assertEqual(records[-1]["media"]["fps"], self.source.description["format"]["vfps"])
         self.assertTrue(records[-1]["media"]["audio_streams"])
+
+    def test_queue_size_matches_downloaded_segment_files(self):
+        """等待队列的大小来自实际视频和音轨分片，而不是清单估计或工作目录的其他文件。"""
+        batch = self.batch()
+        steps = batch._job_steps(self.task, batch.journal.add(self.task))
+        with patch("local.playback.application.resolve", return_value=self.source):
+            try:
+                stage, size = next(steps)
+                work = self.config["work_dir"] / "url" / self.task["series_id"] / self.task["video_id"] / self.source.identity
+                actual = sum(path.stat().st_size for path in work.glob("track_*/*.bin"))
+                self.assertEqual(stage, "ready")
+                self.assertGreater(actual, 0)
+                self.assertEqual(size, actual)
+            finally:
+                steps.close()
 
     def test_validation_failure_keeps_resume_and_retry_uses_it(self):
         """验证失败不得发布；重跑复用逐片 SHA256 通过的断点，不重复网络下载，媒体日志使用独立目录。"""
@@ -176,3 +193,52 @@ class UrlPipelineTests(unittest.TestCase):
             result = self.batch().run([self.task])
         self.assertEqual(result["failed"], 1)
         self.assertFalse(task_index(self.config, self.task).exists())
+
+    def authentication_batch(self, accepted_after_refresh: bool) -> tuple[UrlBatch, Mock]:
+        """构造复核阶段认证替身；accepted_after_refresh 控制重读后是否恢复，返回批次及原始请求 Mock。"""
+        credentials = {"tokens": {"vuserid": "synthetic-account", "vusession": "old-session"}, "app_version": "test"}
+        client = NativeClient(self.config, user=credentials)
+        client.authentication.loader = Mock(return_value={**credentials, "tokens": {**credentials["tokens"], "vusession": "new-session"}})
+        settings = self.config["playback"]["playback"]
+        def response(*args, **kwargs):
+            """为 args/kwargs 的同源请求按当前登录代次返回最小授权响应。"""
+            accepted = accepted_after_refresh and kwargs["snapshot"].generation > 1
+            return {"code": float(settings["success_codes"][0]),
+                    "login": settings["authenticated_states"][0] if accepted else -1,
+                    "vl": {"vi": [{"vid": self.task["video_id"]}]}}
+        client.raw_source = Mock(side_effect=response)
+        return UrlBatch(self.config, MemoryJournal(), client=client), client.raw_source
+
+    def test_authentication_refresh_after_decode_continues_publication(self):
+        """下载解码完成后复核遭拒时重读恢复，直接继续发布，不重新下载或降档。"""
+        batch, raw = self.authentication_batch(True)
+        def resolved(client, task, selector, *, expected=None):
+            """首轮直接返回样本，expected 存在时用 client/task 复核认证；selector 保留正式接口。"""
+            if expected is not None:
+                client.source(task["series_id"], task["video_id"], "same-definition", {"audio_track": "same-audio"})
+            return self.source
+        before = self.server.requests
+        with patch("local.playback.application.resolve", side_effect=resolved):
+            result = batch.run([self.task])
+        self.assertEqual(result["completed"], 1)
+        self.assertEqual(self.server.requests - before, len(self.source.manifests[0].resources))
+        self.assertEqual(batch.authentication.diagnostics()["recoveries"], 1)
+        self.assertEqual(raw.call_count, 3)  # 一次被拒、一次恢复，以及发布前再复核。
+        self.assertTrue(task_index(self.config, self.task).exists())
+        self.assertEqual(batch.journal.entries[0]["authentication"]["recoveries"], 1)
+
+    def test_authentication_failure_after_decode_keeps_download_and_candidate(self):
+        """复核认证恢复耗尽时不发布，完整分片和解码后的候选文件保留供重新运行。"""
+        batch, raw = self.authentication_batch(False)
+        def resolved(client, task, selector, *, expected=None):
+            """只在 expected 指定的复核阶段通过 client 请求 task；selector 保留正式接口，返回样本。"""
+            if expected is not None:
+                client.source(task["series_id"], task["video_id"])
+            return self.source
+        with patch("local.playback.application.resolve", side_effect=resolved):
+            result = batch.run([self.task])
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(raw.call_count, 1 + self.config["authentication"]["recovery_attempts"])
+        self.assertFalse(task_index(self.config, self.task).exists())
+        self.assertTrue(list(self.config["work_dir"].rglob("segments.json")))
+        self.assertTrue(list(self.config["work_dir"].rglob("candidate_*.partial.mp4")))

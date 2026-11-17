@@ -1,6 +1,7 @@
 """解析腾讯清单及官方分页选集；仅展开可识别集序的已上线正片，不混入速通版或花絮。"""
 
 from dataclasses import dataclass
+from datetime import date
 import json
 from pathlib import Path
 import re
@@ -83,6 +84,25 @@ def children(card: dict) -> list[dict]:
     return [item for group in groups.values() for item in group["cards"]]
 
 
+def premiere_date(page: dict, settings: dict, series_id: str, series: str) -> str:
+    """读取 page 中 settings 指定的整剧简介；series_id/series 核验来源，返回真实 YYYY-MM-DD 上映日期，缺失或冲突时报错。"""
+    introductions = cards(page, settings["introduction_card"])
+    if len(introductions) != 1 or introductions[0].get("params", {}).get("mod_title") != series:
+        raise PlaybackError("腾讯整剧简介与剧名不一致")
+    rows = children(introductions[0])
+    matches = [row.get("params", {}) for row in rows if row.get("params", {}).get("report.cid") == series_id]
+    if len(matches) != 1 or matches[0].get("title") != series:
+        raise PlaybackError("腾讯整剧简介缺少唯一匹配的剧名或编号")
+    value = matches[0].get("broadcast_time")
+    try:
+        if not isinstance(value, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
+            raise ValueError
+        date.fromisoformat(value)
+    except ValueError:
+        raise PlaybackError("腾讯整剧首次上映日期缺失或格式无效") from None
+    return value
+
+
 def catalog(client: NativeClient, request: Request) -> list[dict]:
     """展开 client 中 request 的全部选集分组和分页；返回按集序排列的正片任务，重复页或矛盾记录报错。"""
     cid, vid = request.series_id, request.video_id
@@ -97,6 +117,7 @@ def catalog(client: NativeClient, request: Request) -> list[dict]:
     if not introductions or not introductions[0]["params"].get("mod_title"):
         raise PlaybackError("选集接口缺少源站剧名")
     series = introductions[0]["params"]["mod_title"]
+    release_date = premiere_date(page, settings, cid, series)
     modules = cards(page, settings["episode_card"])
     if len(modules) != 1:
         raise PlaybackError("需要唯一的正片选集模块")
@@ -135,7 +156,7 @@ def catalog(client: NativeClient, request: Request) -> list[dict]:
                 raise PlaybackError("选集条目的 cid/vid 不一致")
             task = {"series_id": cid, "video_id": params["vid"], "series": series,
                     "title": params["play_title"], "index": int(index), "quality": request.quality,
-                    "note": request.note, "source_type": "url"}
+                    "note": request.note, "source_type": "url", "release_date": release_date}
             previous = result.get(task["video_id"])
             if previous is not None and previous != task:
                 raise PlaybackError("同一视频的选集元数据冲突")
@@ -154,10 +175,15 @@ def catalog(client: NativeClient, request: Request) -> list[dict]:
 
 
 def discover(client: NativeClient, values: list[Request]) -> tuple[list[dict], list[dict]]:
-    """按 values 顺序展开并去重；client 查询目录；返回任务及失败请求，重复参数冲突中止批次。"""
+    """用 client 按 values 展开并去重，保留各 URL 分组；返回任务及失败请求，重复画质冲突中止。"""
     tasks, failed, seen = [], [], {}
     from .errors import AuthenticationError
-    for request in values:
+    for request_index, request in enumerate(values):
+        # 仅重建公开播放 URL，避免把分享链接中的临时查询参数写入报告。
+        url = (f"https://v.qq.com/x/cover/{request.series_id}"
+               + (f"/{request.video_id}" if request.video_id else "") + ".html"
+               if request.series_id else f"https://v.qq.com/x/page/{request.video_id}.html")
+        group = {"id": str(request_index), "title": request.note, "url": url}
         try:
             episodes = catalog(client, request)
         except AuthenticationError:
@@ -165,14 +191,16 @@ def discover(client: NativeClient, values: list[Request]) -> tuple[list[dict], l
         except (PlaybackError, KeyError, TypeError, ValueError) as error:
             from .transport import safe_message
             failed.append({"video_id": request.video_id or request.series_id, "title": request.note,
-                           "detail": safe_message(error)})
+                           "detail": safe_message(error), "groups": [group]})
             continue
         for task in episodes:
             key = task["series_id"], task["video_id"]
             if key in seen:
-                if seen[key] != task["quality"]:
+                if seen[key]["quality"] != task["quality"]:
                     raise PlaybackError("重复视频的 quality 冲突")
+                seen[key]["groups"].append({**group, "title": request.note or task["series"]})
                 continue
-            seen[key] = task["quality"]
+            task["groups"] = [{**group, "title": request.note or task["series"]}]
+            seen[key] = task
             tasks.append(task)
     return tasks, failed

@@ -36,7 +36,9 @@ class Settings:
     socket_timeout: float
     all_parts: bool
     all_seasons: bool  # 番剧展开原站关联季，每季下载全部正片；普通投稿不受影响。
-    threads: int
+    threads: int  # 原始流下载并发上限，不包含封装、字幕和拼接。
+    queue_capacity_gb: float  # 已下载且等待后处理的流容量，按 1024³ 字节换算。
+    max_in_flight: int  # 封装、字幕及投稿拼接收尾共用的并发上限。
     mix_quality: bool
     priority: str
     subtitle_languages: list[str]
@@ -92,6 +94,7 @@ def load_settings(path: Path) -> Settings:
             socket_timeout=download["socket_timeout_seconds"], all_parts=download["all_parts"],
             all_seasons=download['all_seasons'],
             threads=download['threads'],
+            queue_capacity_gb=download['queue_capacity_gb'], max_in_flight=config['max_in_flight'],
             mix_quality=download['mix_quality'],
             priority=download['priority'],
             subtitle_languages=subtitles["languages"], include_ai=subtitles["include_ai"],
@@ -121,6 +124,13 @@ def load_settings(path: Path) -> Settings:
         raise ToolError('download.http_chunk_size_bytes 必须为大于或等于 0 的整数')
     if type(settings.threads) is not int or settings.threads < 1:
         raise ToolError('download.threads 必须为正整数')
+    if type(settings.max_in_flight) is not int or settings.max_in_flight < 1:
+        raise ToolError('max_in_flight 必须为正整数')
+    capacity = settings.queue_capacity_gb
+    if (isinstance(capacity, bool) or not isinstance(capacity, (int, float))
+            or not math.isfinite(capacity) or capacity < 1 / 1024**3
+            or not math.isfinite(capacity * 1024**3)):
+        raise ToolError('download.queue_capacity_gb 必须为有限正数且至少为 1 字节')
     if type(settings.mix_quality) is not bool:
         raise ToolError('download.mix_quality 必须为 true 或 false')
     if settings.priority not in ('quality', 'merge'):

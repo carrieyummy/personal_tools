@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from threading import Event, Thread
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import urlopen
 from unittest.mock import patch
 
@@ -64,7 +65,8 @@ class LogTests(ProjectCase):
                 with urlopen(journal.url + "api/state") as response:
                     state = json.load(response)
                 self.assertEqual(state["runs"][-1]["entries"][0]["status"], "running")
-                with urlopen(journal.url + "files/series/episode.mp4") as response:
+                relative = task.target.relative_to(self.output.resolve()).as_posix()
+                with urlopen(journal.url + "files/" + quote(relative)) as response:
                     self.assertEqual(response.read(), b"media")
                 with self.assertRaises(HTTPError) as error:
                     urlopen(journal.url + "files/../fixture.yaml")

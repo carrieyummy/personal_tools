@@ -53,6 +53,9 @@ playback:
   success_codes: ['0.0']
   authenticated_states: [1, 2, 3]
   full_video_states: [2]
+  # 仅接口的明确认证状态触发登录恢复；接口 403/410 仍按接口失败处理，不等同账号失效。
+  authentication_http_codes: [401]
+  # 以下状态用于媒体清单/分片失效后的同源地址续签。
   expired_http_codes: [401, 403, 410]
   # 同一选定码流的 HTTP CDN 类型优先级；不切换画质、编码或音质。
   # 原生 LTS 节点优先级靠后，普通 HTTP 下载优先使用标准 CDN。

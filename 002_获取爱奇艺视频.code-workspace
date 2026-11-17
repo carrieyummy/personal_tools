@@ -13,6 +13,9 @@
         },
         {
             "path": "E:/qycache"
+        },
+        {
+            "path": "Z:/003_电视剧"
         }
     ],
     "settings": {
@@ -32,6 +35,45 @@
     "launch": {
         "version": "0.2.0",
         "configurations": [
+            {
+                "name": "爱奇艺：链接下载",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:002_获取爱奇艺视频}/download_iqiyi.py",
+                "cwd": "${workspaceFolder:002_获取爱奇艺视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：引用链接清单、主配置和当前客户端播放 SDK 适配；客户端打开任意正片暂停一次即可。
+                    "--config", "${workspaceFolder:002_获取爱奇艺视频}/configs/playback.yaml"
+                    // 可选：只处理某个清单下标，从 0 开始，可重复指定；仍遵循 all-parts。
+                    // , "--index", "0"
+                    // 可选：过滤展开后的正整数集序，可重复指定，不能扩展 all-parts=false 的任务。
+                    // , "--episode", "1"
+                    // 可选：仅解析公开正片目录，不请求播放会话或下载媒体。
+                    // , "--plan"
+                ]
+            },// python download_iqiyi.py --config configs/playback.yaml
+            {
+                "name": "爱奇艺：研究链接播放会话",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:002_获取爱奇艺视频}/research/probe_playback.py",
+                "cwd": "${workspaceFolder:002_获取爱奇艺视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：读取播放会话、网络、采样、并发及客户端适配的专项 YAML。
+                    "--config", "${workspaceFolder:002_获取爱奇艺视频}/configs/playback.yaml",
+                    // 必填：当前 download_list 列表下标，从 0 开始，按实际配置调整。
+                    "--index", "0"
+                    // 可选且互斥：按任务 quality 验证短段；或完整获取链接指定集并验证后发布到主配置 output_path。
+                    // , "--sample-media"
+                    // , "--full-media"
+                ]
+            },
             {
                 "name": "爱奇艺：批量转换 QSV",
                 "type": "debugpy",

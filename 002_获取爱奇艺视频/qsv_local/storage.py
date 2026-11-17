@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import tempfile
 import uuid
+import time
 from threading import Event
 
 from .runtime import check_cancel
@@ -68,8 +69,8 @@ def read_json(path: Path) -> dict:
     return data
 
 
-def atomic_json(path: Path, data: dict) -> None:
-    """在 path 同目录独占创建临时文件并原子替换；data 为可序列化字典，失败清理临时文件。"""
+def atomic_json(path: Path, data: dict, *, retry_settings: dict | None = None, cancel_event: Event | None = None) -> None:
+    """在 path 同目录原子保存 data；retry_settings 可提供日志配置中的占用重试次数/间隔，cancel_event 可取消；失败清理临时文件。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -78,7 +79,20 @@ def atomic_json(path: Path, data: dict) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.replace(path)
+        attempts = 1 + (retry_settings["write_retries"] if retry_settings else 0)
+        for attempt in range(attempts):
+            check_cancel(cancel_event)
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError:
+                if attempt + 1 == attempts:
+                    raise
+                interval = retry_settings["write_retry_interval_seconds"]
+                if cancel_event is None:
+                    time.sleep(interval)
+                else:
+                    cancel_event.wait(interval)
     finally:
         temporary.unlink(missing_ok=True)
 

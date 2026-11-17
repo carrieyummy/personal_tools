@@ -2,29 +2,64 @@
 # url：读取链接清单联网下载；download：还原客户端已完成下载的缓存。
 # URL 模式需保持一个已登录且 SDK 已初始化的腾讯播放器运行；先在客户端播放一集已授权正片。
 source: url
+# URL 模式使用的下载清单文件。
 default_list: '../download_list/download_list.yaml'
+# URL 模式使用的播放协议、选集接口及登录态专项配置文件。
 playback_profile: 'native_playback.yaml'
+# URL 下载参数；清单中的设置可覆盖画质和整剧选择。
 download:
   # 每集单独排名，1 为最高；指定档位不可用时失败，不降档。
   quality: 1
+  # true 下载链接对应整剧的已上线正片；false 仅下载链接指定的视频。
   all_parts: true
-  threads: 4
+  # 下载任务的并发线程数上限，须为正整数；每集解析和下载共用一个名额，分片按顺序下载。
+  threads: 5
+  # 已下载、等待后处理的分片容量；1 GB = 1024³ 字节，单集超限时允许独占队列。
+  queue_capacity_gb: 20
+  # 单个分片传输失败后的最大重试次数；0 表示不重试。
   retries: 3
+  # 媒体地址过期后的续签次数上限；来源变化时也限制重新解析次数，须为正整数。
   refresh_attempts: 3
+# URL 模式的登录态刷新和认证恢复参数。
+authentication:
+  # 按请求检查快照年龄，到期后从客户端只读重读；这是主动重读间隔，不代表票据有效期。
+  refresh_interval_seconds: 300
+  # 明确认证拒绝后的重读及原请求重试次数；并发任务共用恢复结果，耗尽后停止派发并保留断点。
+  recovery_attempts: 1
+# URL 模式的音质选择参数。
 audio:
-  prefer_vip: true
-  # 普通与 VIP 去重后的音质选项合计超过此数量时必须交互选择。
-  prompt_above: 2
+  # 仅对当前账号可下载的原始音源排名：1 为最高，2 为次高；播放器滤镜不参与，档位不足时报错。
+  quality: 1
+# 最大后处理剧集数（缓存模式为最大在途数）；封装、来源检查和发布各一个槽，每个启用设备各一个槽。
+max_in_flight: 4
+# 单个外部进程的超时时间，单位为秒，须为正整数。
+process_timeout_seconds: 3600
+# 文件读取、复制和哈希计算的缓冲区大小，单位为字节，须为正整数且小于 2^31。
+copy_buffer_bytes: 4194304
+# 解码结束时间与清单时长的最大允许差值（秒）。
+duration_tolerance_seconds: 2
+# 成功后是否保留还原的 TS；失败现场和验证日志始终保留。
+keep_intermediates: false
+# URL 模式的媒体规格验证参数。
 verification:
   # 原生档位与实际码流允许的帧率差，兼容 59.94/60 等标称差异。
   fps_tolerance: 0.1
+# 已登记成品复用检查：fast 比较大小和修改时间；full 每次重算 SHA-256。
+# 旧记录缺少修改时间或文件属性变化时，fast 也会完整校验一次。
+reuse_check: fast
+# URL 模式的网络请求参数。
 network:
   # 空字符串强制直连，不继承环境代理。
   proxy: ''
+  # 网络请求超时及单个分片传输总超时，单位为秒，须为正整数。
   timeout_seconds: 30
+  # 接口及播放清单等文本响应的大小上限，单位为字节，须为正整数。
   max_response_bytes: 16000000
+  # 网络请求使用的 HTTP 请求头。
   headers:
+    # 向服务器标识客户端的 User-Agent 请求头。
     User-Agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/135.0.0.0 Safari/537.36'
+    # 向服务器标识请求来源页面的 Referer 请求头。
     Referer: 'https://v.qq.com/'
 # 腾讯视频客户端下载缓存的根目录。
 input_root: 'E:/QLDownload'
@@ -39,10 +74,13 @@ selection:
 # 成品和运行记录输出目录；download 模式必须位于客户端下载根目录之外。
 output_path: 'Z:/003_电视剧'
 # 电视剧目录命名；title 为源站剧名，series_id 为 URL 的 cid 或下载记录中的 vbarid。
-# 两个占位符均须保留，目录名不能包含空白或路径分隔符；平台标记在模板中维护。
+# 三个占位符均须保留，目录名不能包含空白或路径分隔符；平台标记在模板中维护。
 naming:
-  series_template: '{title}_wetv_{series_id}'
-  episode_template: '{index:03d}_{title}_{quality}_{audio}_{video_id}'
+  # 电视剧目录名模板；release_date 为源站整剧首次上映日期，格式 YYYY-MM-DD。
+  series_template: '{release_date}_{title}_wetv_{series_id}'
+  # URL 成品文件名模板，须包含 index、title、quality、audio，可选 video_id。
+  episode_template: '{index:03d}_{title}_{quality}_{audio}'
+  # URL 成品文件名中标题的最大字符数，须为正整数。
   max_title_length: 60
 # 中间文件工作目录，与输出目录独立；download 模式还须位于客户端下载根目录之外。
 work_dir: 'E:/QLRestore/work'
@@ -56,22 +94,14 @@ decode_verification:
   cpu: true
   # 是否使用 GPU 进行完整解码验证；至少启用一个设备。
   gpu: true
-# 最大在途剧集数；还原、封装、来源检查和发布各一个槽，每个启用设备各一个槽。
-max_in_flight: 4
-# 单个外部进程的超时时间，单位为秒，须为正整数。
-process_timeout_seconds: 3600
-# 文件读取、复制和哈希计算的缓冲区大小，单位为字节，须为正整数且小于 2^31。
-copy_buffer_bytes: 4194304
-# 解码结束时间与清单时长的最大允许差值（秒）。
-duration_tolerance_seconds: 2
-# 成功后是否保留还原的 TS；失败现场和验证日志始终保留。
-keep_intermediates: false
 # 本机页面和运行记录；文件名相对 output_path。
 logging:
   # 本机进度页面监听端口；0 表示由系统分配端口。
   port: 0
   # 进度页面自动刷新的间隔，单位为秒，须大于 0。
   refresh_interval_seconds: 2
+  # 结束后等待活跃页面确认最终状态的最长时间，单位为秒。
+  final_state_timeout_seconds: 5
   # 采样和写入进度的间隔，单位为秒，须大于 0。
   progress_interval_seconds: 1
   # 运行状态记录文件名。

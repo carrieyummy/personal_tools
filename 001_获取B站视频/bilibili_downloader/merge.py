@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from . import models
+from . import models, metadata
 from . import naming
 from . import library, provenance
 from . import quality as qualities
@@ -307,20 +307,40 @@ def _merge_parts(settings: Settings, executable: str, record: VideoInfo,
         if "non-monoton" in result.stderr.lower():
             print("FFmpeg 报告时间戳不连续，请检查拼接点的播放效果。")
         library.cache_source_fingerprints(settings, record, ordered)
-        merged = merged_index.register(record, {
-            'id': entry_id, 'kind': 'merged', 'part': None,
-            'title': title, 'status': 'pending', 'errors': [], 'formats': ordered[0][1]['formats'],
-            'processing': 'stream copy', 'source_parts': list(sequence), 'quality_id': quality.code,
-            'quality_name': quality.name, 'quality_dir': record.quality_suffix(quality), 'source_snapshot': snapshot,
-            'base_stem': base_stem, 'mix_quality': record.mix_quality,
-            'source_entries': [item['id'] for _, item in ordered],
-        }, destination)
+        # 媒体探测在记录锁外完成；发布时重读共享索引，保留并发投稿写入的成品和结果。
+        attributes = dict.fromkeys(('duration_seconds', 'width', 'height', 'fps', 'video_codec', 'audio_codec'))
+        attributes['errors'] = []
+        try:
+            attributes.update(metadata.probe_media(executable, output))
+        except (OSError, ToolError) as error:
+            attributes['errors'] = [str(error)]
+        check_cancel()
+        with record_io_lock:
+            merged_index = MergedVideoInfo(record.output_dir, folder)
+            latest = next((item for item in merged_index.data['files'] if item['id'] == entry_id), None)
+            # 两个收尾任务可能同时开始处理同一目标；关闭覆盖时复用先发布的同源成品。
+            if (not settings.overwrite_merged and latest is not None
+                    and latest.get('source_parts') == list(sequence) and latest.get('source_snapshot') == snapshot
+                    and latest.get('status') == 'completed' and latest.get('path') == destination.name
+                    and destination.is_file() and destination.stat().st_size > 0
+                    and latest.get('size_bytes') == destination.stat().st_size):
+                return destination, True, '来源相同，复用并发任务已保存的合并成品'
+            merged = merged_index.register(record, {
+                'id': entry_id, 'kind': 'merged', 'part': None,
+                'title': title, 'status': 'pending', 'errors': [], 'formats': ordered[0][1]['formats'],
+                'processing': 'stream copy', 'source_parts': list(sequence), 'quality_id': quality.code,
+                'quality_name': quality.name, 'quality_dir': record.quality_suffix(quality), 'source_snapshot': snapshot,
+                'base_stem': base_stem, 'mix_quality': record.mix_quality,
+                'source_entries': [item['id'] for _, item in ordered],
+            }, destination)
 
-        def commit() -> None:
-            """持久化合并完成状态并从最终文件探测媒体参数；失败由事务回滚，无参数及返回值。"""
-            merged_index.complete(merged, destination, executable)
+            def commit() -> None:
+                """在文件事务内保存成品属性与锁外取得的探测结果；失败回滚，无参数及返回值。"""
+                merged_index.record_file(merged, destination)
+                merged.update(attributes)
+                merged_index.save()
 
-        replaced = replace_file_transaction(record.output_dir, output, destination, [merged_index.path], commit)
+            replaced = replace_file_transaction(record.output_dir, output, destination, [merged_index.path], commit)
     if merged['errors']:
         print(f"合并视频信息提示：{destination}：" + '；'.join(merged['errors']))
     print(f"{'同名合并结果已覆盖' if replaced else '分 P 已拼接'}（原编码）：{destination}")

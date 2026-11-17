@@ -19,7 +19,7 @@ import download_bilibili as cli
 def main() -> int:
     """读取测试目录、场景和本地 URL，运行真实入口并记录剩余线程；返回 CLI 退出码，无参数。"""
     root, mode, url = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-    settings = replace(config.load_settings(CONFIG_PATH), output_dir=root,
+    settings = replace(config.load_settings(CONFIG_PATH), output_dir=root, threads=2, max_in_flight=1,
                        log_refresh_interval=0.1, cancel_poll_interval=0.05)
 
     def operation(args: object, settings: config.Settings, journal: object) -> int:
@@ -71,8 +71,22 @@ def main() -> int:
                 signal.raise_signal(signal.SIGINT)
             return job
 
-        scheduler.run_jobs([1, 2] if mode == 'sigint' else [1], settings.threads,
-                           prepare, execute, lambda *values: None, controller.event)
+        from collections import deque
+
+        def download(job: int, event: object) -> tuple[int, int]:
+            """对 job/event 执行网络或 SIGINT 下载场景；媒体场景留给后处理，返回编号及零队列字节。"""
+            if mode != 'media':
+                execute(job, event)
+            return job, 0
+
+        def process(value: tuple[int, int], event: object) -> int:
+            """对 value/event 执行媒体后处理场景，其他模式直接返回编号。"""
+            return execute(value[0], event) if mode == 'media' else value[0]
+
+        scheduler.run_pipeline([1, 2] if mode == 'sigint' else [1], settings,
+                               prepare, download, process, lambda *values: None, controller.event,
+                               downloaded_size=lambda value: value[1], waiting=lambda *values: None,
+                               finishers=deque())
         return 0
 
     with patch.object(config, 'load_settings', return_value=settings), patch.object(application, 'run_with_settings', side_effect=operation):

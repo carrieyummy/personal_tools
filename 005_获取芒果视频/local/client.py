@@ -121,6 +121,16 @@ class NativeClient:
         self.config, self.profile, self.cancel = config, config["profile"], cancel
         self.transport = Transport(config["network"], self.profile["status"]["expired_http_codes"], cancel)
         self.auth_lock = Lock()
+        self.series_dates: dict[str, str] = {}
+        self.series_date_lock = Lock()
+
+    def series_release_date(self, clip_id: str) -> str:
+        """读取 clip_id 对应的官方整剧上映日期；按当前客户端实例缓存，返回 YYYY-MM-DD，不推测缺失日期。"""
+        from .series import read_release_date
+        with self.series_date_lock:
+            if clip_id not in self.series_dates:
+                self.series_dates[clip_id] = read_release_date(self.transport, self.profile["series_metadata"], clip_id)
+            return self.series_dates[clip_id]
 
     def user(self) -> dict[str, Any]:
         """取得最新本机登录快照；无参数；返回内存对象，锁内只读文件。"""

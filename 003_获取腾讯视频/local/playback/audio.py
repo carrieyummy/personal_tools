@@ -1,11 +1,7 @@
-"""独立选择原始音质档位；客户端实时滤镜如实展示，不冒充可归档的独立音源。"""
+"""按配置排名选择可授权下载的原始音源；播放器实时滤镜不属于下载音质选项。"""
 
-from dataclasses import dataclass, field, replace
-import json
+from dataclasses import dataclass, field
 import math
-import sys
-from threading import Lock
-from typing import Callable
 
 from .errors import PlaybackError
 
@@ -31,7 +27,7 @@ class AudioOption:
 
 
 def options(data: dict, video: dict, selected: dict) -> list[AudioOption]:
-    """从 data/video 的音质元数据构造选项；selected 提供格式及原轨码率；返回已验证档位，不把复用轨当独立音源。"""
+    """从 data/video 提取可下载原始音源；selected 提供格式及原轨码率；返回已验证档位，忽略 afl 实时滤镜。"""
     original = AudioOption("original", "原始音轨", False, True, 0, "original",
                            metadata={"bitrate": selected.get("audiobandwidth"),
                                      "note": "接口未声明独立 VIP 音质；保留源站原始音轨"})
@@ -44,27 +40,7 @@ def options(data: dict, video: dict, selected: dict) -> list[AudioOption]:
             raise PlaybackError("腾讯音轨列表结构变化")
         if alternate["ai"]:
             original = multiplexed_audio(alternate["ai"], selected)
-    result = [original]
-    effects = data.get("afl", video.get("afl", {}))
-    if effects:
-        if not isinstance(effects, dict) or not isinstance(effects.get("afi"), list):
-            raise PlaybackError("腾讯音效列表结构变化，不能确定音质选项")
-        for value in effects["afi"]:
-            if not isinstance(value, dict) or not value.get("name") or "audiofilterparam" not in value:
-                raise PlaybackError("腾讯音效档位缺少稳定名称")
-            if not value["audiofilterparam"]:
-                result[0] = replace(original, id=str(value["name"]), name=str(value.get("show_name") or value.get("cname") or value["name"]),
-                                    metadata={**original.metadata, "note": "保留源站原始音轨；客户端实时音效不写入媒体"})
-                continue
-            # 原生 AudioEffectInfo.filter_param 交给播放器实时处理；本工具保持无损归档。
-            result.append(AudioOption(str(value["name"]), str(value.get("show_name") or value.get("cname") or value["name"]),
-                                      bool(value.get("vip_limit") or value.get("lmt")), bool(value.get("authorized", False)),
-                                      None, "effect", False,
-                                      metadata={"note": "客户端实时音效；没有独立音源，不应用滤镜或标成 VIP 成品"}))
-    identities = [(item.kind, item.id) for item in result]
-    if len(set(identities)) != len(identities):
-        raise PlaybackError("腾讯音质档位重复")
-    return result
+    return [original]
 
 
 def multiplexed_audio(values: list[dict], selected: dict) -> AudioOption:
@@ -89,63 +65,20 @@ def multiplexed_audio(values: list[dict], selected: dict) -> AudioOption:
 
 
 class AudioSelector:
-    """串行化终端音质选择；settings 提供 VIP 优先和提示阈值，同剧相同选项集合复用选择。"""
+    """按 settings.quality 选择可下载音源的第 N 档；每集独立排名，不需要终端交互。"""
 
-    def __init__(self, settings: dict, *, reader: Callable[[str], str] | None = None,
-                 interactive: Callable[[], bool] | None = None):
-        """保存 settings、可选 reader/interactive 测试接口；创建选择锁和批次缓存，无返回值。"""
-        self.settings, self.lock, self.choices = settings, Lock(), {}
-        self.reader = input if reader is None else reader
-        self.interactive = sys.stdin.isatty if interactive is None else interactive
+    def __init__(self, settings: dict):
+        """保存含正整数 quality 的 settings；排名从 1 开始，1 表示最高可下载音质；无返回值。"""
+        self.settings = settings
 
-    def select(self, series_id: str, values: list[AudioOption]) -> AudioOption:
-        """为 series_id 从 values 选择音质；复用相同档位集合，忽略原轨逐集评分差异；返回可下载项，必需交互无终端时报错。"""
-        if not values:
-            raise PlaybackError("接口没有返回任何音质选项")
-        # 原轨的 audioscore 是逐集内容评分，变化不代表音质档位集合改变；独立音质的等级仍参与匹配。
-        signature = json.dumps(sorted(((item.id, item.name, item.vip, item.authorized,
-                                       None if item.kind == "original" else item.rank, item.kind, item.downloadable) for item in values),
-                                      key=lambda value: (value[5], value[0])), ensure_ascii=True)
-        with self.lock:
-            previous = self.choices.get(series_id)
-            if previous and previous[0] == signature:
-                return next(item for item in values if (item.kind, item.id) == previous[1])
-            available = [item for item in values if item.authorized and item.downloadable]
-            if not available:
-                raise PlaybackError("当前账号没有可完整获取的音质档位")
-            eligible = [item for item in available if item.vip] if self.settings["prefer_vip"] else available
-            if not eligible:
-                eligible = available
-            ranked = all(item.rank is not None for item in eligible)
-            tied = ranked and sum(item.rank == max(option.rank for option in eligible) for item in eligible) > 1
-            prompt = (len(values) > self.settings["prompt_above"] or previous is not None
-                      or len(eligible) > 1 and (not ranked or tied))
-            if prompt:
-                selected = self.prompt(values)
-            else:
-                selected = max(eligible, key=lambda item: item.rank if item.rank is not None else 0)
-            self.choices[series_id] = signature, (selected.kind, selected.id)
-            return selected
-
-    def prompt(self, values: list[AudioOption]) -> AudioOption:
-        """展示普通及 VIP values 并读取编号；返回有权限的可下载项，输入 q 或中断取消批次。"""
-        print("可选音质（普通与 VIP 合计）：", flush=True)
-        for index, item in enumerate(values, 1):
-            access = "VIP" if item.vip else "普通"
-            status = "可下载" if item.authorized and item.downloadable else "不可选"
-            specs = "，".join(f"{key}={value}" for key, value in item.metadata.items() if value is not None)
-            print(f"  {index}. {item.name} [{access}·{status}] {specs}", flush=True)
-        if not self.interactive():
-            raise PlaybackError("音质需要用户选择，请在交互终端重新运行；不会自动替用户选档")
-        while True:
-            try:
-                answer = self.reader("请选择音质编号（q 取消）：").strip()
-            except EOFError:
-                raise PlaybackError("没有收到音质选择，任务停止") from None
-            if answer.lower() == "q":
-                raise KeyboardInterrupt
-            if answer.isdecimal() and 1 <= int(answer) <= len(values):
-                selected = values[int(answer) - 1]
-                if selected.authorized and selected.downloadable:
-                    return selected
-            print("请输入可下载音质的编号。", flush=True)
+    def select(self, values: list[AudioOption]) -> AudioOption:
+        """从 values 中按 rank 降序选择配置档位；仅原轨/独立轨且已授权可下载的项参与；返回选中音源，档位不足或无法排名时报错。"""
+        available = [item for item in values if item.authorized and item.downloadable and item.kind in ("original", "track")]
+        quality = self.settings["quality"]
+        if len(available) < quality:
+            raise PlaybackError(f"可下载的音质档位不足，无法选择第 {quality} 档")
+        if len(available) > 1:
+            if any(type(item.rank) not in (int, float) or not math.isfinite(item.rank) for item in available):
+                raise PlaybackError("可下载音源缺少可比较的音质等级，无法按 audio.quality 排名")
+            available.sort(key=lambda item: item.rank, reverse=True)
+        return available[quality - 1]

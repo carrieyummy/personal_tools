@@ -1,0 +1,134 @@
+# 腾讯视频下载与缓存还原
+
+本工具通过 `decode.py` 读取 YAML 配置，支持两种来源：
+
+- `url`：读取腾讯视频链接清单，展开已上线正片，按账号可获取的画质下载。
+- `download`：读取腾讯视频客户端已完成的下载记录及 HVN 缓存，还原并封装为 MP4。
+
+主配置是 [configs/config.yaml](configs/config.yaml)，下载清单由其中的 `default_list` 指定。配置文件可以手动修改，以下提到的目录、并发和阈值均以运行时配置为准。
+
+## 环境准备
+
+1. 在 Windows 上安装并登录腾讯视频客户端，账号需要有目标内容及画质的播放权限。
+2. 使用工作区 `settings.python.defaultInterpreterPath` 指定的 Python 环境。以下示例均在**同一个 PowerShell 7 窗口**、以本工具目录为当前目录执行。先读取工作区中的解释器配置，再安装项目依赖：
+
+   ```powershell
+   $tencentWorkspace = Get-Content -LiteralPath "../003_获取腾讯视频.code-workspace" -Raw | ConvertFrom-Json
+   $tencentPython = $tencentWorkspace.settings.'python.defaultInterpreterPath'
+   & "$tencentPython" -m pip --proxy "" install -r "requirements.txt"
+   ```
+
+   如果新开终端，请先重新执行前两行读取 `$tencentPython`。
+
+3. 检查主配置中的 `ffmpeg_path` 指向可运行的 FFmpeg；检查 `output_path`、`work_dir` 和客户端相关路径可访问。需要 GPU 完整解码时，配置中的 GPU 设备需要支持 NVIDIA CUDA；根据本机情况设置 `decode_verification`，至少启用一个设备。
+
+URL 模式还需要在客户端先播放一集**有权限的正片**，使播放器 SDK 完成初始化，并在任务期间保持唯一的播放器进程运行。初始化时播放的正片可以与待下载视频不同；目标视频仍需有相应权限。暂停播放的场景尚未单独完成全片下载验收。
+
+## URL 清单下载
+
+1. 在主配置中将 `source` 设置为 `url`。仓库当前配置默认使用该模式。
+2. 编辑 `default_list` 指向的清单。仓库提供的清单为 [download_list/download_list.yaml](download_list/download_list.yaml)，字段说明可参考同目录的 [template.yaml](download_list/template.yaml)；修改 `default_list` 后应编辑新路径对应的文件。在 `download_list` 中添加腾讯视频官方链接；`title` 是备注，保存目录和文件名使用源站标题。
+3. 按需调整清晰度和选集范围。`quality` 为账号可完整获取的画质排名：`1` 表示最高，`2` 表示次高；`all-parts` 控制是否展开整剧。优先级依次为清单任务项、清单全局、主配置的 `download`。仅下载单集时，链接必须包含该集视频编号 `vid`。工具只展开已上线正片，不包含预告、速通版等扩展内容。
+4. 在客户端播放一集已授权正片并保持播放器运行，然后在本工具目录的 PowerShell 中执行：
+
+   ```powershell
+   & "$tencentPython" -X utf8 "decode.py" --config "configs/config.yaml"
+   ```
+
+5. 用主配置 `audio.quality` 选择每集可下载音源的音质排名：`1` 表示最高，`2` 表示次高。仅当前账号已授权、可下载的原始音源参与排名；档位不足或多个音源无法比较等级时，该任务会报错，批次继续处理其他任务。音质选择无需终端交互。
+
+下载与后处理独立并行：`download.threads` 限制同时解析及下载的剧集数，`max_in_flight` 限制同时进行封装、验证和发布的剧集数。`download.queue_capacity_gb` 限制已下载、等待后处理的分片总大小，1 GB 按 1024³ 字节计算；队列为空时允许一集超过容量。队列满时，完成下载但尚未入队的剧集仍占用下载名额。这个容量不是工作目录的总空间上限：下载中、等待入队、后处理中及历史失败断点还会额外占用磁盘。缓存还原模式的 `max_in_flight` 仍限制整个在途任务数。
+
+画质按接口返回的实际尺寸、帧率等指标排序，并检查最终文件的尺寸和帧率；已选来源返回其他档位或无法取得完整正片时会报错。当前已实测支持的音源是视频中复用的标准原轨，该轨就是这些样本唯一可下载的音质。客户端“清澈人声”“立体环绕”等由播放器实时滤镜实现，不进入下载音质列表。新的独立音轨协议需要实测适配后才能下载。
+
+URL 模式通过已初始化的客户端 SDK 生成播放签名。当前适配会核对运行进程及 DLL 摘要；登录或签名 DLL 摘要变化时会拒绝调用，需要重新核对接口，不能只修改摘要。签名、登录票据和带签名的媒体地址只在内存中使用。
+
+登录快照在发起播放请求时按 `authentication.refresh_interval_seconds` 检查年龄，到期后重新读取客户端当前登录态；该间隔是主动重读策略，不是腾讯票据的有效期。接口明确拒绝认证时，按 `authentication.recovery_attempts` 有界重读并重新签名，重试同一视频、画质和音轨。多个线程共用一次恢复结果，迟到的旧请求拒绝不会覆盖已经恢复的新快照；单次请求的 Cookie 与 `logintoken` 始终使用同一个快照。
+
+程序只读客户端已经持有的登录态，不代替客户端续期或自动重新登录。恢复耗尽或客户端切换账号时停止新请求及后续派发；触发故障的任务记为失败，其余未执行任务记为跳过，在途任务保留现场。请先在客户端确认登录并初始化播放器，再重新运行同一命令，工具会检查已有成品及断点。媒体清单/分片的过期响应仍走同源地址续签；普通接口 HTTP 错误不会一律判为账号失效。
+
+## 客户端缓存还原
+
+1. 在腾讯视频客户端完成所需视频的下载，等待下载状态明确显示完成。
+2. 在主配置中将 `source` 设置为 `download`；检查 `input_root`、`download_record`、`output_path`、`work_dir` 与本机实际路径一致，输出和工作目录应位于客户端下载根目录之外。
+3. 按需在 `selection.video_ids` 或 `selection.series_names` 中填写筛选条件；两个列表均为空时处理全部已完成任务，填写时按两组条件取并集。
+4. 使用上节相同的 `decode.py --config` 命令，或使用下方的 VS Code 主启动项。缓存流程针对已完成的主 HLS/TS 资源，读取下载记录和本地清单，通过客户端 DLL 还原 HVN；其他缓存结构需要另行验证。
+
+## 输出、进度与恢复
+
+- 成品位置由主配置的 `output_path` 和 `naming` 模板决定；URL 模式的文件名包含集序、标题、画质和音质，视频编号可按需加入模板。原有缓存成品以及未登记的同名文件会保留，发生同名冲突时新成品会添加区分后缀。
+- 电视剧目录模板使用 `release_date`、`title`、`series_id`，其中 `release_date` 是腾讯整剧简介中的 `broadcast_time`，以 `YYYY-MM-DD` 表示；日期只加在目录，视频文件名继续使用 `episode_template`。同一剧的全部视频使用同一日期，缺少完整有效日期或专辑身份不匹配时该任务失败，不使用单集更新时间或文件时间替代。当前三部已核对剧集的该字段与实际首播日期一致，其他片源以腾讯提供的整剧资料为准。
+- 缓存还原同样按整剧编号查询一次腾讯公开简介以取得日期，因此需要联网；不需要为此重新打开剧集或读取播放器账号。历史目录迁移需在输出根目录独占锁内执行，检查目标冲突并保留视频及 `video_info.json`；运行历史中的成品路径同步更新，既有离线 HTML 快照保留原样。
+- 中间文件使用 `work_dir`。下载中断、取消或失败时保留现场；重试时只复用已经核对、属于同一来源的分片。签名刷新后若来源发生变化，旧现场会保留并重新解析。
+- 封装后检查媒体属性并对完整视频和音轨执行解码验证，通过来源复核和目标文件摘要校验后才发布。CPU/GPU 是可用验证设备池；每个任务使用其中一个启用设备，不会在 GPU 失败时自动降级。
+- 剧集目录中的 `video_info.json` 长期保存成品的来源、大小、修改时间和 SHA-256；输出根目录的运行报告可以单独清理。`reuse_check: fast` 按来源、文件大小和修改时间检查已登记成品，不读取完整成品；旧记录缺少修改时间或文件属性变化时，会完整计算 SHA-256，匹配后补齐索引。`reuse_check: full` 每次重新计算成品 SHA-256。快速检查无法发现大小及修改时间均未变化的内容损坏；URL 模式仍需联网确认播放来源，缓存模式仍会检查来源缓存。`keep_intermediates` 控制成功后的中间文件清理，失败现场保留。
+- 运行时终端会显示本机实时日志地址；运行记录和离线 HTML 报告位于 `output_path`，文件名由 `logging` 配置。程序退出码为 `0` 成功、`1` 失败、`130` 用户中断。
+- 实时页面和离线报告展示历次批次、任务状态、阶段进度及详情，可搜索、筛选异常和折叠批次；缺少的历史数据显示为未知。实时页面可导出当前离线快照，并打开输出目录内已登记的成品。阶段耗时与资源等待、执行耗时使用已有记录，不估算下载速度或剩余时间。
+- 正式派发前列出已发现的全部单集，按清单中的每个 URL 分组，可折叠组内单集；重复单集在各所属组展示但只执行一次。点击单集标题在该行紧邻下方展开或收起详情。表格的“解码 device”显示实际分配的 CPU/GPU，尚未分配或未执行解码时显示“—”。旧记录没有 URL 归属时归入缓存及历史任务组。
+- 正常结束、失败或中断时先保存最终记录和离线报告，再等待近期活跃页面确认终态；等待上限由 `logging.final_state_timeout_seconds` 配置，超时后关闭服务，最终结果可查看离线报告。离线快照自包含，断线后页面保留最后接收的状态。
+- URL 运行记录及单集工作报告中的 `authentication` 保存快照代次、年龄、重读/恢复计数及脱敏的拒绝状态，不保存票据或带签名地址。定位长时间运行的认证问题时，可用它区分客户端未更新登录态、账号切换与普通网络故障。
+
+## VS Code 工作区
+
+用 VS Code 打开父目录中的 `003_获取腾讯视频.code-workspace`，在“运行和调试”选择 **腾讯视频：按配置下载或还原**。该启动项使用主配置的 `source` 选择流程，并在集成终端显示运行进度。
+
+工作区还提供画质与音质研究、原生签名研究、客户端请求观察、URL 单集验收、已发布成品设备补验和 HVN 缓存验收启动项。单集验收要求输入当前清单的**零基序号**；请求观察要求输入已核对的客户端进程 PID。需要完整下载单集时，按工作区对应参数注释启用 `--full-download`。
+
+解释器路径统一放在工作区设置 `python.defaultInterpreterPath`；各启动项引用该设置。更换 Python 环境时应同步检查依赖和主配置的 `ffmpeg_path`。
+
+## 验证与研究
+
+在本工具目录运行隔离单元测试：
+
+```powershell
+& "$tencentPython" -X utf8 -m unittest discover -v -s "tests" -t "."
+```
+
+单集接口、清单和同源续签验收使用当前清单中的序号；该命令默认不下载全片：
+
+```powershell
+$listIndex = Read-Host "输入当前清单条目的零基序号"
+& "$tencentPython" -X utf8 -m tests.verify_playback --config "configs/config.yaml" --item "$listIndex" --report-dir "research/results"
+```
+
+追加 `--full-download` 会实际下载该集、完整解码、发布并再次验证复用。首次流水线每集使用一个启用的解码设备；若需要对**同一个已发布文件**补验其余启用设备，可使用全片验收生成的报告：
+
+```powershell
+$playbackReport = Read-Host "输入已完成的 verify_playback 全片报告路径"
+& "$tencentPython" -X utf8 -m tests.verify_url_output --config "configs/config.yaml" --report "$playbackReport" --report-dir "research/results"
+```
+
+接口研究可运行：
+
+```powershell
+& "$tencentPython" -X utf8 "research/playback_probe.py" --config "configs/playback_research.yaml"
+& "$tencentPython" -X utf8 "research/probe_native_key.py" --config "configs/playback_research.yaml"
+```
+
+研究目标、探测范围和报告目录由专项配置控制。`research/native_key_worker.py` 是父进程的内部签名管道，不应直接运行。脱敏结果放在已由 Git 忽略的 `research/results/`。已验证样本、画质对应及局限见 [research/playback_findings.md](research/playback_findings.md)；单集验证结果不能代替其他视频和协议结构的完整验收。
+
+## 项目结构
+
+```text
+003_获取腾讯视频/
+├── README.md                   使用说明
+├── AGENTS.md                   项目开发约定
+├── decode.py                   统一运行入口
+├── requirements.txt            Python 依赖
+├── configs/
+│   ├── config.yaml             来源、路径、画质、音质及运行配置
+│   ├── native_cache.yaml       客户端缓存 DLL 适配
+│   ├── native_playback.yaml    原生播放与选集接口配置
+│   ├── native_signing.yaml     原生签名 DLL 与设备上下文适配
+│   └── playback_research.yaml  研究目标和探测参数
+├── download_list/
+│   ├── download_list.yaml      用户下载清单
+│   └── template.yaml           清单字段参考
+├── local/                      缓存还原、调度、验证、日志和发布
+│   └── playback/               URL 来源、选集、音质、签名及 HLS 下载
+├── research/                  协议研究、探测脚本及研究结论
+│   └── results/                本机生成的脱敏结果，Git 忽略
+└── tests/                     单元测试及显式实网/缓存验收入口
+```
+
+工作区文件 `003_获取腾讯视频.code-workspace` 位于本工具目录的父目录。

@@ -171,13 +171,17 @@ def local_manifest(playlist: Playlist, directory: Path) -> Path:
 
 def download(transport: Transport, initial: list[Playlist], directory: Path, config: dict[str, Any], refresh: Callable[[], list[Playlist]],
              progress: Callable[[int, int], None], cancel: Event) -> tuple[list[Path], dict[str, Any]]:
-    """顺序下载单集资源；initial 为清单，directory 为源版本现场，config 控制重试；refresh 续签，progress 报已完成/总数，cancel 取消；返回本地清单和证据。"""
+    """顺序下载单集资源；initial 为清单，directory 为源版本现场，config 控制重试；refresh 续签，progress 报已完成/总数，cancel 取消。
+
+    返回本地清单和证据；bytes 为所有原始分片实际字节数，包含已校验断点和初始化片段，不含清单及元数据。
+    """
     expected = [playlist.identity for playlist in initial]
     state_path = directory / "segments.json"
     state = read_json(state_path, {"playlists": expected, "completed": {}})
     if state.get("playlists") != expected:
         raise SourceChanged("断点清单身份发生变化")
     total, completed, refreshed = sum(len(playlist.resources) for playlist in initial), 0, 0
+    downloaded_bytes = 0
     current = initial
     for track, playlist in enumerate(initial):
         track_dir = directory / f"track_{track}"
@@ -187,6 +191,7 @@ def download(transport: Transport, initial: list[Playlist], directory: Path, con
             path, key = track_dir / f"{index:06d}.bin", f"{track}/{index}"
             record = state["completed"].get(key)
             if record and path.is_file() and path.stat().st_size == record["bytes"] and file_hash(path, config["download"]["buffer_bytes"], cancel) == record["sha256"]:
+                downloaded_bytes += record["bytes"]
                 completed += 1
                 progress(completed, total)
                 continue
@@ -231,7 +236,9 @@ def download(transport: Transport, initial: list[Playlist], directory: Path, con
                     failures += 1
                 finally:
                     temporary.unlink(missing_ok=True)
+            downloaded_bytes += size
             completed += 1
             progress(completed, total)
     return [local_manifest(playlist, directory / f"track_{track}") for track, playlist in enumerate(initial)], {
-        "playlist_hashes": expected, "resources": total, "durations": [item.duration for item in initial], "refreshed": refreshed}
+        "playlist_hashes": expected, "resources": total, "bytes": downloaded_bytes,
+        "durations": [item.duration for item in initial], "refreshed": refreshed}

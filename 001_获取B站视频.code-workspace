@@ -10,6 +10,9 @@
         },
         {
             "path": "C:/Users/Administrator/.codex"
+        },
+        {
+            "path": "Z:/001_演唱会"
         }
     ],
     "settings": {
@@ -138,7 +141,7 @@
                     // 使用英文逗号和分号；范围包含首尾，保留顺序和重复项，每组至少两个片段。
                     "--merge-parts", "${input:bilibiliDownloadMergeParts}"
                 ]
-                // python download_bilibili.py --url download_list/download_list.yaml
+                // python download_bilibili.py --url download_list/download_list.yaml --all-parts --merge-parts 0
             },
             {
                 "name": "B站：拼接已下载分 P",
