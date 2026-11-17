@@ -24,6 +24,7 @@
         "python.testing.cwd": "${workspaceFolder:003_获取腾讯视频}",
         "python.testing.unittestEnabled": true,
         "python.testing.unittestArgs": [
+            // 包含目录发现、下载重叠、取消和 Windows 日志原子替换的隔离测试；不运行真实下载验收。
             // 输出每个测试用例的执行结果。
             "-v",
             // 从工具目录下的 tests 文件夹发现测试。
@@ -112,6 +113,22 @@
                     // , "--pid", "${input:tencentPlaybackObserverPid}"
                     // 可选：仅核对签名结构；同时省略 --pid 时测试独立加载 DLL 的初始化依赖。
                     // , "--local-only"
+                ]
+            },
+            {
+                "name": "腾讯视频：验收并更新原生签名",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:003_获取腾讯视频}/research/verify_native_signing.py",
+                "cwd": "${workspaceFolder:003_获取腾讯视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：读取当前清单和研究边界；提示开始观察后在客户端切换正片，全部通过才更新签名配置。
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/research/configs/playback_research.yaml"
+                    // 可选：指定播放器；省略时要求唯一匹配。
+                    // , "--pid", "${input:tencentPlaybackObserverPid}"
                 ]
             },
             {

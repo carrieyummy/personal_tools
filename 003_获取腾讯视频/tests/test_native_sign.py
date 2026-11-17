@@ -21,6 +21,8 @@ class NativeSignTests(unittest.TestCase):
         """从当前配置构造独立临时 SDK 和合成进程，不依赖用户实际客户端版本或账号；无返回值。"""
         self.config = deepcopy(load_config(Path(__file__).resolve().parents[1] / "configs/config.yaml", source="url"))
         self.settings = self.config["playback"]["playback"]["ckey"]
+        self.settings["context"]["mirrors"] = []
+        self.settings["context"]["mirrors"] = []  # 合成进程仅包含本测试创建的主设备模块。
         folder = TemporaryDirectory(prefix="native_sign_")
         self.addCleanup(folder.cleanup)
         # Windows 的临时目录可能返回 8.3 短名；模拟配置加载器使用的已解析绝对路径。
@@ -48,6 +50,15 @@ class NativeSignTests(unittest.TestCase):
         """两个符合条件的播放器不得任意选取，以免使用错误的 SDK 上下文。"""
         with patch("local.playback.native_sign.psutil.process_iter", return_value=[self.process, self.process]):
             with self.assertRaises(PlaybackError):
+                verified_process(self.config, self.settings)
+
+    def test_device_mirror_digest_is_checked(self):
+        """主设备位置匹配但副本摘要不匹配时拒绝签名，不能只核对主模块。"""
+        context = self.settings["context"]
+        context["mirrors"] = [{key: context[key] for key in ("module", "sha256", "object_rva", "guid_offset")}]
+        context["mirrors"][0]["sha256"] = hashlib.sha256(b"different-device-copy").hexdigest()
+        with patch("local.playback.native_sign.psutil.process_iter", return_value=[self.process]):
+            with self.assertRaisesRegex(PlaybackError, "设备上下文"):
                 verified_process(self.config, self.settings)
 
     def test_rpc_failure_is_sanitized_and_detached(self):

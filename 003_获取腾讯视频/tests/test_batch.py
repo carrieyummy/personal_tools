@@ -36,6 +36,16 @@ class MemoryJournal:
         self.entries.append(entry)
         return entry
 
+    def add_many(self, tasks, discovery=None, memberships=None):
+        """批量登记 tasks，补充 discovery 进度及 memberships 分组；返回新增内存条目。"""
+        entries = [self.add(task) for task in tasks]
+        for entry, group in memberships or []:
+            if group not in entry.setdefault("groups", []):
+                entry["groups"].append(deepcopy(group))
+        if discovery is not None:
+            self.run["discovery"] = deepcopy(discovery)
+        return entries
+
     def update(self, entry, stage=None, **fields):
         """更新 entry 的 stage 与 fields，无返回值。"""
         if stage:

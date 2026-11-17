@@ -44,6 +44,10 @@ class Journal:
                     entry.update(status="interrupted", detail="上次运行中断")
             if run.get("status") == "running":
                 run.update(status="interrupted", finished=timestamp())
+                discovery = run.get("discovery")
+                if discovery and discovery.get("status") == "running":
+                    discovery.update(status="interrupted", remaining_requests=(
+                        discovery["total_requests"] - discovery["processed_requests"]))
         self.run = {"id": uuid4().hex, "started": timestamp(), "status": "running", "entries": []}
         self.history["runs"].append(self.run)
         self.last_write = 0.0
@@ -147,7 +151,7 @@ class Journal:
         with self.lock:
             runs = []
             for run_index, run in enumerate(self.history["runs"]):
-                item = {key: deepcopy(run[key]) for key in ("id", "started", "finished", "status", "summary", "elapsed_seconds", "authentication", "error") if key in run}
+                item = {key: deepcopy(run[key]) for key in ("id", "started", "finished", "status", "summary", "elapsed_seconds", "authentication", "error", "discovery") if key in run}
                 item["entries"] = []
                 for entry_index, entry in enumerate(run["entries"]):
                     row = {key: deepcopy(entry[key]) for key in ("video_id", "title", "groups", "status", "stage", "detail", "progress", "stages", "resources", "device", "output", "authentication", "downloaded_bytes", "total_bytes", "bytes_per_second") if key in entry}
@@ -170,15 +174,33 @@ class Journal:
         self.last_write = time.monotonic()
 
     def add(self, task: dict) -> dict:
-        """为任务 task 新增进度条目并保留 URL 分组，返回条目；task 必须包含 video_id。"""
+        """为含 video_id 的任务 task 新增并保存进度条目；返回条目，批量目录交接使用 add_many。"""
+        return self.add_many([task])[0]
+
+    def add_many(self, tasks: list[dict], discovery: dict | None = None,
+                 memberships: list[tuple[dict, dict]] | None = None) -> list[dict]:
+        """一次保存 tasks 的新条目及目录 discovery 进度，返回新条目列表。
+
+        tasks 含 video_id，可携带终态 status/detail；memberships 为已有条目与新增 URL 分组的配对，
+        在同一日志锁内补充分组，不改任务状态，也不把工作线程中的目录对象共享到日志。
+        """
         with self.lock:
-            entry = {"video_id": task["video_id"], "title": task.get("title", task["video_id"]),
-                     "status": "pending", "stage": "", "detail": "", "progress": None, "stages": {}, "resources": {}}
-            if "groups" in task:
-                entry["groups"] = deepcopy(task["groups"])
-            self.run["entries"].append(entry)
+            entries = []
+            for task in tasks:
+                entry = {"video_id": task["video_id"], "title": task.get("title", task["video_id"]),
+                         "status": task.get("status", "pending"), "stage": "", "detail": task.get("detail", ""),
+                         "progress": None, "stages": {}, "resources": {}}
+                if "groups" in task:
+                    entry["groups"] = deepcopy(task["groups"])
+                self.run["entries"].append(entry)
+                entries.append(entry)
+            for entry, group in memberships or []:
+                if group not in entry.setdefault("groups", []):
+                    entry["groups"].append(deepcopy(group))
+            if discovery is not None:
+                self.run["discovery"] = deepcopy(discovery)
             self.save()
-            return entry
+            return entries
 
     def update(self, entry: dict, stage: str | None = None, **fields) -> None:
         """线程安全更新 entry 的 stage 和 fields，记录阶段耗时；无返回值。"""

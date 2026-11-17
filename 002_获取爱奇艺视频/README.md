@@ -358,3 +358,5 @@ python ".\tests\accept_verification.py" --config ".\configs\config.yaml" --bench
 研究专用配置统一放在 `research/configs/`；研究脚本直接复用正式工具配置中的公共参数，不复制维护。配置文件中的相对路径以各自文件所在目录为基准；性能配置迁移后，报告仍写入其配置指定的位置。
 
 格式研究和适配边界见 [research/formats.yaml](research/formats.yaml)，资料索引见 [research/catalog.yaml](research/catalog.yaml)。本工具工作区文件位于父目录，启动和任务中的解释器统一引用其 `settings.python.defaultInterpreterPath`。
+
+正式链接下载按清单项增量交接：每项正片目录的分页、范围和集序校验完成后，即可派发该项，同时继续发现后续目录。目录发现与逐集解析、复用检查及后处理共用 `max_in_flight` 处理池，下载仍单独受 `download.threads` 限制；慢目录不会卡住调度主循环。页面显示目录展开状态、已展开清单数及已发现集数，展开结束前不把当前数量当成最终总数。日志沿用后台合并写入；`--plan` 仍只查询并输出完整公开计划，正式下载启动时的旧索引整理保留。失败不丢弃其他有效清单，取消停止后续发现并保留现场；旧批次不自动停止或重启。

@@ -13,7 +13,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from local.configuration import load_config, resolve_path
-from local.playback.tasks import requests
+from research.settings import sample_requests as requests
 from local.playback.transport import Transport
 from local.storage import atomic_json
 
@@ -32,8 +32,6 @@ def main() -> None:
     target.mkdir(parents=True, exist_ok=True)
     report, seen = [], set()
     for item in requests(config):
-        if research["title"] and item.note != research["title"]:
-            continue
         url = config["playback"]["catalog"]["page_template"].format(series_id=item.series_id, video_id=item.video_id)
         page = transport.text(url)
         for source in re.findall(r'<script[^>]+src="([^"]+)"', page):

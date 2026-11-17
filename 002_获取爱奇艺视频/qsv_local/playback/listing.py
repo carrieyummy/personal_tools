@@ -33,12 +33,15 @@ def task_options(profile: dict) -> list[dict]:
     return result
 
 
-def expand_episodes(profile: dict, link: dict, all_parts: bool) -> list[dict]:
-    """按 profile 展开 link 的可用正片；all_parts 为假时只返回原链接集，返回保持官方集序的元数据列表。"""
+def expand_episodes(profile: dict, link: dict, all_parts: bool, cancel=None) -> list[dict]:
+    """按 profile 展开 link 的可用正片；all_parts 控制整剧，cancel 可取消分页；返回完整有序元数据。"""
+    from ..runtime import check_cancel
+    check_cancel(cancel)
     if not all_parts:
         return [link]
     network, result, ids, orders = profile["network"], [], set(), set()
     for page in range(1, network["max_episode_pages"] + 1):
+        check_cancel(cancel)
         url = network["episode_list_url"].format(album_id=link["album_id"], page=page, page_size=network["episode_page_size"])
         with open_network(profile, Request(url, headers={"User-Agent": network["user_agent"]})) as response:
             raw = response.read(network["max_response_bytes"] + 1)

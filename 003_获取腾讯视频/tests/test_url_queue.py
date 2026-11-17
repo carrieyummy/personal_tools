@@ -199,7 +199,7 @@ class UrlQueueTests(unittest.TestCase):
 
         tasks = [{"video_id": str(i), "title": str(i)} for i in range(2)]
         with patch.object(batch, "_job_steps", side_effect=steps), \
-             patch("local.playback.application.wait", side_effect=KeyboardInterrupt):
+             patch("local.playback.scheduler.wait", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 batch.run(tasks)
         self.assertTrue(finalized.is_set())

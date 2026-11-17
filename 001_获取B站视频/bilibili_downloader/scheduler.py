@@ -37,15 +37,20 @@ def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], P
                  download: Callable[[Payload, Event], Transfer], process: Callable[[Transfer, Event], Result],
                  complete: Callable[[Job, Result | None, BaseException | None], None], cancel_event: Event, *,
                  downloaded_size: Callable[[Transfer], int], waiting: Callable[[Job, str], None],
-                 finishers: deque[PostTask], prepared: Callable[[Job, Payload], Payload | Ready | None] | None = None) -> None:
+                 finishers: deque[PostTask], prepared: Callable[[Job, Payload], Payload | Ready | None] | None = None,
+                 discoveries=None, discovered=None) -> None:
     """按 jobs 顺序调度独立下载及共享处理池，settings 提供并发和字节容量，cancel_event 可取消。
 
     prepare/process/finishers 在共享处理池运行，download 独立接收 cancel_event；complete/waiting/prepared 在调用线程结算。
     downloaded_size 返回完整原始流字节数，waiting 接收等待容量或后处理的状态键；prepare 可返回 None。
     prepared 可按 job 和解析载荷去重并返回 None，或返回 Ready 跳过下载；finishers 优先派发，无返回值。
     容量仅统计 ready；等待入队不占下载名额，积压时暂停新下载，预解析有界，单项超限允许独占空队列。
+    discoveries 为可选的目录/画质准备迭代器，在共享处理池单步推进；discovered 在主线程接收事件或
+    完成 None 并返回新增作业，交互确认保持主线程执行。最多一个准备事件在途，不阻塞下载调度。
     """
     pending = deque(jobs)
+    source = iter(discoveries) if discoveries is not None else None
+    catalog_open, discovering = source is not None, False
     resolved: deque[tuple[Job, Payload]] = deque()
     admission: deque[tuple[Job, Transfer, int]] = deque()
     ready: deque[tuple[Job, Transfer, int]] = deque()
@@ -78,7 +83,7 @@ def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], P
         started.pop(id(job), None)
 
     try:
-        while pending or resolved or admission or ready or active_downloads or active_processing or finishers:
+        while pending or resolved or admission or ready or active_downloads or active_processing or finishers or catalog_open:
             check_cancel(cancel_event)
             while admission and (queued_bytes + admission[0][2] <= capacity or not ready):
                 job, transferred, size = admission.popleft()
@@ -99,15 +104,17 @@ def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], P
                     job, transferred, size = ready.popleft()
                     queued_bytes -= size
                     submit(processing, active_processing, job, process, transferred, cancel_event)
-                elif pending and not admission:
-                    preparing = sum(future.phase == 'prepare' for future in active_processing) + len(preparation_results)
-                    if len(resolved) + preparing >= settings.threads:
-                        break
-                    job = pending.popleft()
-                    started[id(job)] = job
-                    submit(processing, active_processing, job, prepare, job, phase='prepare')
                 else:
-                    break
+                    preparing = sum(future.phase == 'prepare' for future in active_processing) + len(preparation_results)
+                    if pending and not admission and len(resolved) + preparing < settings.threads:
+                        job = pending.popleft()
+                        started[id(job)] = job
+                        submit(processing, active_processing, job, prepare, job, phase='prepare')
+                    elif catalog_open and not discovering and not admission:
+                        submit(processing, active_processing, None, next, source, None, phase='discovery')
+                        discovering = True
+                    else:
+                        break
             # prepare 可能追加纯收尾任务；没有 Future 时立刻回到派发，避免空队列等待。
             if (not active_downloads and not active_processing
                     or admission and (queued_bytes + admission[0][2] <= capacity or not ready)
@@ -119,6 +126,12 @@ def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], P
                 continue
             is_download = future in active_downloads
             owner = active_downloads.pop(future) if is_download else active_processing.pop(future)
+            if future.phase == 'discovery':
+                discovering = False
+                event = future.result()
+                pending.extend(discovered(event))
+                catalog_open = event is not None
+                continue
             if future.phase == 'prepare':
                 try:
                     value = future.result()
@@ -182,6 +195,10 @@ def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], P
     finally:
         downloads.shutdown(wait=True, cancel_futures=True)
         processing.shutdown(wait=True, cancel_futures=True)
+        if source is not None:
+            close_source = getattr(source, 'close', None)
+            if close_source is not None:
+                close_source()
 
 
 def run_jobs(jobs: list[Job], threads: int, prepare: Callable[[Job], Payload | None],

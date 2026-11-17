@@ -68,6 +68,7 @@ function render(data){
     const content=node('div',undefined,'run-content'),overview=node('div',undefined,'overview'),description=node('div'),entries=run.entries||[],counts={};
     entries.forEach(e=>counts[e.status]=(counts[e.status]||0)+1);
     description.append(node('p','任务 '+entries.length+' · 进行中 '+((counts.running||0)+(counts.pending||0))+' · 需关注 '+entries.filter(e=>attention.has(e.status)).length),node('p','批次：'+(run.id||'—'),'muted'));
+    if(run.discovery){const d=run.discovery,state={running:'目录展开中，任务总数待确定',completed:'目录展开完成',interrupted:'目录展开已中断',stopped:'目录展开已停止',failed:'目录展开失败'};description.append(node('p',(state[d.status]||d.status)+' · 清单 '+d.processed_requests+'/'+d.total_requests+' · 已发现 '+d.discovered_tasks+' 集'+(d.remaining_requests?' · 未展开 '+d.remaining_requests+' 项':''),'muted'))}
     const totals=node('div');totals.append(node('p','完成 '+(counts.completed||0)+' · 复用 '+(counts.reused||0)),node('p','失败 '+(counts.failed||0)+' · 中断 '+(counts.interrupted||0)+' · 跳过 '+(counts.skipped||0),'muted'));
     const elapsed=node('div'),clockValue=node('p','--:--:--','overview-time');clockValue.dataset.started=run.started||'';clockValue.dataset.finished=run.finished||'';clockValue.dataset.elapsed=run.elapsed_seconds??'';
     elapsed.append(node('p','运行总耗时','muted'),clockValue);overview.append(description,totals,elapsed);content.append(overview);

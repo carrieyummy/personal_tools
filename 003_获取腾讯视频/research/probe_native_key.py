@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from local.configuration import resolve_path
 from local.playback.client import NativeClient, video_info
-from local.playback.tasks import requests
+from research.settings import sample_requests as requests
 from local.playback.transport import safe_message
 from local.storage import atomic_json
 from research.observe_native_playback import probe_media
@@ -59,8 +59,6 @@ def main() -> int:
     settings = research["native_observation"]["signing"]
     entries = []
     for item in requests(config):
-        if research["title"] and item.note != research["title"]:
-            continue
         entry = {"note": item.note, "video_id": item.video_id, "local_only": args.local_only}
         try:
             if args.local_only:

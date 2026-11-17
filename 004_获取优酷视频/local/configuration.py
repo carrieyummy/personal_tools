@@ -56,7 +56,7 @@ def series_directory_name(config: dict, series: str, series_id: str, release_dat
 
 
 def load_config(path: Path) -> dict:
-    """读取主配置 path 并加载相对专项配置；返回经过校验的独立运行快照，不修改文件。"""
+    """读取主配置 path 并加载相对专项配置、校验语言优先级；返回独立运行快照，不修改文件。"""
     path = path.expanduser().resolve()
     config = read_yaml(path)
     validate_lock_file(config["logging"]["lock_file"])
@@ -65,6 +65,10 @@ def load_config(path: Path) -> dict:
     for key in ("default_list", "playback_profile", "native_profile", "output_path", "work_dir", "ffmpeg_path"):
         config[key] = resolve_path(config[key], path.parent)
     profile = read_yaml(config["playback_profile"])
+    languages = profile["audio_language"]
+    if (not isinstance(languages, list) or not languages
+            or any(not isinstance(value, str) or not value.strip() for value in languages)):
+        raise ValueError("audio_language 必须为按优先级排列的非空语言字符串列表")
     for key in ("client_dir", "user_data"):
         profile[key] = resolve_path(profile[key], config["playback_profile"].parent)
     context = profile["request"]["context"]

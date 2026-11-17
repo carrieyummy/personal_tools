@@ -134,8 +134,9 @@ detail:
     os: pc
     device: pc
     ver: 1.0.0
-# 当前选择源语言；语言与音质排名分离，不把其他配音当作更高音质。
-audio_language: default
+# 源语言优先级，按列表从前到后选择首个有正片非自适应流的语言，再在该语言内排名画质。
+# 全部语言均无匹配时报错；命中语言后不因画质不足或格式未适配改选后续语言。
+audio_language: [default, guoyu]
 # 自适应入口不代表独立档位，排除出画质排名。
 adaptive_streams:
 - auto

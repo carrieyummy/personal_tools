@@ -30,16 +30,17 @@ _video_locks: dict[tuple[str, str], Any] = {}
 
 @contextmanager
 def video_transaction(settings: Settings, bvid: str, title: str | None = None,
-                      total_parts: int | None = None, *, prepare: bool = False) -> Iterator[VideoInfo]:
+                      total_parts: int | None = None, *, prepare: bool = False,
+                      shared_folder: Path | None = None) -> Iterator[VideoInfo]:
     """按 settings 根目录和 bvid 加锁并重新读取记录；title/total_parts 供新建，prepare 启用旧布局整理。
 
-    产生最新 VideoInfo，调用方在上下文内更新并显式 save；不得在锁内执行网络传输或 FFmpeg。
+    shared_folder 在 prepare 时指定合集目录；产生最新 VideoInfo，调用方显式 save；锁内不执行网络或 FFmpeg。
     """
     key = (str(settings.output_dir.resolve()).casefold(), bvid)
     with _locks_guard:
         lock = _video_locks.setdefault(key, RLock())
     with lock:
-        record = get_video_info(settings, bvid, title, total_parts) if prepare else metadata_store.open_video(settings.output_dir, bvid, title, total_parts)
+        record = get_video_info(settings, bvid, title, total_parts, shared_folder=shared_folder) if prepare else metadata_store.open_video(settings.output_dir, bvid, title, total_parts)
         yield record
 
 
@@ -209,7 +210,8 @@ def prepare_collection(settings: Settings, metadata: dict[str, Any]) -> Path | N
             members.add(episode["bvid"])
     for bvid in sorted(members):
         if metadata_store.find_video_folders(settings.output_dir, bvid):
-            metadata_store.move_to_collection(get_video_info(settings, bvid), folder)
+            with video_transaction(settings, bvid, prepare=True) as member:
+                metadata_store.move_to_collection(member, folder)
     return folder
 
 

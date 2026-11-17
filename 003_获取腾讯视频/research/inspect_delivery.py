@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from local.configuration import load_config, resolve_path
 from local.playback.client import NativeClient, formats, video_info
-from local.playback.tasks import requests
+from research.settings import sample_requests as requests
 from local.playback.hls import parse_media
 from local.playback.transport import safe_message
 from local.storage import atomic_json
@@ -31,8 +31,6 @@ def main() -> None:
     client = NativeClient(config)
     report = []
     for item in requests(config):
-        if research["title"] and item.note != research["title"]:
-            continue
         initial = client.source(item.series_id, item.video_id)
         choice = formats(initial, client.profile["playback"])[item.quality - 1]
         video = video_info(client.source(item.series_id, item.video_id, choice["name"]))

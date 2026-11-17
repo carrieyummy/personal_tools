@@ -14,7 +14,7 @@ from .process import run_process
 from .runtime import check_cancel, TaskCancelled
 from .scheduler import Scheduler, PendingDownload
 from .storage import atomic_json, fingerprint, output_lock, publish, read_json, timestamp
-from .tasks import discover, requests
+from .tasks import Discovery, requests
 from .youku.client import Client, AuthenticationError, PlaybackError, SourceChanged
 from .youku.source import resolve
 from .youku.transport import restore_files, normalize_continuity
@@ -33,22 +33,24 @@ def verification_valid(proof: dict, duration: float, tolerance: float) -> bool:
             and abs(proof["duration_seconds"]-duration)<=tolerance)
 
 
-def cleanup_media(work: Path) -> str | None:
-    """在已提交成品后清理 work 内媒体；保留日志、帧哈希和验证证明，返回清理错误说明或 None。"""
-    boundary=work.resolve()
+def cleanup_media(work: Path, keep_intermediates: bool = False) -> str | None:
+    """清理成功任务的工作目录 work；keep_intermediates 为真时只保留媒体，返回错误说明或 None。"""
     try:
-        segments=(work / "segments").resolve()
-        processing=(work / "processing").resolve()
-        if any(path==boundary or not path.is_relative_to(boundary) for path in (segments,processing)):
-            return "拒绝清理越界现场；成品已提交"
-        if segments.exists():
-            shutil.rmtree(segments)
-        for path in processing.rglob("*"):
-            if path.suffix in (".ts",".m3u8",".mp4",".ffconcat"):
-                if not path.resolve().is_relative_to(boundary):
-                    return "拒绝清理越界媒体；成品已提交"
+        if work.is_symlink():
+            return "拒绝清理符号链接现场；成品已提交"
+        if not keep_intermediates:
+            shutil.rmtree(work)
+            return None
+        for path in sorted(work.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+            if path.is_symlink():
                 path.unlink()
-        (work / "segments.json").unlink(missing_ok=True)
+            elif path.is_file():
+                relative = path.relative_to(work)
+                if not (relative.parts[0] in ("segments", "processing") and
+                        path.suffix in (".ts", ".m3u8", ".mp4", ".ffconcat")):
+                    path.unlink()
+            elif path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
         return None
     except OSError:
         return "中间媒体清理失败；成品已提交，现场保留"
@@ -267,10 +269,9 @@ class UrlBatch(Batch, Scheduler):
                             target.unlink(missing_ok=True)
                         raise
                 report.update(status="completed",output=str(target),verification=verification,media=media,sha256=output["sha256"])
-                if not config["keep_intermediates"]:
-                    error=cleanup_media(work)
-                    if error:
-                        report["cleanup_error"]=error
+                error=cleanup_media(work,config["keep_intermediates"])
+                if error:
+                    report["cleanup_error"]=error
                 return report
             except SourceChanged:
                 if attempt == config["download"]["refresh_attempts"]:
@@ -281,13 +282,13 @@ class UrlBatch(Batch, Scheduler):
                 report.update(status="interrupted" if isinstance(error,(TaskCancelled,KeyboardInterrupt,GeneratorExit)) else "failed",error=safe_message(error))
                 raise
             finally:
-                if work is not None:
+                if work is not None and report["status"] != "completed":
                     report["authentication"] = self.client.diagnostics()
                     atomic_json(work / f"report_{self.journal.run['id']}.json",report,config["storage"])
 
 
 def run_url_batch(config: dict) -> dict:
-    """按 config 执行清单并以 logging.lock_file 持有本平台输出/工作锁；返回计数，异常时仍保存页面和日志。"""
+    """按 config 边发现目录边执行清单；持有平台输出/工作锁，返回计数，异常仍保存页面和日志。"""
     with output_lock(config["output_path"], config["logging"]["lock_file"]), output_lock(config["work_dir"] / "url", config["logging"]["lock_file"]):
         journal = Journal(config)
         print(f"实时日志：{journal.url}",flush=True)
@@ -296,12 +297,7 @@ def run_url_batch(config: dict) -> dict:
         batch = None
         try:
             batch = UrlBatch(config,journal)
-            tasks, failed = discover(batch.client,requests(config))
-            summary.update(total=len(tasks)+len(failed),failed=len(failed))
-            for failure in failed:
-                journal.update(journal.add(failure),status="failed",detail=failure["detail"])
-            for key, count in batch.run(tasks).items():
-                summary[key] += count
+            summary.update(batch.run([], discovery=Discovery(batch.client, requests(config))))
             status = "warning" if summary["failed"] else "completed"
             return summary
         except KeyboardInterrupt:
@@ -310,6 +306,8 @@ def run_url_batch(config: dict) -> dict:
                 summary.update(batch.summary)
             raise
         except Exception as error:
+            if batch and hasattr(batch, "summary"):
+                summary.update(batch.summary)
             journal.run["error"] = safe_message(error)
             raise
         finally:

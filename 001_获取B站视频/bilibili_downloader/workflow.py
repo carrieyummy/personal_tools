@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from threading import Event
 from typing import Any
@@ -229,10 +230,11 @@ def plan_groups(submission: Submission, catalogs: dict[int, dict[int, dict[tuple
 def query_submission(context: Any, settings: Settings, submission: Submission) -> SubmissionCatalog:
     """通过 context/settings 准备 submission 归档并查询各P可下载档位及大小；逐P记录错误，返回选流目录，不弹菜单。"""
     metadata, targets = submission.metadata, submission.targets
-    record = library.get_video_info(settings, submission.source_id, metadata['title'], targets[0].total_parts,
-                                   shared_folder=library.prepare_collection(settings, metadata))
-    library.update_source_info(record, metadata)
-    record.save()
+    collection = library.prepare_collection(settings, metadata)
+    with library.video_transaction(settings, submission.source_id, metadata['title'], targets[0].total_parts,
+                                   prepare=True, shared_folder=collection) as record:
+        library.update_source_info(record, metadata)
+        record.save()
     catalogs, variant_catalogs, raw_defaults, initial_sizes = {}, {}, {}, {}
     selection = submission.request.merge_parts.strip()
     use_merge = settings.priority == 'merge' and (selection not in ('', '-1', '0')
@@ -257,6 +259,8 @@ def query_submission(context: Any, settings: Settings, submission: Submission) -
                         raw_defaults[target.part][code] = variants.StreamChoice(quality, tuple(
                             {key: fmt.get(key) for key in ('format_id', 'vcodec', 'acodec', 'width', 'height', 'fps')} for fmt in formats),
                             **media.expected_size(formats))
+        except DownloadCancelled:
+            raise
         except Exception as exc:
             catalogs.pop(target.part, None)
             submission.failures.append(f'{target.url} 清晰度查询：{exc}')
@@ -446,14 +450,13 @@ def finish_submission(settings: Settings, executable: str, submission: Submissio
 
 
 def download_submissions(context: Any, settings: Settings, executable: str, submissions: list[Submission],
-                         *, journal: HtmlLog | None = None) -> list[str]:
-    """用 context 主线程查询 submissions 并按关联季共用一次确认，按 settings 下载并以 executable 封装，返回失败摘要。
+                         *, journal: HtmlLog | None = None, submission_groups=None) -> list[str]:
+    """用 context 快照逐组准备 submissions 并按关联季共用一次确认，按 settings 下载并以 executable 封装，返回失败摘要。
 
-    journal 为可选 HTML 日志；投稿全部分 P 处理结束后进入共享处理池收尾；同一投稿的各拼接组顺序执行。
+    journal 为可选 HTML 日志；submission_groups 可提供增量完整确认组，查询与规划在共享处理池执行，
+    主线程只确认画质和交接作业；投稿全部分 P 处理结束后收尾，同一投稿各拼接组顺序执行。
     """
     prepared, failures = [], []
-    catalogs: dict[int, SubmissionCatalog] = {}
-
     def preparation_failed(submission: Submission, error: Exception) -> None:
         """将 submission 的准备错误 error 追加到失败摘要并同步任务及尚未开始的分P日志；无返回值。"""
         failures.append(f'{submission.source_id} 准备下载：{error}')
@@ -463,70 +466,72 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
                 if activity.entry['status'] == 'pending':
                     activity.update('failed', detail=f'任务准备失败：{error}')
 
-    for index, submission in enumerate(submissions, 1):
-        check_cancel()
-        if journal:
-            submission.log_task = f'任务 {index} · {submission.source_id}' + (f' · {submission.request.title}' if submission.request.title else '')
-            submission.activity = journal.add('任务', submission.metadata['title'], task=submission.log_task, status='preparing')
-            submission.part_activities = {
-                target.part: journal.add('下载', submission.metadata['title'], task=submission.log_task, part=f'P{target.part}')
-                for target in submission.targets}
-            for target in submission.targets:
-                submission.part_activities[target.part].update(download_key=[submission.source_id, target.part,
-                    target.episode_id, target.cid, None, ''])
-            selection = submission.request.merge_parts.strip()
-            groups = ([f'第 {group_index} 组 [{group.strip()}]' for group_index, group in enumerate(selection.split(';'), 1)]
-                      if selection not in ('', '-1', '0') else ['全部分 P']
-                      if selection == '0' and submission.request.all_parts and len(submission.targets) > 1 else [])
-            for group in groups:
-                journal.add('合并', submission.metadata['title'], task=submission.log_task, part=group,
-                            detail='等待所需分 P 就绪')
-        try:
-            catalogs[id(submission)] = query_submission(context, settings, submission)
-        except Exception as exc:
-            preparation_failed(submission, exc)
-    for group in group_submissions(submissions):
-        check_cancel()
-        available = [submission for submission in group if id(submission) in catalogs]
-        if not available:
-            continue
-        if available[0].request.quality_rank is None:
-            shared = bool(available[0].request.quality_group)
-            options = {(submission.source_id, part) if shared else part: choices
-                       for submission in available for part, choices in catalogs[id(submission)].catalogs.items()}
-            arguments = {'per_group': True} if any(catalogs[id(item)].use_merge for item in available) else {}
-            try:
-                selection = qualities.confirm_rank(options) if shared else qualities.confirm_ceiling(options, **arguments)
-            except Exception as exc:
-                for submission in available:
-                    preparation_failed(submission, exc)
-                continue
-            for submission in available:
-                if shared:
-                    submission.selected_rank = selection
-                else:
-                    submission.ceiling = selection
-        for submission in available:
-            check_cancel()
-            try:
-                catalog = catalogs[id(submission)]
-                if submission.request.quality_rank is not None:
-                    union = {code: choice for choices in catalog.catalogs.values() for code, choice in choices.items()}
-                    submission.ceiling = ranked_quality(union, submission.request.quality_rank)
-                prepare_submission(settings, submission, catalog)
-                prepared.append(submission)
-                if submission.activity:
-                    submission.activity.update('downloading', detail='已分配画质，等待分 P 下载完成')
-            except Exception as exc:
-                preparation_failed(submission, exc)
-    order = {id(submission): index for index, submission in enumerate(submissions)}
-    prepared.sort(key=lambda submission: order[id(submission)])
-    print('本次运行目标视频总大小：' + media.summarize_sizes(size_entries(submissions))['text'], flush=True)
+    groups_source = iter(submission_groups) if submission_groups is not None else iter(group_submissions(submissions))
+    known = {id(item) for item in submissions}
+
+    def register(submission: Submission, index: int) -> None:
+        """为 submission 以发现序号 index 批量登记待下载及拼接日志；无返回值，不执行网络请求。"""
+        with journal.batch() if journal else nullcontext():
+            if journal:
+                submission.log_task = f'任务 {index} · {submission.source_id}' + (f' · {submission.request.title}' if submission.request.title else '')
+                submission.activity = journal.add('任务', submission.metadata['title'], task=submission.log_task, status='preparing')
+                submission.part_activities = {
+                    target.part: journal.add('下载', submission.metadata['title'], task=submission.log_task, part=f'P{target.part}')
+                    for target in submission.targets}
+                for target in submission.targets:
+                    submission.part_activities[target.part].update(download_key=[submission.source_id, target.part,
+                        target.episode_id, target.cid, None, ''])
+                selection = submission.request.merge_parts.strip()
+                groups = ([f'第 {group_index} 组 [{group.strip()}]' for group_index, group in enumerate(selection.split(';'), 1)]
+                          if selection not in ('', '-1', '0') else ['全部分 P']
+                          if selection == '0' and submission.request.all_parts and len(submission.targets) > 1 else [])
+                for group in groups:
+                    journal.add('合并', submission.metadata['title'], task=submission.log_task, part=group,
+                                detail='等待所需分 P 就绪')
+
+    def discovery():
+        """在共享处理池逐组查询完整画质目录，交主线程确认后规划；逐次返回确认或已就绪事件。"""
+        index = 0
+        for group in groups_source:
+            check_cancel(cancel_event)
+            group_catalogs = {}
+            with auth.worker_session(auth_snapshot, settings) as session:
+                for submission in group:
+                    index += 1
+                    register(submission, index)
+                    try:
+                        group_catalogs[id(submission)] = query_submission(session, settings, submission)
+                    except DownloadCancelled:
+                        raise
+                    except Exception as error:
+                        preparation_failed(submission, error)
+            event = {'kind':'confirm', 'group':group,
+                     'available':[item for item in group if id(item) in group_catalogs], 'catalogs':group_catalogs}
+            yield event
+            ready_group = []
+            for submission in event['available']:
+                check_cancel(cancel_event)
+                try:
+                    catalog = group_catalogs[id(submission)]
+                    if submission.request.quality_rank is not None:
+                        union = {code:choice for choices in catalog.catalogs.values() for code, choice in choices.items()}
+                        submission.ceiling = ranked_quality(union, submission.request.quality_rank)
+                    with journal.batch() if journal else nullcontext():
+                        prepare_submission(settings, submission, catalog)
+                        if submission.activity:
+                            submission.activity.update('queued', detail='已分配画质，等待分 P 解析与下载')
+                    ready_group.append(submission)
+                except DownloadCancelled:
+                    raise
+                except Exception as error:
+                    preparation_failed(submission, error)
+            yield {'kind':'ready', 'group':ready_group}
+
     controller = runtime.current()
     cancel_event = controller.event if controller else Event()
     active: dict[tuple, list[PartJob]] = {}
     completed: dict[tuple, PartResult | BaseException] = {}
-    remaining = {id(submission): {id(job) for job in submission.jobs} for submission in prepared}
+    remaining = {}
     finalized: set[int] = set()
     finishing: deque[PostTask] = deque()
 
@@ -552,6 +557,52 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
                     submission.activity.update('failed', detail='\n'.join(submission.failures))
 
         finishing.append(PostTask(finish, finish_complete))
+
+    def discovered(event) -> list[PartJob]:
+        """主线程接收目录 event，确认交互画质并返回新增作业；None 标记完整目录已结束。"""
+        check_cancel(cancel_event)
+        if event is None:
+            if journal:
+                with journal.lock:
+                    journal.run.update(catalog_status='ready', catalog_discovered=len(submissions))
+                    journal.write()
+            return []
+        if event['kind'] == 'confirm':
+            for item in event['group']:
+                if id(item) not in known:
+                    known.add(id(item))
+                    submissions.append(item)
+            available, catalogs = event['available'], event['catalogs']
+            if available and available[0].request.quality_rank is None:
+                shared = bool(available[0].request.quality_group)
+                options = {(item.source_id, part) if shared else part:choices
+                           for item in available for part, choices in catalogs[id(item)].catalogs.items()}
+                arguments = {'per_group':True} if any(catalogs[id(item)].use_merge for item in available) else {}
+                try:
+                    selection = qualities.confirm_rank(options) if shared else qualities.confirm_ceiling(options, **arguments)
+                except Exception as error:
+                    for item in available:
+                        preparation_failed(item, error)
+                    event['available'] = []
+                else:
+                    for item in available:
+                        if shared:
+                            item.selected_rank = selection
+                        else:
+                            item.ceiling = selection
+            if journal:
+                with journal.lock:
+                    journal.run.update(catalog_status='discovering', catalog_discovered=len(submissions))
+                    journal.write()
+            return []
+        jobs = []
+        for item in event['group']:
+            prepared.append(item)
+            remaining[id(item)] = {id(job) for job in item.jobs}
+            jobs.extend(item.jobs)
+            finish_ready(item)
+        print('本次已发现目标视频总大小：' + media.summarize_sizes(size_entries(submissions))['text'], flush=True)
+        return jobs
 
     def accept(job: PartJob, result: PartResult | BaseException) -> None:
         """将后处理完成或失败的 result 应用到 job 所属清单项；返回 None，不在工作线程调用。"""
@@ -728,15 +779,22 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
 
     try:
         auth_snapshot = auth.snapshot_session(context)
-        for submission in prepared:
-            finish_ready(submission)
-        pending = [job for submission in prepared for job in submission.jobs]
-        run_pipeline(pending, settings, prepare, execute_part, process_part, complete, cancel_event,
-                     downloaded_size=downloaded_size, waiting=waiting, finishers=finishing, prepared=prepared_part)
+        if journal:
+            with journal.lock:
+                journal.run.update(catalog_status='discovering', catalog_discovered=0)
+                journal.write()
+        run_pipeline([], settings, prepare, execute_part, process_part, complete, cancel_event,
+                     downloaded_size=downloaded_size, waiting=waiting, finishers=finishing, prepared=prepared_part,
+                     discoveries=discovery(), discovered=discovered)
     except BaseException:
         cancel_event.set()
         if controller:
             controller.cancel()
+        if journal:
+            with journal.lock:
+                if journal.run.get('catalog_status') != 'ready':
+                    journal.run['catalog_status'] = 'interrupted'
+                    journal.write()
         raise
     finally:
         for submission in prepared:

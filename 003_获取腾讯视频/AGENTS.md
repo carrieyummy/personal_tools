@@ -23,7 +23,9 @@
 - 具体业务逻辑、公共接口和工具函数放入 `local/`，按职责拆分模块并通过模块导入复用。
 - `local/templates/` 保存实时日志和离线报告共用的页面模板；页面展示本工具历次运行及任务详情。
 - 当前批量还原流程针对客户端已完成下载的主 HLS/TS 资源，读取 `QLDownload.xml` 和本地清单，通过客户端 DLL 还原 HVN 缓存；其他缓存结构需独立验证后接入。任务调度、验证、发布、复用和报告位于 `local/`。
+- `local/playback/scheduler.py` 统一调度增量目录发现、逐集解析、下载和后处理；目录逐清单项完整校验后交接，日志批量登记并持续补充分组。
 - `local/playback/` 实现 URL 来源：只读原生登录态、腾讯 HTTP 播放与完整分页选集、独立音质选择、HLS 分片断点；复用公共调度、媒体探测、完整解码、日志和安全发布，不导入其他工具目录的业务模块。
+- `local/playback/signing_compat.py` 和 `local/playback/templates/signing_observer.js` 负责候选签名验收；`research/verify_native_signing.py` 显式启动观察，验证当前清单的授权、续签和有界媒体读取后才更新签名配置。所有研究入口按链接选取样本，不按剧名备注筛选。
 - 测试脚本统一放入当前目录的 `tests/`。
 - 主配置放在 `configs/config.yaml`，正式流程的专项配置放在 `configs/`；研究专用配置放在 `research/configs/`，相对路径以配置文件所在目录为基准；代码、测试和文档均以实际配置为准，不重复硬编码配置值。
 - 电视剧成品目录通过主配置的 `naming.series_template` 命名，模板包含整剧首次上映日期 `release_date`、源站剧名 `title` 和整剧编号 `series_id`（URL 来源为 cid，缓存来源为 vbarid），平台标记在模板中维护；日期来自腾讯整剧简介的 `broadcast_time`，缺失、无效或编号不匹配时拒绝该任务。缓存模式每剧查询一次公开简介；日期只用于目录，不用于视频文件名。

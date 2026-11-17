@@ -1,7 +1,7 @@
-# 运行中腾讯播放器的原生 cKey ABI；摘要/导入位置须一起重新核对，不能只更换摘要。
+# 运行中腾讯播放器的原生 cKey ABI；通过 research/verify_native_signing.py 观察及实网验收后更新，不能只更换摘要。
 process_names: [TMPThumbHD.exe]
 module: qimei.dll
-sha256: 'e3839f252dde1f81c4e91f727c76557a2aebe077285e3e51a2954687bea0bebd'
+sha256: '952fd04e5de9505404f13aabce755b6c9461dcd1bd08faff66e10c142f370151'
 export: h
 free_import_rva: 0x165a48
 max_output_bytes: 65536
@@ -10,11 +10,13 @@ playback_extra: {ea: 1, sdrp: 1, spa: 1, spenclv: 2}
 session_seed_field: ssk
 session_seed_bits: 32
 # 独立 DLL 研究使用的已验证安装版本；正式下载按实际运行进程及 DLL 摘要校验。
-client_version: '11.185.3264.0'
+client_version: '11.190.8584.0'
 # TVKPlayer 中已初始化设备上下文的只读 MSVC 字符串布局；必须与 DLL 摘要一起校验。
 context:
-  module: TVKPlayer.dll
-  sha256: '9d86b7c276dac62c5676ca628beb85c4f0b0d6efc18904c45c12cba30d32d100'
-  object_rva: 0x5a9ad0
+  module: 'TVKPlayer.dll'
+  sha256: '913205c4ca6a0f23029b82a89eec6a4768c106255ddc04edfd7d1f4f84992222'
+  object_rva: 0x5a5ea0
   guid_offset: 0xd0
   max_guid_bytes: 64
+  # 真实 SDK 调用确认的同值设备副本；所有位置必须同时可读且值一致，任一分歧立即拒绝签名。
+  mirrors: [{guid_offset: 208, module: TVKPlayer.dll, object_rva: 5922832, sha256: 913205c4ca6a0f23029b82a89eec6a4768c106255ddc04edfd7d1f4f84992222}]

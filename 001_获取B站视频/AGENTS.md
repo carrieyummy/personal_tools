@@ -13,6 +13,7 @@
 
 - 当前目录为 B 站视频工具根目录；业务模块放在 `bilibili_downloader/`，按职责分层并复用，测试放在 `tests/`，对应 `.code-workspace` 文件位于父目录。
 - 根目录仅保留可运行入口 `download_bilibili.py`，集中定义和校验命令行参数、调用业务模块并处理退出码。
+- `bilibili_downloader/discovery.py` 按完整确认组发现目录；目录、画质查询与规划使用共享处理池，交互确认在主线程执行。
 - `cookies` 文件夹用来放导出的B站 cookie
 
 # workspace文件

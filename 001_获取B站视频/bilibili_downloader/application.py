@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 
 from . import api
 from . import bangumi
-from . import identity as source_identity
 from . import auth
 from . import config as configuration
 from . import downloader as transfer
@@ -93,22 +92,35 @@ def run_with_settings(args: argparse.Namespace, settings: Settings, journal: Htm
         print(f"登录有效：{account.get('uname', '当前账号')}；大会员：{'有效' if vip else '未开通或已到期'}。")
         if args.login_only:
             return 0
-        submissions: dict[tuple, workflow.Submission] = {}
-        processed: set[str] = set()
-        pending = deque((request, settings.all_seasons) for request in requests)
-        index = 0
-        while pending:
-            check_cancel()
-            request, expand_seasons = pending.popleft()
-            index += 1
-            url = request.url
-            try:
-                if expand_seasons:
-                    expanded = expand_season_request(context, request, settings)
-                    pending.extendleft((item, False) for item in reversed(expanded))
-                    continue
-                targets = api.resolve_targets(context, url, settings, request.all_parts)
-                if args.list_formats:
+        if not args.list_formats:
+            from .discovery import submission_groups
+            snapshot = auth.snapshot_session(context)
+
+            def discovery_failed(request, error):
+                """记录 request 的目录 error；不改变其他确认组，日志只保存业务说明。"""
+                failures.append(f"{request.source}：{error}")
+                if journal:
+                    journal.add('任务', request.title or request.url, task=request.source,
+                                status='failed', detail=str(error))
+
+            groups = submission_groups(snapshot, requests, settings, discovery_failed)
+            failures.extend(workflow.download_submissions(context, settings, executable, [],
+                                                          journal=journal, submission_groups=groups))
+        else:
+            processed: set[str] = set()
+            pending = deque((request, settings.all_seasons) for request in requests)
+            index = 0
+            while pending:
+                check_cancel()
+                request, expand_seasons = pending.popleft()
+                index += 1
+                url = request.url
+                try:
+                    if expand_seasons:
+                        expanded = expand_season_request(context, request, settings)
+                        pending.extendleft((item, False) for item in reversed(expanded))
+                        continue
+                    targets = api.resolve_targets(context, url, settings, request.all_parts)
                     for target in targets:
                         if target.url in processed:
                             continue
@@ -130,25 +142,10 @@ def run_with_settings(args: argparse.Namespace, settings: Settings, journal: Htm
                                 workflow.print_video_info(downloader, info, tracks, subtitle_error)
                         except Exception as exc:
                             failures.append(f"{target.url} 画质查询：{exc}")
-                    continue
-                metadata = api.target_metadata(context, targets[0], settings)
-                if not isinstance(metadata.get('title'), str) or not metadata['title']:
-                    raise ToolError("投稿标题为空，无法创建视频目录")
-                identity = ('direct', source_identity.source_id(metadata)) if request.quality_rank is None else ('manifest', index)
-                if identity in submissions:
-                    combined = {target.part: target for target in submissions[identity].targets}
-                    combined.update((target.part, target) for target in targets)
-                    submissions[identity].targets = list(combined.values())
-                    submissions[identity].request = replace(submissions[identity].request,
-                        quality_group=submissions[identity].request.quality_group | request.quality_group)
-                else:
-                    submissions[identity] = workflow.Submission(metadata, targets, request)
-            except Exception as exc:
-                failures.append(f"{request.source}：{exc}")
-                if journal:
-                    journal.add('任务', request.title or request.url, task=request.source, status='failed', detail=str(exc))
-        if not args.list_formats:
-            failures.extend(workflow.download_submissions(context, settings, executable, list(submissions.values()), journal=journal))
+                except Exception as exc:
+                    failures.append(f"{request.source}：{exc}")
+                    if journal:
+                        journal.add('任务', request.title or request.url, task=request.source, status='failed', detail=str(exc))
     if failures:
         print("\n以下项目未完成；成功文件及下载进度已保留：", file=sys.stderr)
         for failure in failures:

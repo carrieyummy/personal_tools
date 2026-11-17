@@ -13,7 +13,7 @@ from local.configuration import load_config, resolve_path
 from local.playback.audio import AudioSelector
 from local.playback.client import NativeClient
 from local.playback.source import resolve
-from local.playback.tasks import requests
+from research.settings import sample_requests as requests
 from local.storage import atomic_json
 
 
@@ -27,8 +27,6 @@ def main() -> None:
     config = load_config(resolve_path(research["config"], path.parent), source="url")
     client, report = NativeClient(config), []
     for item in requests(config):
-        if research["title"] and item.note != research["title"]:
-            continue
         task = {"series_id": item.series_id, "video_id": item.video_id, "quality": item.quality}
         values = [resolve(client, task, AudioSelector(config["audio"])) for _ in range(2)]
         resources = [[resource for manifest in value.manifests for resource in manifest.resources] for value in values]

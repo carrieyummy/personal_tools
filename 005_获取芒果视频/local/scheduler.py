@@ -19,16 +19,18 @@ Transfer = TypeVar("Transfer")
 def run_pipeline(jobs: Iterable[Job], config: dict[str, Any], steps: Callable[[Job], Any],
                  complete: Callable[[Job, str | None, Exception | None], None],
                  cancel: Event, auth_stop: Event, *, downloaded_size: Callable[[Transfer], int],
-                 waiting: Callable[[Job, str], None]) -> None:
+                  waiting: Callable[[Job, str], None], discover_in_pool: bool = False) -> None:
     """按 jobs 顺序调度 steps(job) 阶段生成器；config 独立限制下载及共享处理，cancel/auth_stop 控制取消和认证停止。
 
     steps 让出 download/resolve/ready 及载荷，分别切换下载池、共享处理池、媒体队列，最终返回终态字符串。
     complete 在调用线程接收任务、终态或异常，waiting 接收任务及等待阶段；回调均无返回值。
     downloaded_size 返回载荷的原始分片正整数字节数；仅 ready 占容量，单集超限可独占空队列。
     解析和等待入队不占下载名额；容量不足暂停新下载，预解析缓存有界；jobs 按需展开。
+    discover_in_pool 为真时，jobs 的有阻塞目录发现也在同一处理池推进；普通内存序列可保持假。
     取消或批次异常时回收两个池并结算已接纳任务；已完成的终态保留，其余记录取消，无返回值。
     """
     source = iter(jobs)
+    incoming, discovering = deque(), False
     prepared, resolving = deque(), deque()
     admission: deque[tuple[Job, Transfer, int]] = deque()
     ready: deque[tuple[Job, Transfer, int]] = deque()
@@ -43,6 +45,14 @@ def run_pipeline(jobs: Iterable[Job], config: dict[str, Any], steps: Callable[[J
     started: dict[int, Job] = {}
     finished: SimpleQueue[Future] = SimpleQueue()
     generators: dict[int, Any] = {}
+
+    def discover():
+        """在共享处理池推进一次目录来源；返回任务或耗尽标记，取消不转换为目录失败。"""
+        check_cancel(cancel)
+        try:
+            return "discovered", next(source)
+        except StopIteration:
+            return "exhausted", None
 
     def advance(job: Job):
         """推进 job 的阶段生成器；首次在处理池创建，返回阶段元组或终态标记。"""
@@ -71,10 +81,12 @@ def run_pipeline(jobs: Iterable[Job], config: dict[str, Any], steps: Callable[[J
         complete(job, status, error)
 
     try:
-        while not exhausted or prepared or resolving or admission or ready or active_downloads or active_processing:
+        while not exhausted or incoming or prepared or resolving or admission or ready or active_downloads or active_processing:
             check_cancel(cancel)
             if auth_stop.is_set():
                 exhausted = True
+                while incoming:
+                    settle(incoming.popleft(), None, AuthenticationError("登录失效，未继续下载"))
             while admission and (queued_bytes + admission[0][2] <= capacity or not ready):
                 job, transferred, size = admission.popleft()
                 ready.append((job, transferred, size))
@@ -93,11 +105,23 @@ def run_pipeline(jobs: Iterable[Job], config: dict[str, Any], steps: Callable[[J
                     preparing = sum(future.phase == "initial" for future in active_processing)
                     if len(prepared) + preparing >= download_limit:
                         break
-                    try:
-                        job = next(source)
-                    except StopIteration:
-                        exhausted = True
-                        break
+                    if incoming:
+                        job = incoming.popleft()
+                    elif discover_in_pool:
+                        if discovering:
+                            break
+                        future = processing.submit(discover)
+                        future.phase = "discovery"
+                        active_processing[future] = None
+                        future.add_done_callback(finished.put)
+                        discovering = True
+                        continue
+                    else:
+                        try:
+                            job = next(source)
+                        except StopIteration:
+                            exhausted = True
+                            break
                     if auth_stop.is_set():
                         exhausted = True
                         break
@@ -123,6 +147,15 @@ def run_pipeline(jobs: Iterable[Job], config: dict[str, Any], steps: Callable[[J
                 continue
             is_download = future in active_downloads
             job = active_downloads.pop(future) if is_download else active_processing.pop(future)
+            if future.phase == "discovery":
+                discovering = False
+                kind, value = future.result()
+                if kind == "exhausted":
+                    exhausted = True
+                else:
+                    incoming.append(value)
+                    started[id(value)] = value
+                continue
             try:
                 kind, value = future.result()
                 if kind == "ready":
@@ -165,6 +198,10 @@ def run_pipeline(jobs: Iterable[Job], config: dict[str, Any], steps: Callable[[J
             except BaseException:
                 continue
             else:
+                if future.phase == "discovery":
+                    if kind == "discovered":
+                        started[id(value)] = value
+                    continue
                 if kind == "done":
                     outcomes[id(job)] = (value, None)
         for job in list(started.values()):
@@ -177,3 +214,6 @@ def run_pipeline(jobs: Iterable[Job], config: dict[str, Any], steps: Callable[[J
     finally:
         downloads.shutdown(wait=True, cancel_futures=True)
         processing.shutdown(wait=True, cancel_futures=True)
+        close_source = getattr(source, "close", None)
+        if close_source is not None:
+            close_source()

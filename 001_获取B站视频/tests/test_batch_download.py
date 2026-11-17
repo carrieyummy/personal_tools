@@ -370,7 +370,8 @@ class BatchEngineTests(unittest.TestCase):
         self.barrier = Barrier(3)
         self.assertEqual(self.run_list([{'url': bvid} for bvid in self.ids]), 0)
         self.assertEqual(self.maximum, 3)
-        self.assertEqual(len({id(value) for value in self.sessions}), sum(self.counts.values()) * 2)
+        # 目录画质预查询、逐项准备及字幕处理均使用处理池内的独立会话。
+        self.assertEqual(len({id(value) for value in self.sessions}), sum(self.counts.values()) * 2 + len(self.ids))
         for bvid in self.ids:
             record = library.get_video_info(self.settings, bvid)
             self.assertEqual(len(record.data['files']), self.counts[bvid])
@@ -650,6 +651,21 @@ class BatchEngineTests(unittest.TestCase):
         run = self.read_log()['runs'][-1]
         self.assertEqual(run['status'], 'interrupted')
         self.assertFalse(any(row['status'] in ('downloading', 'pending', 'queued', 'merging') for row in run['entries']))
+
+
+    def test_first_download_starts_before_later_directory_is_resolved(self) -> None:
+        """走正式入口，后续独立投稿查询目录时首项已开始媒体传输，避免只验证底层调度器。"""
+        original = self.resolve_targets
+
+        def resolve(context, url, settings, all_parts):
+            """保持 context/url/settings/all_parts 协议；第二投稿须等待第一投稿实际下载开始。"""
+            if self.ids[1] in url:
+                self.assertTrue(self.started.wait(5), '首项下载不应等待后续目录')
+            return original(context, url, settings, all_parts)
+
+        with patch.object(api, 'resolve_targets', side_effect=resolve):
+            self.assertEqual(self.run_list([{'url':value} for value in self.ids]), 0)
+        self.assertEqual(set(self.calls), {value+'_p1' for value in self.ids})
 
 
 class ConcurrentRecordTests(unittest.TestCase):

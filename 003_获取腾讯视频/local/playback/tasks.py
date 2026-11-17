@@ -8,6 +8,7 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 import yaml
+from ..runtime import check_cancel, TaskCancelled
 
 from .client import NativeClient, video_info
 from .errors import PlaybackError
@@ -46,8 +47,8 @@ def normalize_url(value: str) -> tuple[str, str]:
     return cid, vid
 
 
-def requests(config: dict) -> list[Request]:
-    """读取 config 指定的清单；按任务、清单、主配置继承选项，返回保序请求列表。"""
+def requests(config: dict, *, require_single_video: bool = True) -> list[Request]:
+    """读取 config 指定清单并返回保序请求；require_single_video 默认校验单集模式须有 vid，研究取样可关闭此项。"""
     root = yaml.safe_load(config["default_list"].read_text(encoding="utf-8-sig"))
     if not isinstance(root, dict) or not isinstance(root.get("download_list"), list) or not root["download_list"]:
         raise PlaybackError("download_list 必须是非空列表")
@@ -62,7 +63,7 @@ def requests(config: dict) -> list[Request]:
         if "merge-parts" in root or "merge-parts" in item:
             raise PlaybackError("腾讯工具不支持 merge-parts")
         cid, vid = normalize_url(item["url"])
-        if not whole and not vid:
+        if require_single_video and not whole and not vid:
             raise PlaybackError("仅下载单集时，链接须包含 vid")
         result.append(Request(cid, vid, quality, whole, str(item.get("title", ""))))
     return result
@@ -124,7 +125,11 @@ def catalog(client: NativeClient, request: Request) -> list[dict]:
     initial = modules[0]
     pending = [(initial, None)]
     contexts, page_sets, result = set(), set(), {}
-    tabs = json.loads(initial["params"]["tabs"])
+    # 腾讯无分组页面会返回空字符串；分页仍由每页的 has_next 独立控制。
+    raw_tabs = initial["params"]["tabs"]
+    tabs = [] if raw_tabs == "" else json.loads(raw_tabs)
+    if not isinstance(tabs, list):
+        raise PlaybackError("选集分组格式无效")
     for tab in tabs:
         if tab.get("selected") is not True:
             pending.append((None, tab["page_context"]))
@@ -174,33 +179,77 @@ def catalog(client: NativeClient, request: Request) -> list[dict]:
     return tasks
 
 
-def discover(client: NativeClient, values: list[Request]) -> tuple[list[dict], list[dict]]:
-    """用 client 按 values 展开并去重，保留各 URL 分组；返回任务及失败请求，重复画质冲突中止。"""
-    tasks, failed, seen = [], [], {}
-    from .errors import AuthenticationError
-    for request_index, request in enumerate(values):
+class Discovery:
+    """逐清单项交接完整目录；在共享处理池查询，主调度线程补充日志归属。"""
+
+    def __init__(self, client: NativeClient, values: list[Request], cancel=None):
+        """保存 client、请求 values 及可选取消事件 cancel；初始化去重身份及发现进度。"""
+        self.client, self.items, self.cancel = client, values, cancel
+        self.position, self.discovered, self.seen = 0, 0, {}
+
+    def progress(self, status: str | None = None) -> dict:
+        """返回实际展开进度；status 可指定中断状态，未知剧集数量不估算。"""
+        return {"status":status or ("completed" if self.position == len(self.items) else "running"),
+                "processed_requests":self.position, "total_requests":len(self.items),
+                "discovered_tasks":self.discovered}
+
+    def group(self, request: Request, index: int | None = None) -> dict:
+        """将 request 转为安全 URL 分组；index 为清单位置，省略时取当前展开位置。"""
         # 仅重建公开播放 URL，避免把分享链接中的临时查询参数写入报告。
         url = (f"https://v.qq.com/x/cover/{request.series_id}"
                + (f"/{request.video_id}" if request.video_id else "") + ".html"
                if request.series_id else f"https://v.qq.com/x/page/{request.video_id}.html")
-        group = {"id": str(request_index), "title": request.note, "url": url}
+        return {"id":str(self.position if index is None else index), "title":request.note, "url":url}
+
+    def failure(self, request: Request, detail: str, index: int | None = None) -> dict:
+        """将 request、脱敏 detail 和可选清单位置 index 转为条目；不虚构单集数量。"""
+        return {"video_id":request.video_id or request.series_id, "title":request.note,
+                "detail":detail, "groups":[self.group(request, index)]}
+
+    def advance(self) -> dict:
+        """查询下一清单项并完整校验后返回新增任务、失败及分组事件；取消和画质冲突终止批次。"""
+        from .transport import safe_message
+        check_cancel(self.cancel)
+        request = self.items[self.position]
+        group = {**self.group(request), "id":str(self.position)}
+        tasks, failures, memberships = [], [], []
         try:
-            episodes = catalog(client, request)
-        except AuthenticationError:
+            episodes = catalog(self.client, request)
+            check_cancel(self.cancel)
+        except TaskCancelled:
             raise
         except (PlaybackError, KeyError, TypeError, ValueError) as error:
-            from .transport import safe_message
-            failed.append({"video_id": request.video_id or request.series_id, "title": request.note,
-                           "detail": safe_message(error), "groups": [group]})
-            continue
+            failures.append({**self.failure(request, safe_message(error)), "groups":[group]})
+            episodes = []
+        # 整项先检查重复配置；发生冲突时不交接该项的一部分任务。
         for task in episodes:
             key = task["series_id"], task["video_id"]
-            if key in seen:
-                if seen[key]["quality"] != task["quality"]:
-                    raise PlaybackError("重复视频的 quality 冲突")
-                seen[key]["groups"].append({**group, "title": request.note or task["series"]})
+            if key in self.seen and self.seen[key] != task["quality"]:
+                raise PlaybackError("重复视频的 quality 冲突；已交接任务及成品保留")
+        for task in episodes:
+            key = task["series_id"], task["video_id"]
+            membership = {**group, "title":request.note or task["series"]}
+            if key in self.seen:
+                memberships.append((key, membership))
                 continue
-            task["groups"] = [{**group, "title": request.note or task["series"]}]
-            seen[key] = task
+            task = {**task, "groups":[membership]}
+            self.seen[key] = task["quality"]
             tasks.append(task)
+        self.position += 1
+        self.discovered += len(tasks)
+        return {"tasks":tasks, "failures":failures, "memberships":memberships, "progress":self.progress()}
+
+
+def discover(client: NativeClient, values: list[Request]) -> tuple[list[dict], list[dict]]:
+    """同步收集 client 的 values 目录；验收使用同一增量实现，返回全部任务及失败请求。"""
+    source = Discovery(client, values)
+    tasks, failed, seen = [], [], {}
+    while source.position < len(values):
+        result = source.advance()
+        for task in result["tasks"]:
+            tasks.append(task)
+            seen[task["series_id"], task["video_id"]] = task
+        for identity, group in result["memberships"]:
+            seen[identity]["groups"].append(group)
+        failed.extend(result["failures"])
     return tasks, failed

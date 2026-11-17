@@ -36,10 +36,11 @@ download:
   keep_intermediates: false
 
 pipeline:
-  mux_slots: 1
+  mux_slots: 2
   publish_slots: 1
 
-# 非下载处理总并发上限：解析、复用检查、续签、封装、验证、指纹、发布及清理共用。
+# 非下载处理总并发上限：目录发现、解析、复用检查、续签、封装、验证、指纹、发布及清理共用。
+# 目录按需在同一处理池推进，最多一项在途；慢目录不阻塞调度主循环，逐剧完整校验后交接。
 # pipeline 内部资源槽及 CPU/GPU 独占验证槽继续生效。
 max_in_flight: 4
 

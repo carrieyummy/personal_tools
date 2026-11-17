@@ -52,13 +52,23 @@ class JournalStub:
 
     def __init__(self):
         """初始化独立条目列表及锁；无参数。"""
-        self.lock, self.entries = Lock(), []
+        self.lock, self.entries, self.run = Lock(), [], {}
 
     def add(self, task):
         """登记 task 的副本并返回条目。"""
-        entry = dict(task)
-        self.entries.append(entry)
-        return entry
+        return self.add_many([task])[0]
+
+    def add_many(self, tasks, discovery=None, memberships=None):
+        """批量收集 tasks 及 discovery 进度；memberships 补充分组，返回新条目列表。"""
+        entries = [deepcopy(task) for task in tasks]
+        with self.lock:
+            self.entries.extend(entries)
+            for entry, group in memberships or []:
+                if group not in entry.setdefault("groups", []):
+                    entry["groups"].append(deepcopy(group))
+            if discovery is not None:
+                self.run["discovery"] = deepcopy(discovery)
+        return entries
 
     def update(self, entry, stage=None, **values):
         """在线程锁下更新 entry 的阶段及 values；无返回值。"""
@@ -263,8 +273,8 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(verification_valid({**proof,"audio_frames":{"0":0}},1,tolerance))
         self.assertFalse(verification_valid({**proof,"audio_duration_seconds":{"0":1+tolerance*2}},1,tolerance))
 
-    def test_cleanup_keeps_verification_logs(self):
-        """成功清理仅删除中间媒体，帧哈希、日志、来源和候选证明始终保留。"""
+    def test_cleanup_removes_success_work(self):
+        """成功清理删除媒体、日志及证明所在的完整工作目录。"""
         processing=self.root / "processing/run";processing.mkdir(parents=True)
         segments=self.root / "segments";segments.mkdir()
         (segments / "000.ts").write_bytes(b"media")
@@ -272,9 +282,21 @@ class PipelineTests(unittest.TestCase):
             (processing / name).write_bytes(b"fixture")
         atomic_json(self.root / "candidate.json",{"proof":"fixture"},self.config["storage"])
         self.assertIsNone(cleanup_media(self.root))
-        self.assertFalse(segments.exists())
-        self.assertEqual({p.name for p in processing.iterdir()},{"decode.log","audio.framehash","restoration.json"})
-        self.assertTrue((self.root / "candidate.json").exists())
+        self.assertFalse(self.root.exists())
+
+    def test_cleanup_keeps_only_requested_media(self):
+        """配置保留中间媒体时，仍清理工作日志、帧哈希和证明文件。"""
+        processing=self.root / "processing/run";processing.mkdir(parents=True)
+        segments=self.root / "segments";segments.mkdir()
+        for path in (segments / "000.ts", processing / "candidate.mp4", processing / "decode.log",
+                     processing / "audio.framehash", self.root / "candidate.json"):
+            path.write_bytes(b"fixture")
+        self.assertIsNone(cleanup_media(self.root,True))
+        self.assertTrue((segments / "000.ts").exists())
+        self.assertTrue((processing / "candidate.mp4").exists())
+        self.assertFalse((processing / "decode.log").exists())
+        self.assertFalse((processing / "audio.framehash").exists())
+        self.assertFalse((self.root / "candidate.json").exists())
 
     def test_expired_url_refresh_is_independent_of_transport_retries(self):
         """普通传输重试为零时仍允许配置中的地址续签，刷新后必须实际重试该分段。"""

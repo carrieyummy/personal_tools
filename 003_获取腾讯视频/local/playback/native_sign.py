@@ -36,12 +36,13 @@ def verified_process(config: dict, settings: dict, pid: int | None = None) -> in
             if len(paths) != 1:
                 continue
             if hashlib.sha256(next(iter(paths)).read_bytes()).hexdigest() != settings["sha256"]:
-                raise PlaybackError("运行中播放器签名 DLL 未验证；需重新核对 ABI，不能自动套用新版本")
+                raise PlaybackError("运行中播放器签名 DLL 未验证；请运行 research/verify_native_signing.py 验收候选 ABI")
             context = settings["context"]
-            context_paths = {Path(value.path) for value in process.memory_maps(grouped=True)
-                             if Path(value.path).name.lower() == context["module"].lower()}
-            if len(context_paths) != 1 or hashlib.sha256(next(iter(context_paths)).read_bytes()).hexdigest() != context["sha256"]:
-                raise PlaybackError("运行中播放器设备上下文 ABI 未验证")
+            mappings = process.memory_maps(grouped=True)
+            for location in [context, *context["mirrors"]]:
+                context_paths = {Path(value.path) for value in mappings if Path(value.path).name.lower() == location["module"].lower()}
+                if len(context_paths) != 1 or hashlib.sha256(next(iter(context_paths)).read_bytes()).hexdigest() != location["sha256"]:
+                    raise PlaybackError("运行中播放器设备上下文 ABI 未验证；请运行 research/verify_native_signing.py 验收")
             candidates.append(process.pid)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
@@ -56,7 +57,8 @@ def generate(config: dict, request: dict, *, pid: int | None = None, cancel=None
     with _SIGNING_LOCK:
         check_cancel(cancel)
         target = verified_process(config, settings, pid)
-        source = "const settings=" + json.dumps(settings) + ";\n" + r'''
+        protocol = Path(__file__).with_name("templates").joinpath("signing_protocol.js").read_text(encoding="utf-8")
+        source = "const settings=" + json.dumps(settings) + ";\n" + protocol + "\n" + r'''
 const module = Process.getModuleByName(settings.module);
 const sign = new NativeFunction(module.getExportByName(settings.export), 'pointer',
   ['pointer','pointer','pointer','pointer','int','int','pointer','int','pointer','pointer','pointer']);
@@ -64,11 +66,17 @@ const free = new NativeFunction(module.base.add(settings.free_import_rva).readPo
 rpc.exports.generate = function (request, extra) {
   // request 是视频/时间/平台输入，extra 为一次性能力声明；复制返回值后使用同一 CRT 释放 SDK 内存。
   const context = settings.context;
-  const value = Process.getModuleByName(context.module).base.add(context.object_rva).add(context.guid_offset);
-  const guidSize = value.add(16).readU64().toNumber();
-  const capacity = value.add(24).readU64().toNumber();
-  if (guidSize <= 0 || guidSize > context.max_guid_bytes) throw new Error('SDK 设备上下文未初始化');
-  const guid = (capacity < 16 ? value : value.readPointer()).readUtf8String(guidSize);
+  const deviceValues = [context, ...context.mirrors].map(location => {
+    // location 为已验收设备位置；每个副本都必须可读且内容一致，不能任取一个不一致的来源。
+    const value = Process.getModuleByName(location.module).base.add(location.object_rva).add(location.guid_offset);
+    const guidSize = value.add(16).readU64().toNumber();
+    const capacity = value.add(24).readU64().toNumber();
+    if (guidSize <= 0 || guidSize > context.max_guid_bytes || capacity < guidSize) throw new Error('SDK 设备上下文未初始化');
+    const guid = (capacity < 16 ? value : value.readPointer()).readUtf8String(guidSize);
+    if (guid.length !== guidSize) throw new Error('SDK 设备字符串长度异常');
+    return guid;
+  });
+  const guid = consistentGuid(deviceValues);
   const values = settings.extra_values;
   const array = Memory.alloc(Math.max(4, values.length * 4));
   values.forEach((value, index) => array.add(index * 4).writeS32(value));

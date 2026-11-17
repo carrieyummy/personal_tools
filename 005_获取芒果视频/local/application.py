@@ -254,6 +254,7 @@ def run(args) -> int:
         stack.enter_context(DirectoryLock(config["work_dir"] / config["logging"]["work_lock_file"]))
         log = Activity(config)
         counts = {}
+        discovery = None
         interrupted, failed = False, False
         try:
             print(f"实时记录：{log.start()}", flush=True)
@@ -262,15 +263,26 @@ def run(args) -> int:
                 gpu_probe(config, config["work_dir"], cancel)
             pipeline = Pipeline(config, client, log, publisher, cancel, auth_stop)
             seen = {}
+            discovery = {"status":"running", "processed_requests":0,
+                         "total_requests":len(tasks), "discovered_tasks":0}
+            log.catalog(discovery)
 
             def incoming():
-                """按清单顺序增量展开；无参数；逐集返回，目录失败记录后继续后续任务。"""
+                """在共享处理池按清单增量展开；逐集返回，目录失败继续后续任务，取消直接传播。"""
                 nonlocal failed
                 for index, task in enumerate(tasks):
                     if auth_stop.is_set() or cancel.is_set():
+                        discovery["status"] = "interrupted" if cancel.is_set() else "stopped"
+                        log.catalog(discovery)
                         return
                     try:
-                        for episode in catalog(client, task):
+                        values = catalog(client, task)
+                        discovery["processed_requests"] = index + 1
+                        discovery["discovered_tasks"] += sum(
+                            episode.released and episode.key not in seen for episode in values)
+                        discovery["status"] = "completed" if index + 1 == len(tasks) else "running"
+                        log.catalog(discovery)
+                        for episode in values:
                             if episode.key in seen:
                                 if seen[episode.key] != episode.quality:
                                     raise ToolError("重复视频画质配置冲突")
@@ -281,14 +293,21 @@ def run(args) -> int:
                                 counts["待上线"] = counts.get("待上线", 0) + 1
                                 continue
                             yield episode
+                    except Cancelled:
+                        raise
                     except AuthenticationError as error:
                         auth_stop.set()
                         failed = True
                         log.update(f"catalog/{index}", task.note or task.url, "认证失效", message=safe_message(error))
+                        discovery["status"] = "stopped"
+                        log.catalog(discovery)
                         return
                     except ToolError as error:
                         failed = True
                         log.update(f"catalog/{index}", task.note or task.url, "选集失败", message=safe_message(error))
+                        discovery.update(processed_requests=index + 1,
+                                         status="completed" if index + 1 == len(tasks) else "running")
+                        log.catalog(discovery)
 
             def complete(episode: Episode, status: str | None, error: Exception | None) -> None:
                 """在主线程结算 episode 的 status/error 并更新汇总；无返回值。"""
@@ -299,7 +318,8 @@ def run(args) -> int:
                 failed |= status in ("失败", "认证失效")
 
             run_pipeline(incoming(), config, pipeline.episode_steps, complete, cancel, auth_stop,
-                         downloaded_size=lambda task: task.evidence["bytes"], waiting=pipeline.stage)
+                         downloaded_size=lambda task: task.evidence["bytes"], waiting=pipeline.stage,
+                         discover_in_pool=True)
             if auth_stop.is_set():
                 failed = True
         except (KeyboardInterrupt, Cancelled):
@@ -310,6 +330,9 @@ def run(args) -> int:
             failed = True
             log.update("batch", "批次", "失败", message=safe_message(error))
         finally:
+            if discovery is not None and discovery["status"] == "running":
+                discovery["status"] = "interrupted"
+                log.catalog(discovery)
             report = log.finish("已取消" if interrupted else "部分失败" if failed else "已完成")
             print(f"结果：{json.dumps(counts, ensure_ascii=False)}\n离线报告：{report}", flush=True)
         return 130 if interrupted else int(failed)

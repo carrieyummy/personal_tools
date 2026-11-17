@@ -30,9 +30,10 @@ authentication:
 audio:
   # 仅对当前账号可下载的原始音源排名：1 为最高，2 为次高；播放器滤镜不参与，档位不足时报错。
   quality: 1
-# 非下载处理总并发上限：解析、复用检查、续签及后处理共用；缓存模式为最大在途数。
+# 非下载处理总并发上限：目录发现、解析、复用检查、续签及后处理共用；缓存模式为最大在途数。
+# URL 按清单项完整校验目录并批量登记；首剧即可下载，后续目录在同一处理池继续补全。
 # 封装、来源检查和发布各一个槽，每个启用设备各一个槽。
-max_in_flight: 4
+max_in_flight: 8
 # 单个外部进程的超时时间，单位为秒，须为正整数。
 process_timeout_seconds: 3600
 # 文件读取、复制和哈希计算的缓冲区大小，单位为字节，须为正整数且小于 2^31。
@@ -108,6 +109,10 @@ logging:
   final_state_timeout_seconds: 5
   # 采样和写入进度的间隔，单位为秒，须大于 0。
   progress_interval_seconds: 1
+  # Windows/共享盘目标被短暂占用时的原子替换策略；次数包含首次尝试，耗尽后保留原记录并报错。
+  atomic_replace:
+    attempts: 20
+    interval_seconds: 0.1
   # 运行状态记录文件名。
   state_file: 'tencent_conversion_log.json'
   # 离线报告文件名模板；实际文件名会附加时间和运行标识。

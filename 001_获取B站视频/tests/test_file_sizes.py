@@ -88,22 +88,23 @@ class FileSizeIntegrationTests(unittest.TestCase):
         self.enterContext(patch.object(batch.FakeDownloader, 'extract_info', extract))
 
     def test_plan_is_visible_before_transfer_and_duplicate_results_share_actual_size(self) -> None:
-        """验证下载前取得预计大小，重复任务及再次运行复用共享实际大小，命令行与日志口径一致；无返回值。"""
+        """逐项传输前须登记该项预计大小，后续重复任务可继续发现并共享最终实际大小；无返回值。"""
         engine, source = self.engine, self.engine.ids[0]
         self.sizes[source + '_p1', 80] = {'filesize': 10_000_000}
-        original = workflow.run_pipeline
+        original = engine.transfer
 
-        def run_pipeline(*args: object, **kwargs: object) -> None:
-            """派发 args/kwargs 前检查持久化计划，然后运行原调度器；无返回值。"""
+        def transfer(filename, info, hooks):
+            """实际传输 filename/info 前核对已发现计划，hooks 透传；不要求后续任务提前全部登记。"""
             entries = engine.read_log()['runs'][-1]['entries']
             downloads = [entry for entry in entries if entry['kind'] == '下载']
-            self.assertEqual([entry['expected_size_bytes'] for entry in downloads], [10_000_000, 10_000_000])
+            self.assertTrue(downloads)
+            self.assertTrue(all(entry['expected_size_bytes'] == 10_000_000 for entry in downloads))
             self.assertEqual(media.summarize_sizes(entries)['file_count'], 1)
             self.assertFalse(engine.calls)
-            return original(*args, **kwargs)
+            return original(filename, info, hooks)
 
         tasks = [{'url': source}, {'url': source}]
-        with patch.object(workflow, 'run_pipeline', run_pipeline):
+        with patch.object(engine, 'transfer', side_effect=transfer):
             self.assertEqual(engine.run_list(tasks), 0, engine.stderr.getvalue())
         entries = engine.read_log()['runs'][-1]['entries']
         downloads = [entry for entry in entries if entry['kind'] == '下载']

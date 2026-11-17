@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import re
 import sys
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from local.configuration import load_config, resolve_path
 from local.playback.client import NativeClient, video_info
+from research.settings import sample_requests as requests
 from local.playback.transport import safe_message
 
 
@@ -69,17 +70,13 @@ def main() -> None:
     path = args.config.resolve()
     research = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
     config = load_config(resolve_path(research["config"], path.parent), source="url")
-    listing = yaml.safe_load(config["default_list"].read_text(encoding="utf-8-sig"))
     client = NativeClient(config)
     baseline = deepcopy(client.profile["playback"])
     report = {"login_library_version": client.user["app_version"], "playback_sdk_version": baseline["app_version"],
               "signature_adapter_version": baseline["ckey"]["client_version"], "items": []}
-    for item in listing["download_list"]:
-        if research["title"] and item.get("title") != research["title"]:
-            continue
-        query = parse_qs(urlsplit(item["url"]).query)
-        series_id, video_id = query["cid"][0], query["vid"][0]
-        entry = {"note": item.get("title", ""), "series_id": series_id, "video_id": video_id, "variants": []}
+    for item in requests(config):
+        series_id, video_id = item.series_id, item.video_id
+        entry = {"note": item.note, "series_id": series_id, "video_id": video_id, "variants": []}
         for variant in research["variants"]:
             result = {"name": variant["name"], "query": variant["query"]}
             try:

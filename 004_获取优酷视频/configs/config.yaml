@@ -2,7 +2,7 @@
 # 当前仅支持 url：复用已登录客户端上下文，按链接清单下载完整正片。
 # URL 模式需保持一个已登录且 SDK 已初始化的优酷播放器运行；先在客户端播放一集已授权正片。
 source: url
-# URL 模式使用的下载清单文件。
+# URL 模式使用的下载清单文件；每部剧目录校验完成后即可下载，同时继续展开后续清单。
 default_list: '../download_list/download_list.yaml'
 # URL 模式使用的播放协议、选集接口及登录态专项配置文件。
 playback_profile: 'native_playback.yaml'
@@ -30,16 +30,17 @@ authentication:
 audio:
   # 仅对当前账号可下载的原始音源排名：1 为最高，2 为次高；播放器滤镜不参与，档位不足时报错。
   quality: 1
-# 非下载处理的总并发上限：解析、复用检查、续签和后处理共用。
+# 非下载处理的总并发上限：目录发现、逐集解析、复用检查、续签和后处理共用。
+# 目录每次仅展开一个清单项，完整校验后批量登记；媒体预解析最多缓存一组下载名额。
 # 还原、封装、来源复核、发布及每个启用解码设备仍各一个槽。
-max_in_flight: 5
+max_in_flight: 6
 # 单个外部进程的超时时间，单位为秒，须为正整数。
 process_timeout_seconds: 3600
 # 文件读取、复制和哈希计算的缓冲区大小，单位为字节，须为正整数且小于 2^31。
 copy_buffer_bytes: 4194304
 # 解码结束时间与清单时长的最大允许差值（秒）。
 duration_tolerance_seconds: 2
-# 成功后是否保留媒体中间文件；失败现场、验证日志和脱敏证明始终保留。
+# 成功后是否保留媒体中间文件；成功任务的工作日志和证明文件会清理，失败现场保留。
 keep_intermediates: false
 # URL 模式的媒体规格验证参数。
 verification:
@@ -102,7 +103,7 @@ logging:
   refresh_interval_seconds: 2
   # 结束后等待活跃页面确认最终状态的最长时间，单位为秒。
   final_state_timeout_seconds: 5
-  # 采样和写入进度的间隔，单位为秒，须大于 0。
+  # 采样和写入下载进度的间隔，单位为秒，须大于 0；目录按清单项批量登记，阶段变化即时保存。
   progress_interval_seconds: 1
   # 运行状态记录文件名。
   state_file: 'youku_conversion_log.json'

@@ -125,6 +125,26 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaises(PlaybackError):
             catalog(client, Request("cover", "video1", 1, True, ""))
 
+    def test_empty_tabs_still_follows_pagination(self):
+        """腾讯返回空分组时仍读取下一页，确保不会遗漏正片。"""
+        first = self.make_page([1], first=True)
+        params = first["CardList"][0]["params"]
+        params.update(tabs="", has_next="true", next_page_context="next")
+        client = SimpleNamespace(profile=self.config["playback"], catalog_page=Mock(side_effect=[
+            first, self.make_page([2])]))
+        request = Request("cover", "video1", self.config["download"]["quality"], True, "")
+        self.assertEqual([task["index"] for task in catalog(client, request)], [1, 2])
+        self.assertEqual(client.catalog_page.call_count, 2)
+
+    def test_invalid_tabs_are_not_treated_as_empty(self):
+        """非空但格式错误的分组数据必须失败，避免静默遗漏分组。"""
+        for value in ("invalid", "null", "{}"):
+            first = self.make_page([1], first=True)
+            first["CardList"][0]["params"]["tabs"] = value
+            client = SimpleNamespace(profile=self.config["playback"], catalog_page=Mock(return_value=first))
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                catalog(client, Request("cover", "video1", self.config["download"]["quality"], True, ""))
+
 
 class AudioTests(unittest.TestCase):
     """验证按配置选择可下载音质、排除滤镜、逐集排名和实际复用原轨结构。"""

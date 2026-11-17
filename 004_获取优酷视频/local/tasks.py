@@ -6,6 +6,8 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 from .configuration import read_yaml
+from .runtime import TaskCancelled, check_cancel
+from .errors import safe_message
 from .youku.client import PlaybackError
 
 
@@ -67,65 +69,116 @@ def release_date(client, vid: str, show_id: str, title: str) -> str:
     return result
 
 
-def discover(client, items: list[dict]) -> tuple[list[dict], list[dict]]:
-    """展开客户端 client 的 items 请求；返回去重任务和失败项，局部失败不丢其他清单项。"""
-    tasks, failures, seen = [], [], {}
-    shows = {}
-    for request in items:
+class Discovery:
+    """逐项校验完整剧集目录；每次交接一项结果，不在工作线程修改已派发任务。"""
+
+    def __init__(self, client, items: list[dict]):
+        """保存 client 和保序请求 items；仅初始化目录缓存、去重集合和已完成请求数。"""
+        self.client, self.items = client, items
+        self.position, self.discovered = 0, 0
+        self.shows, self.seen = {}, set()
+
+    def progress(self, status: str | None = None) -> dict:
+        """返回目录发现进度；status 可覆盖自动推导的运行或完成状态，不估算未知集数。"""
+        return {"status": status or ("completed" if self.position == len(self.items) else "running"),
+                "processed_requests": self.position, "total_requests": len(self.items),
+                "discovered_tasks": self.discovered}
+
+    @staticmethod
+    def failure(request: dict, detail: str) -> dict:
+        """将请求 request 与脱敏原因 detail 转为清单级失败条目；未知集数不伪造成单集。"""
+        return {"video_id":request["video_id"], "title":request["note"], "series":request["note"],
+                "detail":detail, "groups":[{"id":str(request["list_index"]),"url":request["url"],"title":request["note"]}]}
+
+    def advance(self) -> dict:
+        """在共享处理池展开下一清单项；返回新增任务、分组补充及局部失败，取消直接传播。"""
+        check_cancel(self.client.cancel)
+        request = self.items[self.position]
+        tasks, failures, memberships = [], [], []
         try:
-            body, _ = client.ups(request["video_id"])
-            show = body.get("show", {})
-            sid, title = show.get("encodeid"), show.get("title")
-            if not isinstance(sid,str) or re.fullmatch(r"[A-Za-z0-9]+",sid) is None or not title:
-                raise PlaybackError("无法确认官方节目编号及标题")
-            if sid not in shows:
-                premiered = release_date(client, request["video_id"], sid, title)
-                episodes, ids, pages = [], set(), None
-                for page in range(1, client.profile["catalog"]["max_pages"] + 1):
-                    model = client.catalog(request["video_id"], sid, page)
-                    info = model.get("showInfoDTO", {})
-                    if info.get("showId") != sid or info.get("showName") != title or model.get("curPage") != page:
-                        raise PlaybackError("选集响应节目或页码不匹配")
-                    if pages is None:
-                        pages = int(model["totalPages"])
-                        total = int(model["total"])
-                    if pages != int(model["totalPages"]) or total != int(model["total"]):
-                        raise PlaybackError("选集分页期间目录变化")
-                    values = model.get("videoItemList", [])
-                    if not values or any(x.get("vid") in ids for x in values):
-                        raise PlaybackError("选集返回空页或重复视频")
-                    ids.update(x["vid"] for x in values)
-                    episodes.extend(values)
-                    if page == pages:
-                        break
+            # 整项校验成功后才提交去重身份及任务，避免坏页或坏集导致半部剧提前下载。
+            expanded = self.expand(request)
+            check_cancel(self.client.cancel)
+            for task in expanded:
+                identity = (task["video_id"], task["quality"])
+                if identity in self.seen:
+                    memberships.append((identity, task["groups"][0]))
                 else:
-                    raise PlaybackError("选集页数超过配置上限")
-                if len(ids) != total:
-                    raise PlaybackError("选集数量与官方总量不一致")
-                shows[sid] = (premiered, episodes)
-            premiered, episodes = shows[sid]
-            selected = [x for x in episodes if x.get("videoType") == "正片" and
-                        (request["all_parts"] or x["vid"] == request["video_id"])]
-            if not selected:
-                raise PlaybackError("清单链接未匹配已上线正片")
-            for item in sorted(selected, key=lambda x:int(x["stage"])):
-                stage = int(item["stage"])
-                if stage <= 0:
-                    raise PlaybackError("正片集序无效")
-                group = {"id":str(request["list_index"]), "url":request["url"], "title":request["note"] or title}
-                identity = (item["vid"], request["quality"])
-                if identity in seen:
-                    seen[identity]["groups"].append(group)
-                    continue
-                task = {"video_id":item["vid"], "series_id":sid, "series":title, "title":item["title"],
-                        "index":stage, "release_date":premiered, "duration":float(item["seconds"]),
-                        "quality":request["quality"], "groups":[group]}
-                if task["duration"] <= 0:
-                    raise PlaybackError("官方正片目录缺少有效时长")
-                tasks.append(task)
-                seen[identity] = task
+                    self.seen.add(identity)
+                    tasks.append(task)
+        except TaskCancelled:
+            raise
         except Exception as error:
-            from .errors import safe_message
-            failures.append({"video_id":request["video_id"], "title":request["note"], "series":request["note"],
-                             "detail":safe_message(error), "groups":[{"id":str(request["list_index"]),"url":request["url"],"title":request["note"]}]})
+            failures.append(self.failure(request, safe_message(error)))
+        self.position += 1
+        self.discovered += len(tasks)
+        return {"tasks":tasks, "failures":failures, "memberships":memberships, "progress":self.progress()}
+
+    def expand(self, request: dict) -> list[dict]:
+        """校验 request 对应整部剧的分页、首播日期及选中正片；返回按集序排列的独立任务。"""
+        client, shows = self.client, self.shows
+        body, _ = client.ups(request["video_id"])
+        show = body.get("show", {})
+        sid, title = show.get("encodeid"), show.get("title")
+        if not isinstance(sid,str) or re.fullmatch(r"[A-Za-z0-9]+",sid) is None or not title:
+            raise PlaybackError("无法确认官方节目编号及标题")
+        if sid not in shows:
+            premiered = release_date(client, request["video_id"], sid, title)
+            episodes, ids, pages = [], set(), None
+            for page in range(1, client.profile["catalog"]["max_pages"] + 1):
+                check_cancel(client.cancel)
+                model = client.catalog(request["video_id"], sid, page)
+                info = model.get("showInfoDTO", {})
+                if info.get("showId") != sid or info.get("showName") != title or model.get("curPage") != page:
+                    raise PlaybackError("选集响应节目或页码不匹配")
+                if pages is None:
+                    pages = int(model["totalPages"])
+                    total = int(model["total"])
+                if pages != int(model["totalPages"]) or total != int(model["total"]):
+                    raise PlaybackError("选集分页期间目录变化")
+                values = model.get("videoItemList", [])
+                if not values or len({x["vid"] for x in values}) != len(values) or any(x["vid"] in ids for x in values):
+                    raise PlaybackError("选集返回空页或重复视频")
+                ids.update(x["vid"] for x in values)
+                episodes.extend(values)
+                if page == pages:
+                    break
+            else:
+                raise PlaybackError("选集页数超过配置上限")
+            if len(ids) != total:
+                raise PlaybackError("选集数量与官方总量不一致")
+            shows[sid] = (premiered, episodes)
+        premiered, episodes = shows[sid]
+        selected = [x for x in episodes if x.get("videoType") == "正片" and
+                    (request["all_parts"] or x["vid"] == request["video_id"])]
+        if not selected:
+            raise PlaybackError("清单链接未匹配已上线正片")
+        tasks = []
+        for item in sorted(selected, key=lambda x:int(x["stage"])):
+            check_cancel(client.cancel)
+            stage = int(item["stage"])
+            if stage <= 0:
+                raise PlaybackError("正片集序无效")
+            group = {"id":str(request["list_index"]), "url":request["url"], "title":request["note"] or title}
+            task = {"video_id":item["vid"], "series_id":sid, "series":title, "title":item["title"],
+                    "index":stage, "release_date":premiered, "duration":float(item["seconds"]),
+                    "quality":request["quality"], "groups":[group]}
+            if task["duration"] <= 0:
+                raise PlaybackError("官方正片目录缺少有效时长")
+            tasks.append(task)
+        return tasks
+
+
+def discover(client, items: list[dict]) -> tuple[list[dict], list[dict]]:
+    """同步收集 client 的 items 完整目录；供限量验收使用，返回去重任务和局部失败。"""
+    source = Discovery(client, items)
+    tasks, failures, seen = [], [], {}
+    while source.position < len(items):
+        result = source.advance()
+        for task in result["tasks"]:
+            tasks.append(task)
+            seen[(task["video_id"], task["quality"])] = task
+        for identity, group in result["memberships"]:
+            seen[identity]["groups"].append(group)
+        failures.extend(result["failures"])
     return tasks, failures

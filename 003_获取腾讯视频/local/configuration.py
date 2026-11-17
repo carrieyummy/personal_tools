@@ -9,7 +9,7 @@ from string import Formatter
 
 import yaml
 
-from .storage import validate_lock_file
+from .storage import validate_atomic_retry, validate_lock_file
 
 
 def resolve_path(value: str, base: Path) -> Path:
@@ -57,6 +57,7 @@ def load_config(path: Path, *, source: str | None = None) -> dict:
     if not isinstance(config, dict):
         raise ValueError("主 YAML 必须是映射")
     validate_lock_file(config["logging"]["lock_file"])
+    validate_atomic_retry(config["logging"]["atomic_replace"])
     config["config_path"] = path
     config["source"] = config["source"] if source is None else source
     if config["source"] not in ("download", "url"):
@@ -135,6 +136,18 @@ def load_playback_config(config: dict, base: Path) -> None:
     signing = profile["playback"]["ckey"]
     if not re.fullmatch(r"[0-9a-f]{64}", str(signing["sha256"])):
         raise ValueError("签名专项配置 sha256 必须是 64 位小写十六进制摘要")
+    context = signing["context"]
+    if not isinstance(context["mirrors"], list):
+        raise ValueError("签名设备 context.mirrors 必须是列表")
+    if type(context["max_guid_bytes"]) is not int or context["max_guid_bytes"] <= 0:
+        raise ValueError("签名设备 max_guid_bytes 必须为正整数")
+    for location in [context, *context["mirrors"]]:
+        if not isinstance(location, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(location.get("sha256"))):
+            raise ValueError("签名设备位置必须包含模块和有效 sha256")
+        if not isinstance(location.get("module"), str) or not location["module"] or any(value in location["module"] for value in ("/", "\\")):
+            raise ValueError("签名设备 module 必须是 DLL 文件名")
+        if any(type(location.get(key)) is not int or location[key] < 0 for key in ("object_rva", "guid_offset")):
+            raise ValueError("签名设备位置偏移必须是非负整数")
     for key in ("free_import_rva", "max_output_bytes", "session_seed_bits"):
         if type(signing[key]) is not int or signing[key] <= 0:
             raise ValueError(f"签名专项配置 {key} 必须为正整数")

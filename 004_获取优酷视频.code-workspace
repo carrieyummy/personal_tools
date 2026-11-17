@@ -12,7 +12,7 @@
             "path": "C:/Users/Administrator/.codex"
         },
         {
-            "path": "E:/qycache"
+            "path": "E:/YoukuRestore"
         },
         {
             "path": "Z:/003_电视剧"
@@ -26,7 +26,7 @@
         "python.testing.unittestArgs": [
             // 输出每个测试用例的执行结果。
             "-v",
-            // 从正式工具 tests 文件夹发现测试；研究回归另有独立启动项。
+            // 从正式工具 tests 文件夹发现测试，含增量目录发现与下载重叠；研究回归另有独立启动项。
             "-s", "tests",
             // 以工具根目录为导入根目录，供测试导入 local 模块。
             "-t", "."

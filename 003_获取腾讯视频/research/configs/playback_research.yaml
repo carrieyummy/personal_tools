@@ -2,8 +2,7 @@
 # 相对路径以本 YAML 所在的 research/configs/ 目录为基准。
 config: '../../configs/config.yaml'
 report_dir: '../results'
-# 以清单中的 title 备注精确匹配；空字符串表示研究全部清单项。
-title: '花开锦绣'
+# 验证主配置指定清单中的全部链接；不按 title 备注筛选剧名。
 native_logs:
   # 只提取协议能力参数与响应结构，不从日志提取或复用账号票据。
   root: '~/AppData/Roaming/Tencent/QQLive/Log'
@@ -37,7 +36,7 @@ native_observation:
     frame_prefix_scan: 16
     public_json_fields: [apv, cmd, lang, platform, ea, sdrp, spa, spenclv]
     constant_modules: [TVKPlayer.dll, ThumbPlayer.dll, qimei.dll, QQLiveBase.dll]
-  watch_seconds: 120
+  watch_seconds: 300
   max_events: 100
   max_media_probes: 2
   max_string_bytes: 65536

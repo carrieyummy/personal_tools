@@ -21,6 +21,7 @@
         "python.testing.cwd": "${workspaceFolder:001_获取B站视频}",
         "python.testing.unittestEnabled": true,
         "python.testing.unittestArgs": [
+            // 包含增量目录发现、下载重叠和取消的隔离测试；不运行真实下载验收。
             // 输出每个测试用例的执行结果。
             "-v",
             // 从工具目录下的 tests 文件夹发现测试。

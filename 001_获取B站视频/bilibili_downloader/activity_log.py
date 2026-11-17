@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import datetime
 import json
 import math
@@ -174,6 +175,7 @@ class HtmlLog:
             validate_path(path, settings.output_dir)
         self.template = Path(__file__).with_name('templates').joinpath('download_log.html').read_text(encoding='utf-8')
         self.closed = False
+        self._batch_depth, self._batch_dirty = 0, False
         self.snapshot_path: Path | None = None
         self._snapshot_filenames: set[str] = set()
         self.data = self.load_history()
@@ -205,6 +207,8 @@ class HtmlLog:
                 run.setdefault('id', uuid4().hex)
                 if run['status'] == 'running':
                     run.update(status='interrupted', finished=timestamp())
+                    if run.get('catalog_status') == 'discovering':
+                        run['catalog_status'] = 'interrupted'
                 for entry in run['entries']:
                     entry.setdefault('id', uuid4().hex)
                     entry.setdefault('active_started', entry.get('started', '') if entry['status'] != 'pending' else '')
@@ -265,6 +269,19 @@ class HtmlLog:
             self.run['entries'].append(entry)
             self.write()
             return Activity(self, entry)
+
+    @contextmanager
+    def batch(self):
+        """在日志锁内合并一组条目变更；仅最外层退出时保存一次，不在该上下文执行网络请求。"""
+        with self.lock:
+            self._batch_depth += 1
+            try:
+                yield
+            finally:
+                self._batch_depth -= 1
+                if self._batch_depth == 0 and self._batch_dirty:
+                    self._batch_dirty = False
+                    self.write()
 
     def merge_activity(self, title: str, *, task: str, part: str) -> Activity:
         """领取 title/task/part 对应的计划合并；未预建时新增，返回唯一活动句柄，避免计划与执行重复计数。"""
@@ -339,7 +356,10 @@ class HtmlLog:
                 return
 
     def write(self) -> bool:
-        """在调用方持锁时原子保存 JSON，文件占用有限重试；失败保留内存状态且不抛 I/O 异常，返回是否成功。"""
+        """在调用方持锁时保存 JSON；batch 内延迟合并，文件占用有限重试，失败保留内存，返回是否成功。"""
+        if self._batch_depth:
+            self._batch_dirty = True
+            return True
         self.data['revision'] += 1
         temporary = None
         try:

@@ -10,6 +10,7 @@ import webbrowser
 from ..configuration import resolve_path
 from ..activity_log import Journal
 from ..storage import atomic_json, output_lock
+from ..runtime import TaskCancelled, check_cancel
 from .configuration import read_profile
 from .metadata import linked_videos, require_same_metadata
 from .coordination import StageControls
@@ -23,8 +24,8 @@ from .scheduler import schedule
 from .records import consolidate_output
 
 
-def build_plan(profile: dict, indexes: list[int] | None, episode_orders: list[int] | None = None) -> tuple[list[dict], list[dict]]:
-    """展开 profile 中 indexes 指定的链接；episode_orders 可过滤展开后的正整数集序；返回去重作业及逐链接错误。"""
+def plan_batches(profile: dict, indexes: list[int] | None, episode_orders: list[int] | None = None, cancel=None):
+    """按 profile/indexes 逐链接交接完整正片目录；episode_orders 过滤集序，cancel 可取消；逐项返回任务、错误及实际进度。"""
     options = task_options(profile)
     chosen = list(range(len(options))) if indexes is None else indexes
     if not chosen or len(set(chosen)) != len(chosen) or any(type(value) is not int or value < 0 or value >= len(options) for value in chosen):
@@ -32,12 +33,15 @@ def build_plan(profile: dict, indexes: list[int] | None, episode_orders: list[in
     if episode_orders is not None and (not episode_orders or len(set(episode_orders)) != len(episode_orders)
                                       or any(type(value) is not int or value <= 0 for value in episode_orders)):
         raise ValueError("集序过滤必须为不重复的正整数列表")
-    jobs, errors, identities = [], [], set()
-    for index in chosen:
+    identities = set()
+    for position, index in enumerate(chosen, 1):
+        check_cancel(cancel)
+        jobs, errors = [], []
         option = options[index]
         try:
             link = linked_videos(profile, [index])[0]
-            episodes = expand_episodes(profile, link, option["all_parts"])
+            episodes = expand_episodes(profile, link, option["all_parts"], cancel=cancel)
+            check_cancel(cancel)
             if episode_orders is not None:
                 if not set(episode_orders) <= {video["episode"] for video in episodes}:
                     raise ValueError("当前任务按 all-parts 展开后不含所指定的集序")
@@ -47,8 +51,19 @@ def build_plan(profile: dict, indexes: list[int] | None, episode_orders: list[in
                 if key not in identities:
                     identities.add(key)
                     jobs.append({"video": video, "quality": option["quality"], "note": option["note"]})
+        except TaskCancelled:
+            raise
         except Exception as error:
             errors.append({"index": index, "stage": "resolving_link", "error": str(error)})
+        yield {"jobs":jobs, "errors":errors, "processed":position, "total":len(chosen)}
+
+
+def build_plan(profile: dict, indexes: list[int] | None, episode_orders: list[int] | None = None) -> tuple[list[dict], list[dict]]:
+    """同步收集 profile/indexes 的公开计划；episode_orders 可筛选集序，返回去重任务及错误；不获取媒体。"""
+    jobs, errors = [], []
+    for batch in plan_batches(profile, indexes, episode_orders):
+        jobs.extend(batch["jobs"])
+        errors.extend(batch["errors"])
     return jobs, errors
 
 
@@ -120,14 +135,10 @@ def run_downloads(path: Path, indexes: list[int] | None = None, plan_only: bool 
                         print("浏览器未自动打开，请访问上述本机地址。", flush=True)
                 except Exception:
                     print("浏览器未自动打开，请访问上述本机地址。", flush=True)
-            jobs, errors = build_plan(profile, indexes, episode_orders)
-            report.update(total_episodes=len(jobs), jobs=jobs, link_errors=errors)
+            errors = report["link_errors"]
             with journal.lock:
-                journal.run.update(catalog_status="ready", catalog_errors=errors)
+                journal.run.update(catalog_status="discovering", catalog_errors=errors)
                 journal.write()
-            for error in errors:
-                print(f"[链接 {error['index']}] 失败：{error['error']}", flush=True)
-            print(f"清单共 {len(jobs)} 个去重后的正片任务。", flush=True)
             entries = {}
 
             def update(item: dict, status: str, value) -> None:
@@ -163,15 +174,38 @@ def run_downloads(path: Path, indexes: list[int] | None = None, plan_only: bool 
                     journal.update(entry, **event)
                 return notify
 
-            scheduled = []
-            for job in jobs:
-                item = {"video": job["video"], "quality": job["quality"], "status": "pending"}
-                report["results"].append(item)
-                entry = journal.add_episode(job["video"], job["quality"], config["audio"]["quality"])
-                entries[id(item)] = entry
-                scheduled.append((item, job_steps(profile, config, work_root, job, controls, notify_for(entry))))
-            checkpoint(output, report)
-            schedule(scheduled, config, controls, update)
+            def admit(batch):
+                """在调度线程接纳目录 batch 并返回单集生成器列表；None 表示目录完成，保持最终总数真实。"""
+                scheduled = []
+                with journal.lock:
+                    if batch is None:
+                        journal.run["catalog_status"] = "ready"
+                    else:
+                        report["jobs"].extend(batch["jobs"])
+                        errors.extend(batch["errors"])
+                        report["total_episodes"] = len(report["jobs"])
+                        journal.run.update(catalog_processed=batch["processed"], catalog_total=batch["total"],
+                                           catalog_discovered=report["total_episodes"])
+                        for error in batch["errors"]:
+                            print(f"[链接 {error['index']}] 失败：{error['error']}", flush=True)
+                        for job in batch["jobs"]:
+                            item = {"video":job["video"], "quality":job["quality"], "status":"pending"}
+                            report["results"].append(item)
+                            entry = journal.add_episode(job["video"], job["quality"], config["audio"]["quality"])
+                            entries[id(item)] = entry
+                            scheduled.append((item, job_steps(profile, config, work_root, job, controls, notify_for(entry))))
+                    journal.write()
+                checkpoint(output, report)
+                return scheduled
+
+            try:
+                schedule([], config, controls, update,
+                         discovery=plan_batches(profile, indexes, episode_orders, controls.cancel), admit=admit)
+            finally:
+                with journal.lock:
+                    if journal.run["catalog_status"] != "ready":
+                        journal.run["catalog_status"] = "interrupted"
+                        journal.write()
             journal.run["summary"] = {key: report[key] for key in ("completed", "reused", "failed")}
         report["status"] = "completed" if not report["failed"] and not errors else "failed"
         return report, output

@@ -17,7 +17,7 @@ from local.configuration import load_config, resolve_path
 from local.playback.client import NativeClient, formats, video_info
 from local.playback.hls import parse_media
 from local.playback.source import selected_format
-from local.playback.tasks import requests
+from research.settings import sample_requests as requests
 from local.playback.transport import Transport, safe_message
 from local.storage import atomic_json
 
@@ -42,8 +42,6 @@ def main() -> None:
     if selected_names - known_names:
         parser.error("--variant 包含专项配置中不存在的名称")
     for item in requests(config):
-        if research["title"] and item.note != research["title"]:
-            continue
         profile.clear()
         profile.update(deepcopy(baseline))
         config["network"] = deepcopy(baseline_network)

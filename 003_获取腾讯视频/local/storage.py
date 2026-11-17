@@ -4,10 +4,12 @@ from datetime import datetime
 from contextlib import contextmanager
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import tempfile
+import time
 import uuid
 from threading import Event
 
@@ -88,8 +90,22 @@ def read_json(path: Path) -> dict:
     return data
 
 
-def atomic_json(path: Path, data: dict) -> None:
-    """在 path 同目录独占创建临时文件并原子替换；data 为可序列化字典，失败清理临时文件。"""
+def validate_atomic_retry(retry: dict) -> None:
+    """校验 retry 的正整数 attempts 和有限正数 interval_seconds；非法时抛 ValueError，无返回值。"""
+    if not isinstance(retry, dict) or type(retry.get("attempts")) is not int or retry["attempts"] <= 0:
+        raise ValueError("原子替换 retry.attempts 必须为正整数")
+    interval = retry.get("interval_seconds")
+    if type(interval) not in (int, float) or not math.isfinite(interval) or interval <= 0:
+        raise ValueError("原子替换 retry.interval_seconds 必须为有限正数")
+
+
+def atomic_json(path: Path, data: dict, *, retry: dict | None = None) -> None:
+    """将可序列化 data 原子写入 path；可选 retry 限定 Windows 拒绝访问/共享冲突的替换次数及间隔。
+
+    retry 为 None 时仅尝试一次；重试只使用同一个已写完的临时文件，始终保留原目标直到替换成功，失败清理临时文件。
+    """
+    if retry is not None:
+        validate_atomic_retry(retry)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -98,7 +114,15 @@ def atomic_json(path: Path, data: dict) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.replace(path)
+        attempts = retry["attempts"] if retry is not None else 1
+        for attempt in range(attempts):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError as error:
+                if getattr(error, "winerror", None) not in (5, 32, 33) or attempt + 1 == attempts:
+                    raise
+                time.sleep(retry["interval_seconds"])
     finally:
         temporary.unlink(missing_ok=True)
 

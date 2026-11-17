@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from local.configuration import load_config
+from local.configuration import load_config, read_yaml
 from local.youku.client import Client, AuthenticationError, PlaybackError, SourceChanged, captured_groups
 from local.youku.source import resolve
 from local.youku.native import native_challenge, run_native
@@ -188,14 +188,102 @@ setImmediate(()=>{assert.equal(loads,1);assert.equal(exits,1);const payload=JSON
             with self.assertRaises(AuthenticationError):self.client.ups("new")
         self.assertTrue(self.client.stopped.is_set())
 
-    def test_signed_url_rotation_preserves_identity_but_key_change_does_not(self):
-        """URL 查询签名变化可续传；媒体密钥改变必须改变不透明来源身份并拒绝旧源。"""
+    def source_fixture(self):
+        """按当前首选语言及已适配档位构造一秒来源；无参数，返回任务与媒体流字典。"""
         name=next(iter(self.client.profile["supported_streams"]))
         task={"video_id":"fixture","series_id":"series","index":1,"quality":1,"duration":1}
-        stream={"stream_type":name,"media_type":"standard","audio_lang":self.client.profile["audio_language"],
+        stream={"stream_type":name,"media_type":"standard","audio_lang":self.client.profile["audio_language"][0],
                 "width":3840,"height":2160,"size":188,"drm_type":"copyrightDRM","milliseconds_video":1000,
                 "m3u8_url":"https://cdn.invalid/list?token=private","encryptR_server":"private-server",
                 "stream_ext":{"copyright_key":"private-license"}}
+        return task,stream
+
+    def resolve_fixture(self, streams, quality=1):
+        """隔离解析候选 streams（流字典列表），quality 为正整数画质排名；返回 Source，不访问网络或原生库。"""
+        task,_=self.source_fixture()
+        task["quality"]=quality
+        body={"video":{"seconds":1},"show":{"encodeid":"series"},"dvd":{"show_videotype":"正片","show_video_ep":1},"stream":streams}
+        raw=b"#EXTM3U\n#EXTINF:1,\n#EXT-X-PRIVINF:FILESIZE=188\nhttps://cdn.invalid/media.ts\n#EXT-X-ENDLIST\n"
+        with patch.object(self.client,"ups",return_value=(body,"private-client")), \
+                patch("local.youku.source.fetch_media",return_value=(raw,"https://cdn.invalid/list",{})), \
+                patch("local.youku.source.session_key",return_value=b"a"*16), \
+                patch.dict(self.client.config["audio"],quality=1):
+            return resolve(self.client,task)
+
+    def test_language_priority_precedes_resolution_and_response_order(self):
+        """多个语言均可用时按配置优先级选择，不被响应顺序、其他语言高分辨率或同名档位干扰。"""
+        _,stream=self.source_fixture()
+        preferred=stream["audio_lang"]
+        later=next((value for value in self.client.profile["audio_language"] if value!=preferred),preferred+"-other")
+        self.client.profile["audio_language"]=[preferred,later]
+        first=dict(stream,width=1920,height=1080)
+        second=dict(stream,audio_lang=later)
+        selected=self.resolve_fixture([second,first])
+        self.assertEqual(selected.description["audio_lang"],preferred)
+        self.assertEqual(selected.description["width"],first["width"])
+        self.client.profile["audio_language"].reverse()
+        self.assertEqual(self.resolve_fixture([second,first]).description["audio_lang"],later)
+
+    def test_language_uses_later_match_when_earlier_has_no_candidates(self):
+        """前序语言只有非正片或自适应流时继续后查，命中后续语言的真实正片档位。"""
+        _,stream=self.source_fixture()
+        language=stream["audio_lang"]
+        missing=language+"-unavailable"
+        adaptive=next(iter(self.client.profile["adaptive_streams"]),"fixture-adaptive")
+        self.client.profile["audio_language"]=[missing,language]
+        self.client.profile["adaptive_streams"]=[adaptive]
+        streams=[dict(stream,audio_lang=missing,media_type="subtitle"),
+                 dict(stream,audio_lang=missing,stream_type=adaptive),stream]
+        self.assertEqual(self.resolve_fixture(streams).description["audio_lang"],language)
+
+    def test_language_without_match_reports_language_error(self):
+        """所有配置语言均不匹配时明确报告语言错误，不误报画质排名且不获取清单。"""
+        _,stream=self.source_fixture()
+        unavailable="|".join(self.client.profile["audio_language"])+"-unavailable"
+        with patch("local.youku.source.fetch_media") as fetch:
+            with self.assertRaisesRegex(PlaybackError,"音轨语言均无匹配"):
+                task,_=self.source_fixture()
+                body={"show":{"encodeid":"series"},"dvd":{"show_videotype":"正片","show_video_ep":1},
+                      "stream":[dict(stream,audio_lang=unavailable)]}
+                with patch.object(self.client,"ups",return_value=(body,"private-client")):
+                    resolve(self.client,task)
+            fetch.assert_not_called()
+
+    def test_selected_language_does_not_switch_on_missing_quality(self):
+        """首个命中语言的档位不足时保持失败，不改选后续语言满足请求。"""
+        _,stream=self.source_fixture()
+        language=stream["audio_lang"]
+        later=language+"-later"
+        self.client.profile["audio_language"]=[language,later]
+        other=next(value for value in self.client.profile["quality_order"] if value!=stream["stream_type"])
+        with self.assertRaisesRegex(PlaybackError,"请求画质排名不可用"):
+            self.resolve_fixture([stream,dict(stream,audio_lang=later),
+                                  dict(stream,audio_lang=later,stream_type=other)],quality=2)
+
+    def test_selected_language_does_not_switch_on_unsupported_format(self):
+        """首个命中语言的所选格式未适配时保持失败，不跳到后续语言的已适配档位。"""
+        _,stream=self.source_fixture()
+        language=stream["audio_lang"]
+        later=language+"-later"
+        self.client.profile["audio_language"]=[language,later]
+        unsupported=next(value for value in self.client.profile["quality_order"]
+                         if value not in self.client.profile["supported_streams"])
+        with self.assertRaisesRegex(PlaybackError,"尚未通过媒体适配验证"):
+            self.resolve_fixture([dict(stream,stream_type=unsupported),dict(stream,audio_lang=later)])
+
+    def test_config_rejects_invalid_language_priority(self):
+        """语言配置必须是非空字符串列表，拒绝旧标量、空列表及非法元素，不写入用户配置。"""
+        main=read_yaml(ROOT / "configs/config.yaml")
+        profile=read_yaml(self.config["playback_profile"])
+        for value in (profile["audio_language"][0],[],[""],[" "],[None],[1]):
+            with self.subTest(value=value), \
+                    patch("local.configuration.read_yaml",side_effect=[deepcopy(main),dict(profile,audio_language=value)]), \
+                    self.assertRaisesRegex(ValueError,"audio_language"):
+                load_config(ROOT / "configs/config.yaml")
+
+    def test_signed_url_rotation_preserves_identity_but_key_change_does_not(self):
+        """URL 查询签名变化可续传；媒体密钥改变必须改变不透明来源身份并拒绝旧源。"""
+        task,stream=self.source_fixture()
         body={"video":{"seconds":1},"show":{"encodeid":"series"},"dvd":{"show_videotype":"正片","show_video_ep":1},"stream":[stream]}
         self.client.config=deepcopy(self.config);self.client.config["audio"]["quality"]=1
         template="#EXTM3U\n#EXTINF:1,\n#EXT-X-PRIVINF:FILESIZE=188\nhttps://cdn.invalid/media.ts?token={}\n#EXT-X-ENDLIST\n"

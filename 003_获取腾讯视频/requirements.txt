@@ -2,3 +2,5 @@ PyYAML
 psutil
 # URL 下载使用运行中原生 SDK 签名；研究入口也复用此依赖。
 frida
+# 候选签名版本验收：静态检查 PE 导出、CRT 导入及数据区。
+pefile

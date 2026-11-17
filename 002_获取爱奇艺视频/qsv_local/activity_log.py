@@ -53,6 +53,8 @@ class Journal:
                             entry[phase]["status"] = "interrupted"
             if run.get("status") == "running":
                 run.update(status="interrupted", finished=timestamp())
+                if run.get("catalog_status") in ("resolving", "discovering"):
+                    run["catalog_status"] = "interrupted"
         self.run = {"id": uuid4().hex, "started": timestamp(), "finished": "", "status": "running",
                     "entries": [], "summary": {}, "mode": mode, "catalog_status": "resolving" if mode == "playback" else "ready"}
         self.data.setdefault("revision", 0)

@@ -23,15 +23,21 @@ class Source:
 
 
 def resolve(client, task: dict, expected: Source | None = None) -> Source:
-    """为 client 的 task 解析独立媒体；expected 指定续签来源，返回 Source，变化明确抛错。"""
+    """为 client 的 task 按配置语言优先级选源并排名画质；expected 指定续签来源，返回 Source，变化明确抛错。"""
     body, challenge = client.ups(task["video_id"])
     show, dvd = body.get("show", {}), body.get("dvd", {})
     if (show.get("encodeid") != task["series_id"] or dvd.get("show_videotype") != "正片"
             or int(dvd.get("show_video_ep", 0)) != task["index"]):
         raise PlaybackError("播放响应不是目标节目的指定正片集序")
     profile = client.profile
-    streams = [s for s in body["stream"] if s.get("media_type") == "standard" and
-               s.get("audio_lang") == profile["audio_language"] and s.get("stream_type") not in profile["adaptive_streams"]]
+    candidates = [s for s in body["stream"] if s.get("media_type") == "standard"
+                  and s.get("stream_type") not in profile["adaptive_streams"]]
+    for language in profile["audio_language"]:
+        streams = [s for s in candidates if s.get("audio_lang") == language]
+        if streams:
+            break
+    else:
+        raise PlaybackError("配置的音轨语言均无匹配的正片画质来源")
     order = profile["quality_order"]
     if any(s["stream_type"] not in order for s in streams):
         raise PlaybackError("返回了尚未校验排名的画质，拒绝猜测最高档：" + ",".join(sorted({s["stream_type"] for s in streams if s["stream_type"] not in order})))

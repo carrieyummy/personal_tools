@@ -17,21 +17,67 @@ class Scheduler:
         except StopIteration as done:
             return "done", done.value
 
-    def run(self, tasks: list[dict]) -> dict:
-        """登记 tasks，按独立下载上限及共享处理上限调度；预解析和媒体队列有界，返回终态计数。"""
-        pending = iter([(task, self.journal.add(task)) for task in tasks])
+    def run(self, tasks: list[dict], discovery=None) -> dict:
+        """调度已知 tasks 及可选 Discovery 来源 discovery，返回包含已登记总数的终态计数。
+
+        目录每次仅展开一个清单项，与逐集解析、续签及后处理共享处理池；完整目录按剧交接，
+        主循环不执行目录网络请求。任务元数据可继续补全，媒体预解析及下载后队列保持有界。
+        """
+        pending = deque()
+        entries_by_identity = {}
         resolving, prepared, waiting, ready = deque(), deque(), deque(), deque()
         active_downloads, active_processing = {}, {}
         capacity = int(self.config["download"]["queue_capacity_gb"] * 1024**3)
         queued_bytes = 0
-        summary = {key: 0 for key in ("completed", "reused", "failed", "interrupted", "skipped")}
+        summary = {key: 0 for key in ("total", "completed", "reused", "failed", "interrupted", "skipped")}
         self.summary = summary
-        exhausted = False
+        catalog_open = discovery is not None and discovery.position < len(discovery.items)
+        discovery_active, discovery_closed = False, False
+        stopped = None
         downloads = ThreadPoolExecutor(max_workers=self.config["download"]["threads"], thread_name_prefix="youku-download")
         processing = ThreadPoolExecutor(max_workers=self.config["max_in_flight"], thread_name_prefix="youku-process")
 
-        def finish(entry: dict, future) -> None:
-            """处理 entry 的完成 future，记录终态或将生成器放入下一阶段，无返回值。"""
+        def register(new_tasks: list[dict], failures: list[dict], progress: dict | None = None,
+                     memberships: list | None = None) -> None:
+            """批量登记 new_tasks/failures 和目录 progress，补充 memberships 分组；只将新任务入队。"""
+            additions = [(entries_by_identity[identity], group) for identity, group in memberships or []]
+            records = new_tasks + [{**failure, "status":"failed"} for failure in failures]
+            entries = self.journal.add_many(records, progress, additions)
+            summary["total"] += len(records)
+            summary["failed"] += len(failures)
+            for task, entry in zip(new_tasks, entries):
+                pending.append((task, entry))
+                entries_by_identity[(task["video_id"], task.get("quality"))] = entry
+
+        def close_discovery(status: str, detail: str) -> None:
+            """以 status 结束目录发现；detail 说明停止原因，未展开链接按清单项记录而不虚构集数。"""
+            nonlocal discovery_closed, catalog_open
+            catalog_open = False
+            if discovery is None or discovery_closed:
+                return
+            remaining = discovery.items[discovery.position:]
+            terminal = "skipped" if status == "stopped" else "interrupted"
+            records = [{**discovery.failure(item, detail), "status":terminal} for item in remaining]
+            progress = discovery.progress(status)
+            progress["remaining_requests"] = len(remaining)
+            self.journal.add_many(records, progress)
+            summary["total"] += len(records)
+            summary[terminal] += len(records)
+            discovery_closed = True
+
+        def finish(entry: dict | None, future) -> None:
+            """接收完成 future；entry 为单集日志，目录任务为 None，结果仅由调度线程登记及交接。"""
+            nonlocal discovery_active, catalog_open, discovery_closed
+            if future.phase == "discovery":
+                discovery_active = False
+                result = future.result()
+                register(result["tasks"], result["failures"], result["progress"], result["memberships"])
+                catalog_open = result["progress"]["status"] != "completed"
+                discovery_closed = not catalog_open
+                progress = result["progress"]
+                print(f"目录展开：{progress['processed_requests']}/{progress['total_requests']} 个清单项，"
+                      f"已发现 {progress['discovered_tasks']} 集" + ("，目录已完成" if not catalog_open else "，继续补全"), flush=True)
+                return
             try:
                 kind, value = future.result()
                 if kind == "done":
@@ -61,14 +107,19 @@ class Scheduler:
             active[future] = entry
 
         try:
-            while active_downloads or active_processing or waiting or ready or resolving or prepared or not exhausted:
+            register(tasks, [], discovery.progress() if discovery is not None else None)
+            while active_downloads or active_processing or waiting or ready or resolving or prepared or pending or catalog_open:
                 check_cancel(self.cancel)
                 reason = self.dispatch_stop_reason()
-                if reason and not exhausted:
-                    exhausted = True
-                    for task, entry in pending:
+                if reason:
+                    stopped = reason
+                    catalog_open = False
+                    while pending:
+                        task, entry = pending.popleft()
                         summary["skipped"] += 1
                         self.journal.update(entry, status="skipped", detail=reason)
+                    if not discovery_active:
+                        close_discovery("stopped", reason)
                 while waiting and (queued_bytes + waiting[0][2] <= capacity or not ready):
                     entry, steps, size = waiting.popleft()
                     ready.append((entry, steps, size))
@@ -83,20 +134,22 @@ class Scheduler:
                     elif resolving:
                         entry, steps = resolving.popleft()
                         phase = "resolving"
-                    elif not exhausted:
+                    else:
                         # 预解析至多缓存一组下载名额；等待媒体入队时停止扩大现场。
                         preparing = sum(future.phase == "initial" for future in active_processing)
-                        if waiting or len(prepared) + preparing >= self.config["download"]["threads"]:
+                        if pending and not waiting and len(prepared) + preparing < self.config["download"]["threads"]:
+                            task, entry = pending.popleft()
+                            steps = self._job_steps(task, entry)
+                            phase = "initial"
+                        elif catalog_open and not discovery_active and not waiting and not stopped:
+                            # 目录也占同一处理池的一个名额；不在主循环中 next() 等待网络。
+                            future = processing.submit(discovery.advance)
+                            future.phase, future.steps = "discovery", None
+                            active_processing[future] = None
+                            discovery_active = True
+                            continue
+                        else:
                             break
-                        try:
-                            task, entry = next(pending)
-                        except StopIteration:
-                            exhausted = True
-                            break
-                        steps = self._job_steps(task, entry)
-                        phase = "initial"
-                    else:
-                        break
                     submit(processing, active_processing, entry, steps, phase)
                 # 下载完成项不再占下载名额；媒体队列积压时暂停新下载以维持背压。
                 while prepared and not waiting and len(active_downloads) < self.config["download"]["threads"]:
@@ -106,15 +159,22 @@ class Scheduler:
                 if futures:
                     done, _ = wait(futures, timeout=self.interval, return_when=FIRST_COMPLETED)
                     for future in done:
-                        entry = active_downloads.pop(future, None)
-                        if entry is None:
-                            entry = active_processing.pop(future)
+                        entry = active_downloads.pop(future) if future in active_downloads else active_processing.pop(future)
                         finish(entry, future)
-        except (KeyboardInterrupt, TaskCancelled):
+            if stopped:
+                close_discovery("stopped", stopped)
+        except BaseException as error:
             self.cancel.set()
             downloads.shutdown(wait=True, cancel_futures=True)
             processing.shutdown(wait=True, cancel_futures=True)
             for future, entry in list(active_downloads.items()) + list(active_processing.items()):
+                if future.phase == "discovery":
+                    if not future.cancelled():
+                        try:
+                            finish(entry, future)
+                        except TaskCancelled:
+                            pass
+                    continue
                 if not future.cancelled():
                     finish(entry, future)
                 else:
@@ -132,6 +192,8 @@ class Scheduler:
             for task, entry in pending:
                 summary["interrupted"] += 1
                 self.journal.update(entry, status="interrupted", detail="中断前未派发")
+            close_discovery("interrupted" if isinstance(error, (KeyboardInterrupt, TaskCancelled)) else "failed",
+                            "目录尚未展开，批次已中断")
             raise
         finally:
             self.cancel.set()
