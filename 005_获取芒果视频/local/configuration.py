@@ -74,7 +74,7 @@ def read_config(path: Path) -> dict[str, Any]:
     config["auth"]["user_data"] = expand_path(config["auth"]["user_data"], path.parent)
     for section, fields in {
         "download": ("threads", "buffer_bytes", "refresh_attempts"),
-        "pipeline": ("mux_slots", "publish_slots", "max_in_flight"),
+        "pipeline": ("mux_slots", "publish_slots"),
         "verification": ("timeout_seconds",),
         "runtime": ("cancel_poll_interval_seconds", "process_terminate_timeout_seconds"),
         "network": ("timeout_seconds", "max_json_bytes"),
@@ -82,6 +82,11 @@ def read_config(path: Path) -> dict[str, Any]:
     }.items():
         for field in fields:
             positive(config[section][field], f"{section}.{field}", integer=field in ("threads", "buffer_bytes", "refresh_attempts", "mux_slots", "publish_slots", "max_in_flight", "max_json_bytes"))
+    try:
+        process_limit = config["max_in_flight"]
+    except KeyError as error:
+        raise ToolError("缺少顶层 max_in_flight 配置") from error
+    positive(process_limit, "max_in_flight", integer=True)
     for section, field in (("download", "retries"), ("logging", "write_retries")):
         positive(config[section][field], f"{section}.{field}", integer=True, zero=True)
     try:

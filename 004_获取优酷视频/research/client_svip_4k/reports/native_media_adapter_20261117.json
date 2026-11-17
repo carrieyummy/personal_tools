@@ -1,0 +1,24 @@
+{
+  "library": "nplayer64/aliplayerVS.dll",
+  "library_sha256": "bb113b451036f8ee737aeb7b04e47dc57713d8339c2bdb7af87adafd30a38a39",
+  "machine": "AMD64",
+  "function_rva": 2449952,
+  "function_bytes": 2984,
+  "function_sha256": "fa5a923c95786d5077d9656c4ada55abb84314ada588369ec437122dfd2ffdec",
+  "calling_convention": "Windows x64",
+  "arguments": [
+    "const char* session_material",
+    "char* output",
+    "int output_capacity"
+  ],
+  "return": "output pointer or null",
+  "discovery_markers": [
+    "drm_key: r2 error",
+    "drm_key: key error"
+  ],
+  "reference_call_rvas": [
+    1971066,
+    2210626
+  ],
+  "validation": "Isolated invocation, current-session binding, and complete decoding of three restored samples; no runtime patching."
+}

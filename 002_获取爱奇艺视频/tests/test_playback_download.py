@@ -17,6 +17,7 @@ from qsv_local.playback.download import download_steps, manifest_identity
 from qsv_local.playback.listing import task_options
 from qsv_local.playback.media import MediaNetworkError, fetch_segment, save_segment
 from qsv_local.playback.outputs import reusable_output, target_path
+from qsv_local.playback.records import PlaybackDirectoryIndex
 from qsv_local.playback.source import Source, candidate_groups, select_source, tier_key
 from qsv_local.storage import atomic_json, fingerprint
 
@@ -235,7 +236,8 @@ class PlaybackDownloadTests(unittest.TestCase):
                   patch("qsv_local.playback.publication.require_same_metadata")):
                 decoder.return_value.convert.side_effect = convert
                 steps = download_steps(profile, self.video, source, b"manifest", work, {}, selection, controls, events.append)
-                self.assertEqual(next(steps), source["vsize"])
+                self.assertEqual(next(steps), ("download", 0))
+                self.assertEqual(next(steps), ("ready", source["vsize"]))
                 self.assertFalse((work / "outer.ts").exists())
                 with self.assertRaises(StopIteration) as result:
                     next(steps)
@@ -313,7 +315,8 @@ class PlaybackDownloadTests(unittest.TestCase):
                   patch("qsv_local.playback.download.validate_progress", return_value={"decode_exit_code": 0, "frames": 1}),
                   patch("qsv_local.playback.publication.require_same_metadata")):
                 steps = download_steps(profile, self.video, source, b"", root / "work", {}, {"rank": 1, "native_selection_verified": True}, StageControls(config))
-                self.assertEqual(next(steps), self.source["vsize"] + len(audio))
+                self.assertEqual(next(steps), ("download", 0))
+                self.assertEqual(next(steps), ("ready", self.source["vsize"] + len(audio)))
                 with self.assertRaises(StopIteration) as result:
                     next(steps)
             self.assertTrue(result.exception.value["highest_audio_verified"])
@@ -354,7 +357,9 @@ class PlaybackDownloadTests(unittest.TestCase):
             data = {"record_type": "playback_download", "schema_version": 1, "status": "completed", "source_identity": identity,
                     "verification": {"decode_exit_code": 0, "frames": 1}, "output_fingerprint": fingerprint(target, main["copy_buffer_bytes"]),
                     "media_verified": True, "output": str(target), "media": {"width": 16, "height": 16}}
-            atomic_json(target.with_suffix(".playback.json"), data)
+            index = PlaybackDirectoryIndex(target.parent, Path(main["output_path"]).resolve())
+            index.add(target.name, data)
+            index.save()
             media = {"width": 16, "height": 16, "duration_seconds": self.video["duration_seconds"], "errors": []}
             with patch("qsv_local.playback.outputs.require_same_metadata"), patch("qsv_local.playback.outputs.probe_media", return_value=media):
                 self.assertIsNotNone(reusable_output(profile, main, self.video, self.source, identity, selection))

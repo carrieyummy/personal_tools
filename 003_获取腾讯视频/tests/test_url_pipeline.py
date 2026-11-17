@@ -123,6 +123,7 @@ class UrlPipelineTests(unittest.TestCase):
         steps = batch._job_steps(self.task, batch.journal.add(self.task))
         with patch("local.playback.application.resolve", return_value=self.source):
             try:
+                self.assertEqual(next(steps), ("download", 0))
                 stage, size = next(steps)
                 work = self.config["work_dir"] / "url" / self.task["series_id"] / self.task["video_id"] / self.source.identity
                 actual = sum(path.stat().st_size for path in work.glob("track_*/*.bin"))

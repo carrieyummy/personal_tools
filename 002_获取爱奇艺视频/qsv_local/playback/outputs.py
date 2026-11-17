@@ -1,4 +1,4 @@
-"""链接模式的输出映射及经过内容指纹复核的成品复用，与 QSV 来源索引独立。"""
+"""链接模式的输出映射及成品复用，从共用目录索引读取独立的链接来源记录。"""
 
 from pathlib import Path
 import re
@@ -7,9 +7,10 @@ from uuid import uuid4
 from ..configuration import resolve_path
 from ..naming import output_name
 from ..process import probe_media
-from ..storage import fingerprint, read_json, valid_digest
+from ..storage import fingerprint
 from .metadata import require_same_metadata
 from .naming import dated_folder
+from .records import PlaybackDirectoryIndex
 
 
 def target_path(config: dict, main_path: Path, video: dict, source: dict, *, with_date: bool = True) -> Path:
@@ -26,40 +27,30 @@ def target_path(config: dict, main_path: Path, video: dict, source: dict, *, wit
 
 
 def reusable_output(profile: dict, config: dict, video: dict, source: dict, identity: dict, selection: dict) -> dict | None:
-    """按 profile/config 核对 video/source 的 identity 成品及 selection 证明；日期目录优先，旧目录仅校验复用、不迁移，返回实际原路径。"""
+    """从共用目录索引核对 profile/config、video/source、identity 及 selection；日期目录优先，旧目录不迁移，返回实际成品报告或 None。"""
     preferred = target_path(config, profile["main_config"], video, source)
     legacy = target_path(config, profile["main_config"], video, source, with_date=False)
     bases = [preferred] if preferred == legacy else [preferred, legacy]
-    suffix = ".playback.json"
+    root = resolve_path(config["output_path"], profile["main_config"].parent)
     candidates = []
     for base in bases:
         if base.parent.is_dir():
             name_pattern = re.compile(re.escape(base.stem) + r"(?:_\d{8}_\d{6}_\d{6})?\.mp4")
-            candidates.extend((base, name_pattern, path) for path in sorted(base.parent.glob("*" + suffix), key=lambda path: path.stat().st_mtime_ns, reverse=True))
-    for base, name_pattern, record_path in candidates:
-        candidate = record_path.with_name(record_path.name[:-len(suffix)] + ".mp4")
-        if not name_pattern.fullmatch(candidate.name):
+            index = PlaybackDirectoryIndex(base.parent, root)
+            candidates.extend((base, name_pattern, name, data) for name, data in reversed(index.records().items()))
+    for base, name_pattern, name, data in candidates:
+        candidate = base.parent / name
+        if not name_pattern.fullmatch(name):
             continue
-        data = read_json(record_path)
-        if data.get("record_type") != "playback_download":
-            continue
-        if data.get("schema_version") != 1:
-            raise ValueError("链接成品记录版本不受支持，保留原文件")
         if data.get("source_identity") != identity or data.get("status") != "completed":
             continue
         saved_video = data.get("video", {})
         if "release_date" in saved_video and saved_video["release_date"] != video["release_date"]:
             raise ValueError("已登记成品的整剧上映日期发生变化，保留原目录并停止映射")
-        verification, expected = data.get("verification", {}), data.get("output_fingerprint", {})
-        if (data.get("media_verified") is not True or verification.get("decode_exit_code") != 0
-                or type(verification.get("frames")) is not int or verification["frames"] <= 0
-                or not valid_digest(expected.get("sha256"))):
-            raise ValueError("链接成品记录缺少完整验证证明")
+        verification, expected = data["verification"], data["output_fingerprint"]
         audio_selection = source.get("_audio_selection")
         if audio_selection and (data.get("audio_selection") != audio_selection or not data.get("audio_media") or audio_selection["rank"] == 1 and data.get("highest_audio_verified") is not True):
             continue
-        if not candidate.resolve().is_relative_to(base.parent) or Path(data["output"]).resolve() != candidate.resolve():
-            raise ValueError("链接成品记录路径越界或与文件不一致")
         if not candidate.is_file():
             continue
         actual = fingerprint(candidate, config["copy_buffer_bytes"], force=True)

@@ -18,10 +18,14 @@
 
 - 当前目录为优酷视频工具根目录，结构随实际实现同步维护。
 - 根目录仅保留可运行入口，统一定义和校验命令行参数、调用业务模块并处理退出码。
-- 业务和公共模块按职责放入子目录；下载清单放在 `download_list/`，YAML 配置放在 `configs/`，测试放在 `tests/`，研究资料放在 `research/`。
+- 业务和公共模块按职责放入子目录；下载清单放在 `download_list/`，工具的 YAML 配置放在 `configs/`，测试放在 `tests/`，研究资料放在 `research/`，研究配置放在各研究子目录的 `configs/` 中。
 - 视频解析、下载及客户端缓存处理，以优酷实际格式和接口的验证结果为准，不沿用其他平台的缓存格式、元数据或 DLL 假设。
 
 ## 工作区配置
 
 - 使用父目录的 `004_获取优酷视频.code-workspace`，入口、参数或测试配置变化时同步维护。
 - Python 解释器仅在 `settings.python.defaultInterpreterPath` 配置，其他位置通过 `${config:python.defaultInterpreterPath}` 引用。
+
+## 并发配置约定
+
+- 继承仓库根目录 `AGENTS.md` 的统一规则：`download.threads` 仅控制媒体下载；解析、选档、复用检查、续签及后处理共用顶层 `max_in_flight` 总并发上限。等待队列和设备独占槽按各自配置限制，不计为活动下载；本地转换使用处理上限。

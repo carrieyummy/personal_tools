@@ -9,6 +9,8 @@ from string import Formatter
 
 import yaml
 
+from .storage import validate_lock_file
+
 
 def resolve_path(value: str, base: Path) -> Path:
     """展开字符串 value 的环境变量和用户目录，以 base 解析相对路径；返回绝对 Path。"""
@@ -54,6 +56,7 @@ def load_config(path: Path, *, source: str | None = None) -> dict:
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError("主 YAML 必须是映射")
+    validate_lock_file(config["logging"]["lock_file"])
     config["config_path"] = path
     config["source"] = config["source"] if source is None else source
     if config["source"] not in ("download", "url"):

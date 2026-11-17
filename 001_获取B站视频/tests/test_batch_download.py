@@ -285,17 +285,17 @@ class BatchEngineTests(unittest.TestCase):
         self.input = self.enterContext(patch('builtins.input', side_effect=AssertionError('清单不应读取终端')))
 
     def ensure_login(self, context: object, settings: object) -> dict:
-        """只允许主线程对 context/settings 执行认证检查，返回离线账户数据。"""
-        self.assertEqual(get_ident(), self.main)
+        """原浏览器 context 限定主线程，处理池只使用独立 HTTP 会话；settings 为配置，返回离线账户。"""
+        if get_ident() != self.main:
+            self.assertIsInstance(context, auth.AuthenticatedHttpSession)
         return {'uname': 'test'}
 
     def snapshot(self, context: object) -> auth.AuthSnapshot:
-        """在主线程提取 context 快照；取消场景在第二次提取时模拟 Ctrl+C，正常返回假凭据。"""
-        self.assertEqual(get_ident(), self.main)
-        self.snapshots += 1
-        if self.cancel and self.snapshots == 2:
-            self.assertTrue(self.started.wait(5))
-            raise KeyboardInterrupt
+        """浏览器 context 在主线程提取，独立 HTTP 会话在线程内提取；返回假凭据。"""
+        if get_ident() != self.main:
+            self.assertIsInstance(context, auth.AuthenticatedHttpSession)
+        with self.guard:
+            self.snapshots += 1
         return fake_auth_snapshot()
 
     def make_downloader(self, context: object, settings: object) -> FakeDownloader:
@@ -330,6 +330,7 @@ class BatchEngineTests(unittest.TestCase):
             if self.cancel or info['id'] in self.failed:
                 Path(filename + '.part').write_bytes(b'partial')
                 if self.cancel:
+                    runtime.current().cancel()
                     deadline = time.monotonic() + 5
                     while time.monotonic() < deadline:
                         for hook in hooks:
@@ -369,7 +370,7 @@ class BatchEngineTests(unittest.TestCase):
         self.barrier = Barrier(3)
         self.assertEqual(self.run_list([{'url': bvid} for bvid in self.ids]), 0)
         self.assertEqual(self.maximum, 3)
-        self.assertEqual(len({id(value) for value in self.sessions}), 3)
+        self.assertEqual(len({id(value) for value in self.sessions}), sum(self.counts.values()) * 2)
         for bvid in self.ids:
             record = library.get_video_info(self.settings, bvid)
             self.assertEqual(len(record.data['files']), self.counts[bvid])
@@ -637,9 +638,13 @@ class BatchEngineTests(unittest.TestCase):
     def test_cancel_marks_running_part_and_keeps_partial(self) -> None:
         """验证Ctrl+C协作停止正在下载的分P，保存 interrupted 和断点，未派发分P保持待处理；无返回值。"""
         self.counts[self.ids[0]], self.cancel = 2, True
+        self.settings = replace(self.settings, threads=1)
+        self.enterContext(patch.object(config, 'load_settings', return_value=self.settings))
         self.assertEqual(self.run_list([{'url': self.ids[0]}]), 130)
         source = library.get_video_info(self.settings, self.ids[0])
-        self.assertEqual({item['part']: item['status'] for item in source.data['files']}, {1: 'interrupted', 2: 'pending'})
+        states = {item['part']: item['status'] for item in source.data['files']}
+        self.assertEqual(states[1], 'interrupted')
+        self.assertIn(states[2], {'pending', 'interrupted'})
         self.assertEqual(self.calls, {self.ids[0] + '_p1': 1})
         self.assertTrue(list(self.settings.output_dir.rglob('*.part')))
         run = self.read_log()['runs'][-1]

@@ -9,7 +9,7 @@ warmup_seconds: 10
 # 本地输入副本目录名，相对主配置 work_dir；成功或失败均保留报告，结束后删除该输入副本。
 work_subdir: 'decode_benchmarks'
 # 报告根目录，相对此专项配置；每次运行独立建目录，保存命令、进度、错误及 GPU 采样。
-results_dir: '../tests/benchmark_results'
+results_dir: '../../tests/benchmark_results'
 # GPU 利用率采样间隔，单位毫秒，必须为正整数。
 gpu_sample_interval_ms: 1000
 # 按列表顺序运行；cpu 为现有软件解码，cuda 为保留 GPU 帧的 NVIDIA 硬件解码。

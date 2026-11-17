@@ -1,5 +1,11 @@
-purpose: 保存 v5 和播放 SDK 调研材料；正式入口为 decode_qsv.py 和 download_iqiyi.py，运行参数从 configs/ 中的 YAML 读取。
+purpose: 保存 v5 和播放 SDK 调研材料；正式入口为 decode_qsv.py 和 download_iqiyi.py，运行参数从工具根目录 configs/ 中的 YAML 读取，研究专用配置放在 research/configs/。
 format_methods: formats.yaml
+decode_benchmark:
+  script: ../tests/benchmark_decode.py
+  config: configs/benchmark_decode.yaml
+  main_config: ../configs/config.yaml
+  path_base: 本 catalog.yaml 所在目录。
+  purpose: 比较已验证 MP4 的 CPU/GPU 完整解码性能；正式工具参数直接读取主配置。
 playback_cache_probe:
   script: inspect_playback_cache.py
   config: ../configs/playback.yaml

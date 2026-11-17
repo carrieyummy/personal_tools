@@ -5,12 +5,77 @@ native_data: '%APPDATA%/youku'
 download_list: ../../../download_list/download_list.yaml
 sample_title: 难哄
 output_dir: ../reports/latest
+client_context:
+  # 只读实际启动日志；不伪造 UTDID、ZREAL 或硬件型号。原始 UA 和设备值不写报告。
+  log_path: logs/main.log
+  state_path: data.json
+  user_agent_pattern: '^\[(?P<timestamp>[^\]]+)\].*userAgent=(?P<user_agent>Mozilla/5\.0 .*?), process\.argv='
+  field_patterns:
+    device: 'UTDID ([^;]+);'
+    build: 'BUILDVER ([\d.]+)\)'
+    zreal: ';ZREAL (\d+);'
+    brand: ';BRAND ([^;]+);'
+    product: ';BTYPE ([^;]+);'
+  biz_field_mapping:
+    brand: brand
+    btype: product
+  capability_path: [webLocalStorage, player, YK_PSL_ZXLIST]
+  # 位号来自播放器 convertClientAbilityToInt；此值是历史响应缓存，不作为请求参数。
+  capability_bits:
+    h265: 1
+    z4k: 5
+    z2k: 6
+    z1080: 7
+    fps60: 9
+    z10bit: 10
+    zreal4k: 22
 native:
   executable: YOUKU.exe
   module: youku-player.node
   ccode: '03020102'
   client_ip: 192.168.1.1
   timeout_seconds: 20
+playback_log:
+  # 仅扫描优酷原生播放器文本日志，固定开始时文件大小，不跟随新增内容。
+  glob: nplayer/nplayer_runtime_info-*.log
+  max_file_bytes: 134217728
+  max_total_bytes: 268435456
+  decode_rounds: 2
+  timestamp_pattern: '\[info (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) '
+live:
+  # 只连接本机 Node Inspector；--pid 必须指向本配置的优酷主程序。
+  # 未开启时临时激活，操作结束关闭本次激活的端口；已有调试端口不接管。
+  inspector_url: http://127.0.0.1:9229/json/list
+  player_url_prefix: client://iku.youku.com/video
+  base_url: https://un-acs.youku.com/h5
+  timeout_seconds: 15
+  max_result_bytes: 8388608
+  connect_attempts: 20
+  retry_interval_seconds: 0.2
+  close_delay_ms: 50
+  # 值来自当前已打开的目标播放页；不把签名、设备和历史参数写进 YAML。
+  cases:
+    - name: captured_params_fresh_native_signature
+      remove_biz_fields: []
+      ad_fields: null
+    - name: captured_without_chipset
+      remove_biz_fields: [chipset]
+      ad_fields: null
+    - name: captured_without_ad_params
+      remove_biz_fields: []
+      ad_fields: []
+    - name: captured_ad_platform_only
+      remove_biz_fields: []
+      ad_fields: [os, osv]
+    - name: captured_ad_needad_only
+      remove_biz_fields: []
+      ad_fields: [needad]
+    - name: captured_ad_os_only
+      remove_biz_fields: []
+      ad_fields: [os]
+    - name: captured_ad_osv_only
+      remove_biz_fields: []
+      ad_fields: [osv]
 network:
   # 使用客户端现有明文 Cookie，值仅留内存；仅允许 youku.com HTTPS，禁用代理。
   base_url: https://acs.youku.com/h5
@@ -46,6 +111,9 @@ network:
     ad_params: {}
     cases:
       - name: download_sdk_reference
+        user_agent_source: template
+        device_source: cookie
+        client_hardware_fields: false
         # 下载面板取流代码中的参数，app_ver 使用客户端完整版本。
         player_version: null
         base_url: https://acs.youku.com/h5
@@ -56,6 +124,9 @@ network:
           key_index: key01
           master_m3u8: 1
       - name: desktop_playback_sdk
+        user_agent_source: template
+        device_source: cookie
+        client_hardware_fields: false
         # 来自缓存播放器 9.22.1：16782592 + 2**31；2**17 + 2**19；ElectronIku.h265=1。
         player_version: '9.22.1'
         base_url: https://un-acs.youku.com/h5
@@ -71,15 +142,54 @@ network:
           wdm: 1
           playMode: normal
           pn: com.youku.iku
-      - name: desktop_frame4k_selected
+      - &frame_case
+        name: desktop_frame4k_selected
+        user_agent_source: template
+        device_source: cookie
+        client_hardware_fields: false
         # 播放器清晰度映射：4k_frame -> 25；只比较真实源码中的档位，不修改账号权益。
         player_version: '9.22.1'
         base_url: https://un-acs.youku.com/h5
-        biz_params:
+        biz_params: &frame_params
           <<: *desktop_playback_params
           preferClarity: 25
           # HasGetDecryptR1 返回 true 时，播放器使用接口元数据加密版本 1。
           enc_ver: 1
+      - <<: *frame_case
+        name: frame4k_client_user_agent
+        user_agent_source: client_log
+      - <<: *frame_case
+        name: frame4k_client_device
+        device_source: client_log
+      - <<: *frame_case
+        name: frame4k_client_user_agent_and_device
+        user_agent_source: client_log
+        device_source: client_log
+      - <<: *frame_case
+        name: frame4k_client_context_and_hardware
+        user_agent_source: client_log
+        device_source: client_log
+        client_hardware_fields: true
+      - <<: *frame_case
+        # 原生播放日志中该样本媒体请求的 app_ver；已核对本地同版本 SDK。
+        name: frame4k_sdk_from_playback_log
+        player_version: '9.24.1'
+      - <<: *frame_case
+        # SDK：enableAutoLevel 为 false 且 staticM3u8 为 true 时 master_m3u8=0。
+        # 此处仅为静态分支对照；实时捕获的实际请求使用 master_m3u8=1。
+        name: frame4k_static_manifest
+        biz_params:
+          <<: *frame_params
+          master_m3u8: 0
+      - <<: *frame_case
+        name: frame4k_current_sdk_native_static
+        player_version: '9.24.1'
+        user_agent_source: client_log
+        device_source: client_log
+        client_hardware_fields: true
+        biz_params:
+          <<: *frame_params
+          master_m3u8: 0
 source:
   globs:
     - app/app/main/dist/main.prod.js
@@ -108,6 +218,15 @@ source:
     - hbr4k_open
     - getDecryptR1
     - biz_params.enc_ver
+    - 'function getUserAgent()'
+    - convertClientAbilityToInt=function
+    - 'this.ctx.upsParams.brand=e.manufacturer'
+    - 'getCna=function()'
+    - 'this.version="9.24.1"'
+    - 'biz_params.master_m3u8'
+    - 'enableAutoLevel:this.ctx.system.defaultSupportType'
+    - 'getCollinaCkey'
+    - 'r.chipset=d.data'
   context_chars: 260
   matches_per_term: 2
 cache:
@@ -134,3 +253,29 @@ cache:
     - media_type
     - audio_lang
     - subtitle_lang
+
+media:
+  # 当前帧享样本的精确流类型；不允许失败后自动降档。
+  stream_type: hls5hd4_hbr_bit10
+  work_dir: ../private/media
+  ffmpeg: C:/ProgramData/miniconda3/envs/test_regression_py3.12/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe
+  timeout_seconds: 30
+  max_manifest_bytes: 2097152
+  max_segment_bytes: 16777216
+  sample_positions: [0.05, 0.5, 0.95]
+  decode_timeout_seconds: 90
+  # 媒体 CDN 使用独立请求，不发送账号 Cookie 或完整客户端 UA。
+  allowed_domains: [cp31.ott.cibntv.net]
+  user_agent: Mozilla/5.0
+  # 当前原生 UPS 提供 HTTP CDN 地址；按实际返回协议读取，不更改签名地址。
+  allowed_schemes: [http, https]
+
+restoration:
+  # 仅适配已核验的 Windows x64 原生库；升级须重新分析和验证，禁止仅更新摘要绕过适配。
+  library: nplayer64/aliplayerVS.dll
+  library_sha256: bb113b451036f8ee737aeb7b04e47dc57713d8339c2bdb7af87adafd30a38a39
+  function_rva: 0x256220
+  output_bytes: 96
+  timeout_seconds: 20
+  key_index: key01
+  challenge_module_sha256: b1e5851ca2c9404e602b4f9943f8bde03267e568c1616e2131bb9427400dc9ed

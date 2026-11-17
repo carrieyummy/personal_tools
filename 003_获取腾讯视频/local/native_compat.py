@@ -21,7 +21,7 @@ def profile_lock(profile_path: Path, cancel: Event, interval: float):
         check_cancel(cancel)
         stack = ExitStack()
         try:
-            stack.enter_context(output_lock(lock_root))
+            stack.enter_context(output_lock(lock_root, profile_path.name + ".lock"))
             break
         except OutputLocked:
             stack.close()

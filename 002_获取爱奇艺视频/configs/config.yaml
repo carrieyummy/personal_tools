@@ -33,7 +33,7 @@ output_path: 'Z:\003_电视剧'
 # true 展开链接专辑的可用正片；false 仅处理链接指定的一集。
 download:
   all_parts: true
-  # 同时解析或下载的剧集数；每集仍按专项配置并发下载分片。
+  # 仅限制同时下载媒体的剧集数；解析、复用检查不占名额，每集仍按专项配置并发下载分片。
   threads: 5
   # 已下载且等待后处理的分片容量，单位 GiB；空队列允许单集超限。
   queue_capacity_gb: 20
@@ -42,7 +42,7 @@ download:
 audio:
   quality: 1
 
-# 最大后处理剧集数；本地缓存转换使用同一上限，须为正整数。
+# 非下载处理总并发上限：解析、复用检查及后处理共用；本地缓存转换使用同一上限，须为正整数。
 max_in_flight: 5
 
 # title 为客户端下载记录中的专辑名，series_id 为专辑 ID；index 为记录中的集序。
@@ -91,6 +91,9 @@ keep_intermediates: false
 
 # 实时网页、历次运行日志和离线 HTML 报告；以下文件名均相对 output_path，不填写目录。
 logging:
+  # 本平台的输出/工作目录锁；与其他工具共用 output_path 时须各用不同名称。
+  # 保留命名模板中的平台标记和独立日志名；锁不保护跨平台混写同一剧集目录。
+  lock_file: '.iqiyi_conversion.lock'
   # 链接下载的历史和离线报告独立保存；相对 output_path，不与 QSV 转换历史混用。
   playback_state_file: 'iqiyi_download_log.json'
   playback_html_file: 'iqiyi_download_log.html'

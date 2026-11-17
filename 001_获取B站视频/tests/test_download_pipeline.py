@@ -24,7 +24,7 @@ class PipelineTests(unittest.TestCase):
         self.settings = replace(config.load_settings(CONFIG_PATH), threads=2, max_in_flight=2,
                                 queue_capacity_gb=10 / 1024**3, cancel_poll_interval=0.01)
 
-    def start(self, jobs: list[int], download, process, *, waiting=None, finishers=None):
+    def start(self, jobs: list[int], download, process, *, waiting=None, finishers=None, prepare=None):
         """在独立线程调度 jobs/download/process；可注入 waiting/finishers，返回线程、取消事件、终态及异常。"""
         cancel, outcomes, failures = Event(), {}, []
 
@@ -35,7 +35,7 @@ class PipelineTests(unittest.TestCase):
         def run() -> None:
             """运行隔离流水线，捕获测试线程中的异常供主线程断言；无参数和返回值。"""
             try:
-                scheduler.run_pipeline(jobs, self.settings, lambda job: job, download, process, complete, cancel,
+                scheduler.run_pipeline(jobs, self.settings, prepare or (lambda job: job), download, process, complete, cancel,
                                        downloaded_size=lambda result: result[1],
                                        waiting=waiting or (lambda *args: None),
                                        finishers=deque() if finishers is None else finishers)
@@ -54,15 +54,17 @@ class PipelineTests(unittest.TestCase):
         return thread, cancel, outcomes, failures
 
     def test_independent_limits_and_main_thread_callbacks(self) -> None:
-        """下载和处理各达到自身上限并重叠执行；准备及结算在调用线程，无参数和返回值。"""
-        barrier, full_processing, advanced = Barrier(2), Event(), Event()
+        """下载和处理各达到自身上限并重叠执行；准备使用共享处理池，结算在调用线程，无参数和返回值。"""
+        barrier, full_processing, advanced, prepared_all = Barrier(2), Event(), Event(), Event()
         guard, counts, maxima, prepared, results = Lock(), [0, 0], [0, 0], [], []
         main = get_ident()
 
         def prepare(job: int) -> int:
-            """记录调用线程和 job 的准备顺序，返回原编号。"""
-            self.assertEqual(get_ident(), main)
+            """确认处理池线程并记录 job 的准备，返回原编号。"""
+            self.assertNotEqual(get_ident(), main)
             prepared.append(job)
+            if job == 3:
+                prepared_all.set()
             return job
 
         def download(job: int, cancel: Event) -> tuple[int, int]:
@@ -73,6 +75,7 @@ class PipelineTests(unittest.TestCase):
             try:
                 if job < 2:
                     barrier.wait(5)
+                    self.assertTrue(prepared_all.wait(5))
                 else:
                     self.assertTrue(full_processing.wait(5))
                     advanced.set()
@@ -105,8 +108,8 @@ class PipelineTests(unittest.TestCase):
         scheduler.run_pipeline(list(range(6)), self.settings, prepare, download, process, complete, Event(),
                                downloaded_size=lambda value: value[1], waiting=lambda *args: None, finishers=deque())
         self.assertEqual(maxima, [self.settings.threads, self.settings.max_in_flight])
-        self.assertEqual(prepared, list(range(6)))
-        self.assertEqual(sorted(results), prepared)
+        self.assertEqual(sorted(prepared), list(range(6)))
+        self.assertEqual(sorted(results), sorted(prepared))
 
     def test_finishers_share_processing_limit_without_stopping_downloads(self) -> None:
         """附加拼接收尾占满处理池时原始流仍下载，媒体后处理等待同一上限；无返回值。"""
@@ -131,7 +134,15 @@ class PipelineTests(unittest.TestCase):
             return value[0]
 
         task = scheduler.PostTask(finish, finished.append)
-        thread, cancel, outcomes, failures = self.start([0, 1], download, process, finishers=deque([task]))
+        finishers = deque()
+
+        def prepare(job):
+            """先准备首个 job，再排入占用同一处理池的收尾，返回载荷。"""
+            if job == 0:
+                finishers.append(task)
+            return job
+
+        thread, cancel, outcomes, failures = self.start([0, 1], download, process, finishers=finishers, prepare=prepare)
         try:
             self.assertTrue(downloaded.wait(5))
             self.assertEqual(processed, [])
@@ -146,12 +157,14 @@ class PipelineTests(unittest.TestCase):
     def bounded_case(self, sizes: list[int], *, cancel_run: bool = False) -> None:
         """按 sizes 填满处理池和字节队列；cancel_run 选择取消验收，否则验收释放及全部完成，无返回值。"""
         self.settings = replace(self.settings, max_in_flight=1)
-        processing, first_queued, blocked, release = Event(), Event(), Event(), Event()
+        processing, first_queued, blocked, release, prepared_all = Event(), Event(), Event(), Event(), Event()
         guard, started, states, processed = Lock(), [], {}, []
 
         def download(job, cancel):
             """让 job 在可控阶段传输，cancel 为取消事件；返回编号和实际流大小。"""
-            if job == 1:
+            if job == 0:
+                self.assertTrue(prepared_all.wait(5))
+            elif job == 1:
                 self.assertTrue(processing.wait(5))
             elif job >= 2:
                 self.assertTrue(first_queued.wait(5))
@@ -177,7 +190,13 @@ class PipelineTests(unittest.TestCase):
             processed.append(value[0])
             return value[0]
 
-        thread, cancel, outcomes, failures = self.start(list(range(len(sizes))), download, process, waiting=waiting)
+        def prepare(job):
+            """在首个后处理开始前准备有界下载缓存；返回 job 载荷。"""
+            if job == 3:
+                prepared_all.set()
+            return job
+
+        thread, cancel, outcomes, failures = self.start(list(range(len(sizes))), download, process, waiting=waiting, prepare=prepare)
         try:
             self.assertTrue(blocked.wait(5))
             with guard:
@@ -232,7 +251,7 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(len(failures), 1)
         self.assertIsInstance(failures[0], errors.DownloadCancelled)
-        self.assertLessEqual(len(outcomes), self.settings.threads)
+        self.assertLessEqual(len(outcomes), self.settings.threads * 2)
         self.assertTrue(all(isinstance(outcome, errors.DownloadCancelled) for outcome in outcomes.values()))
 
     def test_failures_do_not_stop_other_tasks(self) -> None:
@@ -403,7 +422,7 @@ class PipelineIntegrationTests(unittest.TestCase):
         engine = batch.BatchEngineTests()
         engine.setUp()
         self.addCleanup(engine.doCleanups)
-        engine.settings = replace(engine.settings, threads=1, max_in_flight=1,
+        engine.settings = replace(engine.settings, threads=1, max_in_flight=3,
                                   queue_capacity_gb=1 / 1024**3)
         self.enterContext(patch.object(config, 'load_settings', return_value=engine.settings))
         source = engine.ids[0]
@@ -416,8 +435,8 @@ class PipelineIntegrationTests(unittest.TestCase):
             """在 args 所属媒体开始封装时阻塞，等待队列回调触发真实取消；无正常返回值。"""
             entered.set()
             controller = runtime.current()
-            while not controller.event.wait(0.01):
-                pass
+            if not controller.event.wait(10):
+                raise TimeoutError("等待队列取消超时")
             errors.check_cancel(controller.event)
 
         def pipeline(*args, **kwargs):

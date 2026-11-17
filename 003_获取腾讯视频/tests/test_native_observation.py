@@ -5,20 +5,17 @@ from pathlib import Path
 import unittest
 from urllib.parse import urlencode
 
-import yaml
-
-from local.configuration import load_config
 from research.observe_native_playback import native_arguments, signing_summary, summarize_request
+from research.settings import load_research
 
 
 class NativeObservationTests(unittest.TestCase):
     """仅允许配置的能力字段进入报告，GET 与代理 POST 中的票据原文均不能落盘。"""
 
     def setUp(self):
-        """读取当前研究和播放配置以构造协议参数；无参数、网络操作或返回值。"""
+        """通过共用加载器读取研究目录配置及其关联主配置，构造协议参数；无参数、网络操作或返回值。"""
         root = Path(__file__).resolve().parents[1]
-        self.research = yaml.safe_load((root / "configs/playback_research.yaml").read_text(encoding="utf-8"))
-        self.config = load_config(root / "configs/config.yaml", source="url")
+        self.research, self.config = load_research(root / "research/configs/playback_research.yaml")
         self.fields = self.research["native_logs"]["query_fields"]
         self.values = {**self.config["playback"]["playback"]["query"], "cKey": "synthetic-private-ckey",
                        "logintoken": json.dumps({"vusession": "synthetic-private-session"})}

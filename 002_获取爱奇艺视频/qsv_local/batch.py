@@ -318,7 +318,7 @@ class Pipeline:
 
 def run_batch(config: dict) -> dict:
     """按 config 执行有界批次流水线；返回完成/复用/失败/迁移统计及逐项结果，中断保存现场后抛出 KeyboardInterrupt。"""
-    with output_lock(config["output_path"]):
+    with output_lock(config["output_path"], config["logging"]["lock_file"]):
         pending = []
         tasks = discover(config, pending=pending)
         summary = {"total": len(tasks), "completed": 0, "reused": 0, "failed": 0, "migrated": 0,

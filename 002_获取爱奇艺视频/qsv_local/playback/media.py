@@ -19,6 +19,7 @@ from urllib.request import Request
 import yaml
 
 from ..configuration import resolve_path, validate_concurrency
+from ..storage import validate_lock_file
 from ..native import NativeV5, latest_dll
 from ..process import probe_media
 from ..transport import TransportDecoder
@@ -63,6 +64,7 @@ def media_config(profile: dict) -> dict:
     """从 profile 引用的主配置读取媒体验证及 SDK 参数；返回独立字典，不读取离线下载记录。"""
     path = profile["main_config"]
     config = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
+    validate_lock_file(config["logging"]["lock_file"])
     if "_naming_snapshot" in profile:
         config["naming"] = deepcopy(profile["_naming_snapshot"])
     validate_date_prefix(config["naming"])

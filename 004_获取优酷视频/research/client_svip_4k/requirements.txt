@@ -1,1 +1,3 @@
 PyYAML
+websocket-client
+pycryptodome

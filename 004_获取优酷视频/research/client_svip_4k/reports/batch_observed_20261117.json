@@ -1,0 +1,240 @@
+{
+  "scope": "two_full_episodes",
+  "summary": {
+    "completed": 2,
+    "reused": 0,
+    "failed": 0,
+    "interrupted": 0,
+    "skipped": 0
+  },
+  "entries": [
+    {
+      "title": "难哄 01",
+      "video_id": "XNjQ1NDI4ODY2MA==",
+      "status": "completed",
+      "source": {
+        "stream_type": "hls5hd4_hbr_bit10",
+        "width": 3840,
+        "height": 2160,
+        "size": 925390708,
+        "drm_type": "copyrightDRM",
+        "audio_lang": "default",
+        "video_id": "XNjQ1NDI4ODY2MA==",
+        "series_id": "aefa5bc564b44f50ae4d",
+        "duration": 2732.0,
+        "quality": "帧享4K",
+        "audio": "AAC",
+        "adapter": {
+          "name": "帧享4K",
+          "video_codec": "hevc",
+          "pixel_format": "yuv420p10le",
+          "audio_codec": "aac"
+        }
+      },
+      "source_identity": "668b7d6b294f4d72953e8bc3278fdbe34566a2279a4474a80eeebf383d5f3d8c",
+      "download": {
+        "bytes": 926211516,
+        "reused_segments": 241,
+        "segments": 241,
+        "refreshes": 0
+      },
+      "verification": {
+        "device": "gpu",
+        "frames": 68345,
+        "duration_seconds": 2732.186757,
+        "audio_frames": {
+          "0": 117659
+        },
+        "audio_duration_seconds": {
+          "0": 2732.1867573696145
+        },
+        "exit_code": 0
+      },
+      "media": {
+        "duration_seconds": 2732.19,
+        "width": 3840,
+        "height": 2160,
+        "fps": 25.01,
+        "video_codec": "hevc",
+        "audio_codecs": [
+          "aac"
+        ],
+        "audio_streams": [
+          {
+            "codec": "aac",
+            "sample_rate": 44100,
+            "bitrate": 191000.0,
+            "channels": "stereo"
+          }
+        ],
+        "pixel_format": "yuv420p10le",
+        "color_space": null,
+        "color_primaries": null,
+        "color_transfer": null,
+        "errors": [
+          "文件未提供 color_space",
+          "文件未提供 color_primaries",
+          "文件未提供 color_transfer"
+        ]
+      },
+      "resources": {
+        "restoration": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 9.39
+        },
+        "mux": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 4.218
+        },
+        "verification_gpu": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 104.922
+        },
+        "source_check": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 2.875
+        },
+        "publish": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 34.594
+        }
+      },
+      "sha256": "2e882b44ac3fb8ac900e6cf54efb8651e93ff30e4306e949cc4540fb80697106"
+    },
+    {
+      "title": "难哄 02",
+      "video_id": "XNjQ2MTc4MTg2OA==",
+      "status": "completed",
+      "source": {
+        "stream_type": "hls5hd4_hbr_bit10",
+        "width": 3840,
+        "height": 2160,
+        "size": 756548848,
+        "drm_type": "copyrightDRM",
+        "audio_lang": "default",
+        "video_id": "XNjQ2MTc4MTg2OA==",
+        "series_id": "aefa5bc564b44f50ae4d",
+        "duration": 2890.68,
+        "quality": "帧享4K",
+        "audio": "AAC",
+        "adapter": {
+          "name": "帧享4K",
+          "video_codec": "hevc",
+          "pixel_format": "yuv420p10le",
+          "audio_codec": "aac"
+        }
+      },
+      "source_identity": "e6a05674041ece5493ccaa27c5b52edc6b68a90ffc8e90de5d32e417853696dd",
+      "download": {
+        "bytes": 757369656,
+        "reused_segments": 252,
+        "segments": 252,
+        "refreshes": 0
+      },
+      "verification": {
+        "device": "cpu",
+        "frames": 72312,
+        "duration_seconds": 2890.88,
+        "audio_frames": {
+          "0": 124493
+        },
+        "audio_duration_seconds": {
+          "0": 2890.8719047619047
+        },
+        "exit_code": 0
+      },
+      "media": {
+        "duration_seconds": 2890.87,
+        "width": 3840,
+        "height": 2160,
+        "fps": 25.01,
+        "video_codec": "hevc",
+        "audio_codecs": [
+          "aac"
+        ],
+        "audio_streams": [
+          {
+            "codec": "aac",
+            "sample_rate": 44100,
+            "bitrate": 191000.0,
+            "channels": "stereo"
+          }
+        ],
+        "pixel_format": "yuv420p10le",
+        "color_space": null,
+        "color_primaries": null,
+        "color_transfer": null,
+        "errors": [
+          "文件未提供 color_space",
+          "文件未提供 color_primaries",
+          "文件未提供 color_transfer"
+        ]
+      },
+      "resources": {
+        "restoration": {
+          "wait_seconds": 8.922,
+          "execution_seconds": 8.125
+        },
+        "mux": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 3.953
+        },
+        "verification_cpu": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 185.375
+        },
+        "source_check": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 1.797
+        },
+        "publish": {
+          "wait_seconds": 0.0,
+          "execution_seconds": 22.875
+        }
+      },
+      "sha256": "cb3b89ef524a9af63e3276a912d28f6a8f14e26729b1703179bb118a12203f72"
+    }
+  ],
+  "reuse_verification": {
+    "run_id": "ce3b0259efd44f19b1279f5dc4c76b0c",
+    "summary": {
+      "completed": 0,
+      "reused": 2,
+      "failed": 0,
+      "interrupted": 0,
+      "skipped": 0
+    },
+    "client_page_unchanged": true
+  },
+  "additional_source_checks": [
+    {
+      "title": "嫁金钗 01",
+      "scope": "source_only",
+      "stream_type": "hls5hd4_hbr_bit10",
+      "width": 3840,
+      "height": 2160,
+      "duration_seconds": 2897.2,
+      "segments": 261,
+      "clear_segments": 2,
+      "client_page_unchanged": true
+    },
+    {
+      "title": "嘘，国王在冬眠 01",
+      "scope": "source_only",
+      "stream_type": "hls5hd4_hbr_bit10",
+      "width": 3840,
+      "height": 2160,
+      "duration_seconds": 2593.92,
+      "segments": 228,
+      "clear_segments": 2,
+      "client_page_unchanged": true
+    }
+  ],
+  "validation": {
+    "production_tests_passed": 18,
+    "research_tests_passed": 33,
+    "compile_passed": true,
+    "workspace_json_passed": true,
+    "progress_javascript_syntax_passed": true
+  }
+}

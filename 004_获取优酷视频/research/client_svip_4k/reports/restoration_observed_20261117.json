@@ -1,0 +1,208 @@
+{
+  "restoration": {
+    "observed_at_utc": "2026-11-17T08:28:44.458723+00:00",
+    "sample": {
+      "title": "难哄",
+      "url": "https://v.youku.com/video?vid=XNjQ1NDI4ODY2MA=="
+    },
+    "stream": {
+      "stream_type": "hls5hd4_hbr_bit10",
+      "width": 3840,
+      "height": 2160,
+      "size": 925390708,
+      "milliseconds_video": 2747000,
+      "milliseconds_audio": 2747000,
+      "drm_type": "copyrightDRM",
+      "media_type": "standard",
+      "audio_lang": "default",
+      "subtitle_lang": "default"
+    },
+    "work_subdir": "873e97cb6c885f56c9c9",
+    "samples": [
+      {
+        "file": "restored_12_26ed86164218b669.ts",
+        "bytes": 2001448,
+        "sha256": "26ed86164218b669e5ef1133f9b18fb9464fad76d8bd6c37b4e0bb97a4493907",
+        "source_sha256": "3926c2d60e8c70d7ad54cd9fe60aee1f0a7567dfb0376be590c88479fed3f2f9",
+        "index": 12,
+        "duration": 14.4,
+        "pes": {
+          "video_pes": 360,
+          "decrypted_bytes": 1899712,
+          "audio_pes": 127
+        }
+      },
+      {
+        "file": "restored_121_bee0558eab7ba137.ts",
+        "bytes": 1633344,
+        "sha256": "bee0558eab7ba137d1d196e18e5a0c137c3ac7427128612f485ab1e202898d20",
+        "source_sha256": "ed313ff5169aee1e185496ee402a0ce4cc1472f84988c7f2c31af4177cdf6185",
+        "index": 121,
+        "duration": 8.64,
+        "pes": {
+          "video_pes": 216,
+          "decrypted_bytes": 1561344,
+          "audio_pes": 76
+        }
+      },
+      {
+        "file": "restored_230_6619ae90d57bd4a6.ts",
+        "bytes": 4387732,
+        "sha256": "6619ae90d57bd4a67d7a07e6b75595f99c999a9fabee17407adab7d417222484",
+        "source_sha256": "c84bad6f6b5c5ed0aea144c43471ab6fc04a9ba58d98d462349fd879ed8b7012",
+        "index": 230,
+        "duration": 11.76,
+        "pes": {
+          "video_pes": 294,
+          "decrypted_bytes": 4246272,
+          "audio_pes": 106
+        }
+      }
+    ],
+    "inspector": {
+      "activated_by_probe": true,
+      "owned_inspector_closed": true
+    },
+    "adapter": {
+      "library": "nplayer64/aliplayerVS.dll",
+      "library_sha256": "bb113b451036f8ee737aeb7b04e47dc57713d8339c2bdb7af87adafd30a38a39",
+      "challenge_module_sha256": "b1e5851ca2c9404e602b4f9943f8bde03267e568c1616e2131bb9427400dc9ed",
+      "function_rva": 2449952
+    },
+    "independent_file_verified": false
+  },
+  "verification": {
+    "observed_at_utc": "2026-11-17T08:27:38.950945+00:00",
+    "sample": {
+      "title": "难哄",
+      "url": "https://v.youku.com/video?vid=XNjQ1NDI4ODY2MA=="
+    },
+    "stream": {
+      "stream_type": "hls5hd4_hbr_bit10",
+      "width": 3840,
+      "height": 2160,
+      "size": 925390708,
+      "milliseconds_video": 2747000,
+      "milliseconds_audio": 2747000,
+      "drm_type": "copyrightDRM",
+      "media_type": "standard",
+      "audio_lang": "default",
+      "subtitle_lang": "default"
+    },
+    "samples": [
+      {
+        "file": "restored_12_26ed86164218b669.ts",
+        "sha256": "26ed86164218b669e5ef1133f9b18fb9464fad76d8bd6c37b4e0bb97a4493907",
+        "exit_code": 0,
+        "decode_passed": true,
+        "decoded_video_frames": 360,
+        "decoded_audio_frames": 620,
+        "timed_out": false,
+        "diagnostics": {
+          "invalid_data": false,
+          "missing_video_format": false,
+          "missing_codec_parameters": false,
+          "empty_output": false
+        }
+      },
+      {
+        "file": "restored_121_bee0558eab7ba137.ts",
+        "sha256": "bee0558eab7ba137d1d196e18e5a0c137c3ac7427128612f485ab1e202898d20",
+        "exit_code": 0,
+        "decode_passed": true,
+        "decoded_video_frames": 216,
+        "decoded_audio_frames": 372,
+        "timed_out": false,
+        "diagnostics": {
+          "invalid_data": false,
+          "missing_video_format": false,
+          "missing_codec_parameters": false,
+          "empty_output": false
+        }
+      },
+      {
+        "file": "restored_230_6619ae90d57bd4a6.ts",
+        "sha256": "6619ae90d57bd4a67d7a07e6b75595f99c999a9fabee17407adab7d417222484",
+        "exit_code": 0,
+        "decode_passed": true,
+        "decoded_video_frames": 294,
+        "decoded_audio_frames": 507,
+        "timed_out": false,
+        "diagnostics": {
+          "invalid_data": false,
+          "missing_video_format": false,
+          "missing_codec_parameters": false,
+          "empty_output": false
+        }
+      }
+    ],
+    "independent_file_verified": false,
+    "all_samples_decoded": true
+  },
+  "scope": "three sampled segments, not full episode",
+  "independent_file_verified": false,
+  "lossless_remux": {
+    "samples": [
+      {
+        "ts": {
+          "file": "restored_12_26ed86164218b669.ts",
+          "sha256": "26ed86164218b669e5ef1133f9b18fb9464fad76d8bd6c37b4e0bb97a4493907",
+          "bytes": 2001448,
+          "exit_code": 0,
+          "video_frames": 360,
+          "audio_frames": 620
+        },
+        "mp4": {
+          "file": "restored_12_26ed86164218b669.mp4",
+          "sha256": "61e6e71bf01d5e32930c1335c434f8bec05719755084176376bb14cd121da44a",
+          "bytes": 1913414,
+          "exit_code": 0,
+          "video_frames": 360,
+          "audio_frames": 620
+        },
+        "video_hashes_equal": true,
+        "audio_hashes_equal": true
+      },
+      {
+        "ts": {
+          "file": "restored_121_bee0558eab7ba137.ts",
+          "sha256": "bee0558eab7ba137d1d196e18e5a0c137c3ac7427128612f485ab1e202898d20",
+          "bytes": 1633344,
+          "exit_code": 0,
+          "video_frames": 216,
+          "audio_frames": 372
+        },
+        "mp4": {
+          "file": "restored_121_bee0558eab7ba137.mp4",
+          "sha256": "eac1f296a6ac4152c7d25e62347e7a35c7c9b9746646c27da8b7e09dbd4f01a5",
+          "bytes": 1569497,
+          "exit_code": 0,
+          "video_frames": 216,
+          "audio_frames": 372
+        },
+        "video_hashes_equal": true,
+        "audio_hashes_equal": true
+      },
+      {
+        "ts": {
+          "file": "restored_230_6619ae90d57bd4a6.ts",
+          "sha256": "6619ae90d57bd4a67d7a07e6b75595f99c999a9fabee17407adab7d417222484",
+          "bytes": 4387732,
+          "exit_code": 0,
+          "video_frames": 294,
+          "audio_frames": 507
+        },
+        "mp4": {
+          "file": "restored_230_6619ae90d57bd4a6.mp4",
+          "sha256": "9ce35ce2db5402e6c68e07b9f8e5424f402d1047de23e8d2c67a700906c9f50d",
+          "bytes": 4257646,
+          "exit_code": 0,
+          "video_frames": 294,
+          "audio_frames": 507
+        },
+        "video_hashes_equal": true,
+        "audio_hashes_equal": true
+      }
+    ]
+  }
+}

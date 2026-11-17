@@ -15,7 +15,7 @@
 'use strict';
 const live=__LIVE__,interval=__INTERVAL__,terminal=new Set(['completed','reused','failed','interrupted','skipped']),opened=new Map();
 const labels={pending:'等待',running:'进行中',completed:'已完成',reused:'已复用',failed:'失败',interrupted:'已中断',skipped:'未执行',warning:'部分失败'};
-const stages={waiting_source:'等待播放资源接口',resolving_source:'解析视频与音轨',authorizing:'检查播放授权',checking_reuse:'校验既有成品',downloading:'下载音视频',waiting_queue:'等待队列容量',waiting_processing:'等待解析',processing:'等待处理阶段',decrypting:'授权还原',restoring_audio:'重建独立音轨',muxing:'无损封装',verifying:'全片解码验证',checking:'校验媒体及摘要',publishing:'保存与复制校验',completed:'已完成'};
+const stages={waiting_source:'等待播放资源接口',resolving_source:'解析视频与音轨',authorizing:'检查播放授权',checking_reuse:'校验既有成品',downloading:'下载音视频',waiting_download:'等待下载名额',waiting_queue:'等待队列容量',waiting_processing:'等待处理',processing:'等待处理阶段',decrypting:'授权还原',restoring_audio:'重建独立音轨',muxing:'无损封装',verifying:'全片解码验证',checking:'校验媒体及摘要',publishing:'保存与复制校验',completed:'已完成'};
 let state=JSON.parse(document.getElementById('playback-log-data').textContent),connected=true,timer;
 /** 创建标签 tag，text 为可选纯文本，cls 为可选样式；返回 DOM 元素。 */
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}

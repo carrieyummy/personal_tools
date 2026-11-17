@@ -1,0 +1,116 @@
+# 路径相对本配置文件解析；支持 ~ 和操作系统环境变量。
+# 当前仅支持 url：复用已登录客户端上下文，按链接清单下载完整正片。
+# URL 模式需保持一个已登录且 SDK 已初始化的优酷播放器运行；先在客户端播放一集已授权正片。
+source: url
+# URL 模式使用的下载清单文件。
+default_list: '../download_list/download_list.yaml'
+# URL 模式使用的播放协议、选集接口及登录态专项配置文件。
+playback_profile: 'native_playback.yaml'
+# URL 下载参数；清单中的设置可覆盖画质和整剧选择。
+download:
+  # 每集单独排名，1 为最高；指定档位不可用时失败，不降档。
+  quality: 1
+  # true 下载链接对应整剧的已上线正片；false 仅下载链接指定的视频。
+  all_parts: true
+  # 仅限制同时下载的剧集数，须为正整数；解析、复用检查和续签不占下载名额，单集分片顺序下载。
+  threads: 5
+  # 已下载、等待后处理的分片容量；1 GB = 1024³ 字节，单集超限时允许独占队列。
+  queue_capacity_gb: 20
+  # 单个分片传输失败后的最大重试次数；0 表示不重试。
+  retries: 3
+  # 媒体地址过期后的续签次数上限；来源变化时也限制重新解析次数，须为正整数。
+  refresh_attempts: 3
+# URL 模式的登录态刷新和认证恢复参数。
+authentication:
+  # 按请求检查快照年龄，到期后从客户端只读重读；这是主动重读间隔，不代表票据有效期。
+  refresh_interval_seconds: 300
+  # 明确认证拒绝后的重读及原请求重试次数；并发任务共用恢复结果，耗尽后停止派发并保留断点。
+  recovery_attempts: 1
+# URL 模式的音质选择参数。
+audio:
+  # 仅对当前账号可下载的原始音源排名：1 为最高，2 为次高；播放器滤镜不参与，档位不足时报错。
+  quality: 1
+# 非下载处理的总并发上限：解析、复用检查、续签和后处理共用。
+# 还原、封装、来源复核、发布及每个启用解码设备仍各一个槽。
+max_in_flight: 5
+# 单个外部进程的超时时间，单位为秒，须为正整数。
+process_timeout_seconds: 3600
+# 文件读取、复制和哈希计算的缓冲区大小，单位为字节，须为正整数且小于 2^31。
+copy_buffer_bytes: 4194304
+# 解码结束时间与清单时长的最大允许差值（秒）。
+duration_tolerance_seconds: 2
+# 成功后是否保留媒体中间文件；失败现场、验证日志和脱敏证明始终保留。
+keep_intermediates: false
+# URL 模式的媒体规格验证参数。
+verification:
+  # 无重编码封装前后允许的帧率差，兼容时基及封装时长的标称差异。
+  fps_tolerance: 0.1
+# 已登记成品复用检查：fast 比较大小和修改时间；full 每次重算 SHA-256。
+# 旧记录缺少修改时间或文件属性变化时，fast 也会完整校验一次。
+reuse_check: fast
+# JSON 日志、断点和索引的原子替换；共享盘短暂拒绝访问时有限等待，不截断已有文件。
+storage:
+  # 包含首次尝试；仅 Windows 拒绝访问和共享冲突允许重试。
+  replace_attempts: 20
+  # 两次替换尝试之间的等待秒数。
+  retry_interval_seconds: 0.5
+# URL 模式的网络请求参数。
+network:
+  # 空字符串强制直连，不继承环境代理。
+  proxy: ''
+  # 网络请求超时及单个分片传输总超时，单位为秒，须为正整数。
+  timeout_seconds: 30
+  # 账号及节目接口响应大小上限；媒体清单的独立上限在播放专项配置。
+  max_response_bytes: 16000000
+  # 媒体请求 UA 和账号接口 Referer；账号接口 UA 始终读取真实客户端。
+  headers:
+    # 媒体 CDN 使用的 User-Agent，不附带登录 Cookie。
+    User-Agent: 'Mozilla/5.0'
+    # 向服务器标识请求来源页面的 Referer 请求头。
+    Referer: 'https://v.youku.com/'
+# 成品和运行记录输出目录；优酷目录名使用 youku 标记。
+output_path: 'Z:/003_电视剧'
+# 电视剧目录命名；title 为源站剧名，series_id 为优酷官方节目编号。
+# 三个占位符均须保留，目录名不能包含空白或路径分隔符；平台标记在模板中维护。
+naming:
+  # 电视剧目录名模板；release_date 为源站整剧首次上映日期，格式 YYYY-MM-DD。
+  series_template: '{release_date}_{title}_youku_{series_id}'
+  # URL 成品文件名模板，须包含 index、title、quality、audio，可选 video_id。
+  episode_template: '{index:03d}_{title}_{quality}_{audio}'
+  # URL 成品文件名中标题的最大字符数，须为正整数。
+  max_title_length: 60
+# 中间文件工作目录，与成品目录独立；容量设置只约束待处理队列。
+work_dir: 'E:/YoukuRestore/work'
+# 本机已验证媒体原生适配的版本、摘要及隔离调用参数。
+native_profile: 'native_media.yaml'
+# 用于封装和完整解码验证的 FFmpeg 可执行文件路径。
+ffmpeg_path: 'C:/ProgramData/miniconda3/envs/test_regression_py3.12/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe'
+# 完整解码设备可同时启用，各一个槽；都空闲时优先 GPU，CUDA 失败不降级。
+decode_verification:
+  # 是否使用 CPU 进行完整解码验证；至少启用一个设备。
+  cpu: true
+  # 是否使用 GPU 进行完整解码验证；至少启用一个设备。
+  gpu: true
+# 本机页面和运行记录；文件名相对 output_path。
+logging:
+  # 本平台的输出/工作目录锁；与其他工具共用 output_path 时须各用不同名称。
+  # 保留命名模板中的平台标记和独立日志名；锁不保护跨平台混写同一剧集目录。
+  lock_file: '.youku_conversion.lock'
+  # 本机进度页面监听端口；0 表示由系统分配端口。
+  port: 0
+  # 进度页面自动刷新的间隔，单位为秒，须大于 0。
+  refresh_interval_seconds: 2
+  # 结束后等待活跃页面确认最终状态的最长时间，单位为秒。
+  final_state_timeout_seconds: 5
+  # 采样和写入进度的间隔，单位为秒，须大于 0。
+  progress_interval_seconds: 1
+  # 运行状态记录文件名。
+  state_file: 'youku_conversion_log.json'
+  # 离线报告文件名模板；实际文件名会附加时间和运行标识。
+  html_file: 'youku_conversion_log.html'
+# 运行过程控制参数。
+runtime:
+  # 检查取消请求及轮询子进程的间隔，单位为秒，须大于 0。
+  cancel_poll_interval_seconds: 0.2
+  # 请求终止子进程后等待退出的时间，单位为秒，须大于 0。
+  process_terminate_timeout_seconds: 2

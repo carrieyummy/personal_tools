@@ -9,6 +9,7 @@ from local.client import check_cancel
 from local.configuration import read_config, read_yaml
 from local.errors import AuthenticationError, Cancelled, ToolError
 from local.scheduler import run_pipeline
+from tests.stages import staged
 from tests.test_workflow import BaseCase, ROOT
 
 
@@ -19,10 +20,10 @@ class SchedulerTests(BaseCase):
         """读取配置后临时设置两池及字节容量，便于用小载荷触发背压；无参数/返回值。"""
         super().setUp()
         self.config["download"].update(threads=2, queue_capacity_gb=10 / 1024**3)
-        self.config["pipeline"]["max_in_flight"] = 2
+        self.config["max_in_flight"] = 2
         self.config["runtime"]["cancel_poll_interval_seconds"] = 0.01
 
-    def start(self, jobs, download, process, waiting=None):
+    def start(self, jobs, download, process, waiting=None, steps=None):
         """后台调度 jobs/download/process，可注入 waiting；返回线程、取消事件、终态映射及批次异常列表。"""
         cancel, outcomes, failures = Event(), {}, []
         self.cancel = cancel
@@ -34,7 +35,7 @@ class SchedulerTests(BaseCase):
         def run():
             """执行隔离调度并捕获批次异常供测试线程断言；无参数/返回值。"""
             try:
-                run_pipeline(jobs, self.config, download, process, complete, cancel, Event(),
+                run_pipeline(jobs, self.config, steps or staged(download, process), complete, cancel, Event(),
                              downloaded_size=lambda value: value[1], waiting=waiting or (lambda *args: None))
             except BaseException as error:
                 failures.append(error)
@@ -57,7 +58,7 @@ class SchedulerTests(BaseCase):
 
     def test_independent_limits_and_calling_thread_callbacks(self):
         """两池分别达到自身上限且交叠，迭代及日志/结算回调保持在调用线程；无参数/返回值。"""
-        barrier, processing_full, advanced = Barrier(2), Event(), Event()
+        barrier, processing_full, advanced, prepared_all = Barrier(2), Event(), Event(), Event()
         guard, active, maxima, completed = Lock(), [0, 0], [0, 0], []
         caller = get_ident()
 
@@ -75,6 +76,7 @@ class SchedulerTests(BaseCase):
             try:
                 if job < barrier.parties:
                     barrier.wait(5)
+                    self.assertTrue(prepared_all.wait(5))
                 else:
                     self.assertTrue(processing_full.wait(5))
                     advanced.set()
@@ -88,7 +90,7 @@ class SchedulerTests(BaseCase):
             with guard:
                 active[1] += 1
                 maxima[1] = max(maxima[1], active[1])
-                if active[1] == self.config["pipeline"]["max_in_flight"]:
+                if active[1] == self.config["max_in_flight"]:
                     processing_full.set()
             try:
                 self.assertTrue(advanced.wait(5))
@@ -108,20 +110,28 @@ class SchedulerTests(BaseCase):
             """验证 job 的 status 通知在调用线程执行；无返回值。"""
             self.assertEqual(get_ident(), caller)
 
-        run_pipeline(jobs(), self.config, download, process, complete, Event(), Event(),
+        def steps(job):
+            """先预解析有界缓存再放行下载，避免把处理池独立于解析当作测试前提。"""
+            if job == 3:
+                prepared_all.set()
+            return (yield from staged(download, process)(job))
+
+        run_pipeline(jobs(), self.config, steps, complete, Event(), Event(),
                      downloaded_size=lambda value: value[1], waiting=waiting)
-        self.assertEqual(maxima, [self.config["download"]["threads"], self.config["pipeline"]["max_in_flight"]])
+        self.assertEqual(maxima, [self.config["download"]["threads"], self.config["max_in_flight"]])
         self.assertEqual(sorted(completed), list(range(6)))
 
     def bounded_case(self, sizes, cancel_run=False):
         """按 sizes 构建满处理池、队列及入队等待；cancel_run 选择取消，否则释放后验收完成；无返回值。"""
-        self.config["pipeline"]["max_in_flight"] = 1
-        processing, first_queued, blocked, release = Event(), Event(), Event(), Event()
+        self.config["max_in_flight"] = 1
+        processing, first_queued, blocked, release, all_prepared = Event(), Event(), Event(), Event(), Event()
         guard, started, states, processed = Lock(), [], {}, []
 
         def download(job):
             """按受控先后顺序下载 job；返回编号和 sizes 中的实际字节数。"""
-            if job == 1:
+            if job == 0:
+                self.assertTrue(all_prepared.wait(5))
+            elif job == 1:
                 self.assertTrue(processing.wait(5))
             elif job >= 2:
                 self.assertTrue(first_queued.wait(5))
@@ -147,7 +157,13 @@ class SchedulerTests(BaseCase):
             processed.append(value[0])
             return str(value[0])
 
-        thread, cancel, outcomes, failures = self.start(range(len(sizes)), download, process, waiting)
+        def job_steps(job):
+            """在首个后处理占槽前准备有界下载缓存；job 为测试编号，返回终态。"""
+            if job == 3:
+                all_prepared.set()
+            return (yield from staged(download, process)(job))
+
+        thread, cancel, outcomes, failures = self.start(range(len(sizes)), download, process, waiting, steps=job_steps)
         try:
             self.assertTrue(blocked.wait(5))
             with guard:
@@ -206,7 +222,8 @@ class SchedulerTests(BaseCase):
         self.assert_reclaimed(thread)
         self.assertEqual(len(failures), 1)
         self.assertIsInstance(failures[0], Cancelled)
-        self.assertEqual(set(outcomes), set(started))
+        self.assertTrue(set(started) <= set(outcomes))
+        self.assertLessEqual(len(outcomes), self.config["download"]["threads"] * 2)
         self.assertTrue(all(isinstance(value, Cancelled) for value in outcomes.values()))
 
     def test_completed_terminal_status_survives_cancellation(self):
@@ -219,7 +236,7 @@ class SchedulerTests(BaseCase):
             return "成功"
 
         with self.assertRaises(Cancelled):
-            run_pipeline([0], self.config, lambda job: (job, 1), process,
+            run_pipeline([0], self.config, staged(lambda job: (job, 1), process),
                          lambda job, status, error: outcomes.update({job: error or status}), cancel, Event(),
                          downloaded_size=lambda value: value[1], waiting=lambda *args: None)
         self.assertEqual(outcomes, {0: "成功"})
@@ -227,7 +244,7 @@ class SchedulerTests(BaseCase):
     def test_authentication_stops_downloads_but_drains_ready(self):
         """认证失效后不派发新下载，已下载的等待任务仍能完成；无参数/返回值。"""
         self.config["download"]["threads"] = 1
-        self.config["pipeline"]["max_in_flight"] = 1
+        self.config["max_in_flight"] = 2
         auth_stop, release, outcomes, started = Event(), Event(), {}, []
 
         def download(job):
@@ -245,7 +262,7 @@ class SchedulerTests(BaseCase):
                 self.assertTrue(release.wait(5))
             return str(value[0])
 
-        run_pipeline(range(5), self.config, download, process,
+        run_pipeline(range(5), self.config, staged(download, process),
                      lambda job, status, error: outcomes.update({job: error or status}), Event(), auth_stop,
                      downloaded_size=lambda value: value[1], waiting=lambda *args: None)
         self.assertEqual(started, [0, 1, 2])
@@ -293,7 +310,7 @@ class SchedulerTests(BaseCase):
             self.fail("应当取消")
 
         with self.assertRaisesRegex(ToolError, "目录异常"):
-            run_pipeline(jobs(), self.config, download, lambda value: self.fail("不应后处理"),
+            run_pipeline(jobs(), self.config, staged(download, lambda value: self.fail("不应后处理")),
                          lambda job, status, error: outcomes.update({job: error or status}), cancel, Event(),
                          downloaded_size=lambda value: value[1], waiting=lambda *args: None)
         self.assertTrue(cancel.is_set())
@@ -314,11 +331,11 @@ class SchedulerConfigTests(BaseCase):
         path = self.root / "config.yaml"
         cases = [("download", "queue_capacity_gb", [None, True, 0, -1, "20", float("inf"), float("nan"), 1e308, 0.1 / 1024**3]),
                  ("download", "threads", [None, True, 0, -1, 1.5, "5"]),
-                 ("pipeline", "max_in_flight", [None, True, 0, -1, 1.5, "4"])]
+                 (None, "max_in_flight", [None, True, 0, -1, 1.5, "4"])]
         for section, field, invalid_values in cases:
             for value in invalid_values:
                 data = deepcopy(original)
-                data[section][field] = value
+                (data[section] if section else data)[field] = value
                 path.write_text(yaml.safe_dump(data), encoding="utf-8")
                 with self.subTest(field=field, value=value), self.assertRaisesRegex(ToolError, field):
                     read_config(path)
@@ -328,9 +345,13 @@ class SchedulerConfigTests(BaseCase):
         with self.assertRaisesRegex(ToolError, "download.queue_capacity_gb"):
             read_config(path)
         data["download"].update(threads=3, queue_capacity_gb=1 / 1024**3)
-        data["pipeline"]["max_in_flight"] = 2
+        data["max_in_flight"] = 2
         path.write_text(yaml.safe_dump(data), encoding="utf-8")
         loaded = read_config(path)
         self.assertEqual(loaded["download"]["threads"], data["download"]["threads"])
         self.assertEqual(loaded["download"]["queue_capacity_gb"], data["download"]["queue_capacity_gb"])
-        self.assertEqual(loaded["pipeline"]["max_in_flight"], data["pipeline"]["max_in_flight"])
+        self.assertEqual(loaded["max_in_flight"], data["max_in_flight"])
+        data["pipeline"]["max_in_flight"] = data.pop("max_in_flight")
+        path.write_text(yaml.safe_dump(data), encoding="utf-8")
+        with self.assertRaisesRegex(ToolError, "顶层 max_in_flight"):
+            read_config(path)

@@ -101,7 +101,7 @@
                     // 必填：读取主配置中的成品目录、本地工作目录、FFmpeg 和运行超时。
                     "--config", "${workspaceFolder:002_获取爱奇艺视频}/configs/config.yaml",
                     // 必填：设置比较任务数量、并发数、CPU/GPU 后端、预热和报告位置。
-                    "--benchmark-config", "${workspaceFolder:002_获取爱奇艺视频}/configs/benchmark_decode.yaml"
+                    "--benchmark-config", "${workspaceFolder:002_获取爱奇艺视频}/research/configs/benchmark_decode.yaml"
                     // 可选：只比较某一组；省略时按专项配置运行全部组，可重复传入 --case。
                     // , "--case", "mixed_parallel"
                 ]
@@ -119,7 +119,7 @@
                     // 必填：主配置，复用已登记成品、源文件下载保护和 FFmpeg。
                     "--config", "${workspaceFolder:002_获取爱奇艺视频}/configs/config.yaml",
                     // 必填：专项配置，只读取报告根目录；两种设备分别验收正常及截断副本。
-                    "--benchmark-config", "${workspaceFolder:002_获取爱奇艺视频}/configs/benchmark_decode.yaml"
+                    "--benchmark-config", "${workspaceFolder:002_获取爱奇艺视频}/research/configs/benchmark_decode.yaml"
                 ]
             }
         ]

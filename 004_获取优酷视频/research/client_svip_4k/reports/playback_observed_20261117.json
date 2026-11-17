@@ -1,0 +1,115 @@
+{
+  "observed_at_utc": "2026-11-17T05:49:25.318455+00:00",
+  "sample": {
+    "title": "难哄",
+    "url": "https://v.youku.com/video?vid=XNjQ1NDI4ODY2MA=="
+  },
+  "read_bytes": 69427664,
+  "files": [
+    {
+      "file": "nplayer_runtime_info-20261115T215506-70212-MainPlayer.log",
+      "sampled_bytes": 445423,
+      "size_at_start": 445423,
+      "requests": []
+    },
+    {
+      "file": "nplayer_runtime_info-20261115T215728-70792-MainPlayer.log",
+      "sampled_bytes": 6276,
+      "size_at_start": 6276,
+      "requests": []
+    },
+    {
+      "file": "nplayer_runtime_info-20261115T215741-71340-MainPlayer.log",
+      "sampled_bytes": 2943047,
+      "size_at_start": 2943047,
+      "requests": []
+    },
+    {
+      "file": "nplayer_runtime_info-20261116T012948-66620-MainPlayer.log",
+      "sampled_bytes": 7169792,
+      "size_at_start": 7169792,
+      "requests": [
+        {
+          "type": "hls5hd4_hbr_bit10",
+          "ccode": "03020102",
+          "app_ver": "9.24.1",
+          "duration": "2764",
+          "occurrences": 222,
+          "first_line": 5795,
+          "first_timestamp_local": "2026-11-16 01:30:38",
+          "last_line": 27368,
+          "last_timestamp_local": "2026-11-16 01:36:16"
+        },
+        {
+          "type": "hls5hd4_hbr_bit10",
+          "ccode": "03020102",
+          "duration": "2764",
+          "occurrences": 12,
+          "first_line": 6019,
+          "first_timestamp_local": "2026-11-16 01:30:38",
+          "last_line": 27345,
+          "last_timestamp_local": "2026-11-16 01:36:16"
+        },
+        {
+          "type": "hls5hd4_hbr_bit10",
+          "ccode": "03020102",
+          "app_ver": "9.24.1",
+          "duration": "2749",
+          "occurrences": 281,
+          "first_line": 28964,
+          "first_timestamp_local": "2026-11-16 01:37:52",
+          "last_line": 46483,
+          "last_timestamp_local": "2026-11-16 01:46:35"
+        },
+        {
+          "type": "hls5hd4_hbr_bit10",
+          "ccode": "03020102",
+          "duration": "2749",
+          "occurrences": 6,
+          "first_line": 29192,
+          "first_timestamp_local": "2026-11-16 01:37:52",
+          "last_line": 46458,
+          "last_timestamp_local": "2026-11-16 01:46:35"
+        }
+      ]
+    },
+    {
+      "file": "nplayer_runtime_info-20261116T041017-41404-MainPlayer.log",
+      "sampled_bytes": 58460220,
+      "size_at_start": 58460220,
+      "requests": [
+        {
+          "type": "hls5hd4_hbr_bit10",
+          "ccode": "03020102",
+          "app_ver": "9.24.1",
+          "duration": "2749",
+          "occurrences": 189,
+          "first_line": 1539,
+          "first_timestamp_local": "2026-11-16 04:10:36",
+          "last_line": 6015,
+          "last_timestamp_local": "2026-11-16 04:10:44"
+        },
+        {
+          "type": "hls5hd4_hbr_bit10",
+          "ccode": "03020102",
+          "duration": "2749",
+          "occurrences": 6,
+          "first_line": 1762,
+          "first_timestamp_local": "2026-11-16 04:10:36",
+          "last_line": 5992,
+          "last_timestamp_local": "2026-11-16 04:10:44"
+        }
+      ]
+    },
+    {
+      "file": "nplayer_runtime_info-20261117T134244-88504-MainPlayer.log",
+      "sampled_bytes": 402906,
+      "size_at_start": 402906,
+      "requests": []
+    }
+  ],
+  "skipped": [],
+  "budget_exhausted": false,
+  "independent_file_verified": false,
+  "note": "仅证明日志中出现该样本的媒体请求；不证明响应成功、当前权益或全片解码。"
+}

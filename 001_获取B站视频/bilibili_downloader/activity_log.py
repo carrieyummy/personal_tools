@@ -26,7 +26,7 @@ from .storage import record_io_lock, validate_path
 STATUS_LABELS = {
     'pending': '等待下载', 'preparing': '准备中', 'downloading': '下载中',
     'processing': '封装及字幕处理', 'retry': '等待重选画质', 'queued': '等待后处理',
-    'waiting_queue': '等待队列容量', 'waiting_processing': '等待后处理',
+    'waiting_download': '等待下载', 'waiting_queue': '等待队列容量', 'waiting_processing': '等待后处理',
     'merging': '合并中', 'completed': '已完成', 'reused': '已完成（复用）',
     'failed': '失败', 'interrupted': '已中断', 'skipped': '已跳过', 'warning': '完成但有提示',
     'running': '运行中',

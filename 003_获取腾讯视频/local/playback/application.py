@@ -5,7 +5,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 import re
 import shutil
-from threading import Event, Semaphore
+from threading import Event
 from uuid import uuid4
 
 from ..batch import Batch, PendingDownload, check_record, index_path, load_index
@@ -16,7 +16,7 @@ from ..storage import atomic_json, fingerprint, output_lock, publish, timestamp
 from .audio import AudioSelector
 from .client import NativeClient
 from .errors import AuthenticationError, AuthenticationStopped, PlaybackError, SourceChanged
-from .hls import download
+from .hls import download_steps
 from .source import Resolved, resolve
 from .tasks import discover, requests
 from .transport import safe_message
@@ -66,7 +66,6 @@ class UrlBatch(Batch):
         self.client.transport.auth_stop = self.auth_stop
         self.client.transport.cancel = self.cancel
         self.selector = AudioSelector(config["audio"])
-        self.download_slots = Semaphore(config["download"]["threads"])
 
     def dispatch_stop_reason(self) -> str | None:
         """认证恢复耗尽后返回未派发任务的跳过原因；否则返回 None，允许流水线继续。"""
@@ -112,7 +111,7 @@ class UrlBatch(Batch):
                 return done.value
 
     def _job_steps(self, task: dict, entry: dict):
-        """分阶段处理 task 并更新 entry；让出下载完成的字节数或重试标记，结束时返回报告。"""
+        """分阶段处理 task 并更新 entry；让出下载、续签、待处理字节数或重试标记，结束时返回报告。"""
         config, cancel = self.config, self.cancel
         for attempt in range(config["download"]["refresh_attempts"] + 1):
             work, report = None, {"source_type": "url", "video_id": task["video_id"], "status": "running"}
@@ -121,26 +120,39 @@ class UrlBatch(Batch):
                 if self.auth_stop.is_set():
                     raise AuthenticationStopped("认证恢复失败，当前任务停止请求并保留现场")
                 self.notify(entry, "resolving", detail="查询账号授权画质及音质")
-                with self.resource(entry, "download", self.download_slots):
-                    source = resolve(self.client, task, self.selector)
-                    work = config["work_dir"] / "url" / task["series_id"] / task["video_id"] / source.identity
-                    work.mkdir(parents=True, exist_ok=True)
-                    report.update(source=source.description, source_identity=source.identity, work_dir=str(work))
-                    self.journal.update(entry, source=source.description, source_identity=source.identity,
-                                        detail=f"{source.description['format']['sname']} / {source.audio.name}；{source.audio.metadata.get('note', '')}")
-                    existing = reusable(config, task, source, cancel, self.index_lock)
-                    if existing:
-                        report.update(status="reused", output=str(existing))
-                        return report
-                    atomic_json(work / "source.json", {"task": task, "source": source.description,
-                                                        "identity": source.identity})
-                    self.notify(entry, "downloading", detail=f"下载 {source.description['format']['sname']} / {source.audio.name}", work_dir=str(work))
-                    def refresh() -> list:
-                        """仅续签已选 source；返回同身份清单，变化时抛错，凭据或签名不落盘。"""
-                        return resolve(self.client, task, self.selector, expected=source).manifests
-                    manifests, evidence = download(self.client.transport, source.manifests, work, config, refresh,
-                        lambda done, total: self.journal.update(entry, progress=done * 100 / total), cancel)
-                    report["download"] = evidence
+                source = resolve(self.client, task, self.selector)
+                work = config["work_dir"] / "url" / task["series_id"] / task["video_id"] / source.identity
+                work.mkdir(parents=True, exist_ok=True)
+                report.update(source=source.description, source_identity=source.identity, work_dir=str(work))
+                self.journal.update(entry, source=source.description, source_identity=source.identity,
+                                    detail=f"{source.description['format']['sname']} / {source.audio.name}；{source.audio.metadata.get('note', '')}")
+                existing = reusable(config, task, source, cancel, self.index_lock)
+                if existing:
+                    report.update(status="reused", output=str(existing))
+                    return report
+                atomic_json(work / "source.json", {"task": task, "source": source.description,
+                                                    "identity": source.identity})
+                yield "download", 0
+                segments = download_steps(self.client.transport, source.manifests, work, config,
+                    lambda done, total: self.journal.update(entry, progress=done * 100 / total), cancel)
+                refreshed = None
+                try:
+                    while True:
+                        check_cancel(cancel)
+                        self.notify(entry, "downloading", detail=f"下载 {source.description['format']['sname']} / {source.audio.name}", work_dir=str(work))
+                        try:
+                            segments.send(refreshed)
+                        except StopIteration as done:
+                            manifests, evidence = done.value
+                            break
+                        yield "resolve", 0
+                        check_cancel(cancel)
+                        self.notify(entry, "resolving", detail="媒体地址过期，续签同源清单")
+                        refreshed = resolve(self.client, task, self.selector, expected=source).manifests
+                        yield "download", 0
+                finally:
+                    segments.close()
+                report["download"] = evidence
                 size = sum((work / f"track_{track}" / f"{index:06d}.bin").stat().st_size
                            for track, playlist in enumerate(source.manifests)
                            for index, _ in enumerate(playlist.resources))
@@ -214,7 +226,7 @@ class UrlBatch(Batch):
                 self.journal.update(entry, detail="来源版本变化，保留旧现场并重新解析")
                 yield "retry", 0
             except BaseException as error:
-                report.update(status="interrupted" if isinstance(error, (TaskCancelled, KeyboardInterrupt)) else "failed",
+                report.update(status="interrupted" if isinstance(error, (TaskCancelled, KeyboardInterrupt, GeneratorExit)) else "failed",
                               error=safe_message(error))
                 raise
             finally:
@@ -234,9 +246,9 @@ class UrlBatch(Batch):
             return "done", done.value
 
     def run(self, tasks: list[dict]) -> dict:
-        """先登记全部 tasks，再独立调度下载和后处理；按分片大小限制等待队列，返回终态计数。"""
+        """登记 tasks，按独立下载上限及共享处理上限调度；预解析和媒体队列有界，返回终态计数。"""
         pending = iter([(task, self.journal.add(task)) for task in tasks])
-        retries, waiting, ready = deque(), deque(), deque()
+        resolving, prepared, waiting, ready = deque(), deque(), deque(), deque()
         active_downloads, active_processing = {}, {}
         capacity = int(self.config["download"]["queue_capacity_gb"] * 1024**3)
         queued_bytes = 0
@@ -256,23 +268,29 @@ class UrlBatch(Batch):
                 elif kind == "ready":
                     self.notify(entry, "waiting_queue", detail="下载完成，等待队列容量")
                     waiting.append((entry, future.steps, value))
-                elif kind == "retry":
-                    retries.append((entry, future.steps))
+                elif kind == "download":
+                    self.notify(entry, "waiting_download", detail="来源已就绪，等待下载名额")
+                    prepared.append((entry, future.steps))
+                elif kind in ("retry", "resolve"):
+                    self.notify(entry, "waiting_processing", detail="等待解析处理名额")
+                    resolving.append((entry, future.steps))
                 else:
                     raise RuntimeError("未知 URL 任务阶段")
             except Exception as error:
                 status = "interrupted" if isinstance(error, TaskCancelled) else "skipped" if isinstance(error, PendingDownload) else "failed"
                 summary[status] += 1
-                self.journal.update(entry, status=status, detail=f"{type(error).__name__}: {error}")
+                self.journal.update(entry, status=status, detail=safe_message(error))
 
-        def submit(executor, active: dict, entry: dict, steps) -> None:
-            """将 entry 的 steps 交给 executor，登记 future 到 active；无返回值。"""
+        def submit(executor, active: dict, entry: dict, steps, phase: str) -> None:
+            """将 entry 的 steps 交给 executor，按 phase 记录预解析占用并登记到 active；无返回值。"""
             future = executor.submit(self._advance, steps)
             future.steps = steps
+            future.phase = phase
             active[future] = entry
 
         try:
-            while active_downloads or active_processing or waiting or ready or retries or not exhausted:
+            while active_downloads or active_processing or waiting or ready or resolving or prepared or not exhausted:
+                check_cancel(self.cancel)
                 reason = self.dispatch_stop_reason()
                 if reason and not exhausted:
                     exhausted = True
@@ -284,23 +302,34 @@ class UrlBatch(Batch):
                     ready.append((entry, steps, size))
                     queued_bytes += size
                     self.notify(entry, "waiting_processing", detail="已下载，等待后处理")
-                while ready and len(active_processing) < self.config["max_in_flight"]:
-                    entry, steps, size = ready.popleft()
-                    queued_bytes -= size
-                    submit(processing, active_processing, entry, steps)
-                while len(active_downloads) + len(waiting) < self.config["download"]["threads"]:
-                    if retries:
-                        entry, steps = retries.popleft()
+                while len(active_processing) < self.config["max_in_flight"]:
+                    # 已下载项优先释放磁盘积压；续签和来源重试也只在共享处理池执行。
+                    if ready:
+                        entry, steps, size = ready.popleft()
+                        queued_bytes -= size
+                        phase = "processing"
+                    elif resolving:
+                        entry, steps = resolving.popleft()
+                        phase = "resolving"
                     elif not exhausted:
+                        # 预解析至多缓存一组下载名额；等待媒体入队时停止扩大现场。
+                        preparing = sum(future.phase == "initial" for future in active_processing)
+                        if waiting or len(prepared) + preparing >= self.config["download"]["threads"]:
+                            break
                         try:
                             task, entry = next(pending)
                         except StopIteration:
                             exhausted = True
                             break
                         steps = self._job_steps(task, entry)
+                        phase = "initial"
                     else:
                         break
-                    submit(downloads, active_downloads, entry, steps)
+                    submit(processing, active_processing, entry, steps, phase)
+                # 下载完成项不再占下载名额；媒体队列积压时暂停新下载以维持背压。
+                while prepared and not waiting and len(active_downloads) < self.config["download"]["threads"]:
+                    entry, steps = prepared.popleft()
+                    submit(downloads, active_downloads, entry, steps, "download")
                 futures = set(active_downloads) | set(active_processing)
                 if futures:
                     done, _ = wait(futures, timeout=self.interval, return_when=FIRST_COMPLETED)
@@ -309,7 +338,7 @@ class UrlBatch(Batch):
                         if entry is None:
                             entry = active_processing.pop(future)
                         finish(entry, future)
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, TaskCancelled) as interruption:
             self.cancel.set()
             downloads.shutdown(wait=True, cancel_futures=True)
             processing.shutdown(wait=True, cancel_futures=True)
@@ -317,22 +346,13 @@ class UrlBatch(Batch):
                 if not future.cancelled():
                     finish(entry, future)
                 else:
-                    try:
-                        next(future.steps)
-                    except Exception:
-                        pass
+                    future.steps.close()
                     summary["interrupted"] += 1
                     self.journal.update(entry, status="interrupted", detail="批次中断")
-            for entry, steps, _ in list(waiting) + list(ready):
+            suspended = [(entry, steps) for entry, steps, _ in list(waiting) + list(ready)]
+            for entry, steps in suspended + list(resolving) + list(prepared):
                 try:
-                    next(steps)
-                except Exception:
-                    pass
-                summary["interrupted"] += 1
-                self.journal.update(entry, status="interrupted", detail="批次中断")
-            for entry, steps in retries:
-                try:
-                    next(steps)
+                    steps.close()
                 except Exception:
                     pass
                 summary["interrupted"] += 1
@@ -340,17 +360,17 @@ class UrlBatch(Batch):
             for task, entry in pending:
                 summary["interrupted"] += 1
                 self.journal.update(entry, status="interrupted", detail="中断前未派发")
-            raise
+            if isinstance(interruption, KeyboardInterrupt):
+                raise
         finally:
             self.cancel.set()
             downloads.shutdown(wait=True, cancel_futures=True)
             processing.shutdown(wait=True, cancel_futures=True)
         return summary
 
-
 def run_url_batch(config: dict) -> dict:
-    """按 config 执行当前清单；获取输出/断点锁并导出公共报告，返回完成/复用/失败等状态计数。"""
-    with output_lock(config["output_path"]), output_lock(config["work_dir"] / "url"):
+    """按 config 执行当前清单；以 logging.lock_file 获取本平台输出/断点锁，返回批次状态计数及保存报告。"""
+    with output_lock(config["output_path"], config["logging"]["lock_file"]), output_lock(config["work_dir"] / "url", config["logging"]["lock_file"]):
         journal = Journal(config)
         print(f"实时日志：{journal.url}", flush=True)
         summary = {"total": 0, "completed": 0, "reused": 0, "failed": 0, "interrupted": 0, "skipped": 0}

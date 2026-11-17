@@ -16,7 +16,7 @@ from .activity import Activity
 from .client import NativeClient, check_cancel, normalize_url, safe_message
 from .configuration import read_config
 from .errors import AuthenticationError, Cancelled, SourceChanged, ToolError
-from .hls import download, playlists
+from .hls import download_steps, playlists
 from .media import gpu_probe, mux, verify
 from .scheduler import run_pipeline
 from .series import date_prefix
@@ -88,11 +88,11 @@ class Pipeline:
             except Empty:
                 continue
 
-    def download_episode(self, episode: Episode) -> DownloadedEpisode | str:
-        """下载 episode 并按配置重试源变化；返回现场载荷或复用/认证失效/失败终态，其他异常交调度器结算。"""
+    def episode_steps(self, episode: Episode):
+        """为 episode 解析、下载和后处理；让出阶段切换，返回终态，来源变化按配置重试并保留旧现场。"""
         for attempt in range(self.config["download"]["refresh_attempts"] + 1):
             try:
-                return self.transfer(episode)
+                return (yield from self.transfer(episode))
             except AuthenticationError:
                 self.auth_stop.set()
                 raise
@@ -100,10 +100,11 @@ class Pipeline:
                 self.stage(episode, "源版本变化", message=safe_message(error))
                 if attempt == self.config["download"]["refresh_attempts"]:
                     return self.failure(episode, ToolError("源持续变化，已保留全部版本现场"))
+                yield "resolve", None
         raise AssertionError("不可达的源刷新状态")
 
-    def transfer(self, episode: Episode) -> DownloadedEpisode | str:
-        """解析并顺序下载单集 episode；返回完整现场或复用/认证失效终态，不占用后处理资源。"""
+    def transfer(self, episode: Episode):
+        """分阶段解析、下载及处理 episode；让出下载、续签及待处理载荷，返回复用/认证失效/成功终态。"""
         check_cancel(self.cancel)
         started = time.monotonic()
         if self.auth_stop.is_set():
@@ -126,18 +127,31 @@ class Pipeline:
         directory = self.config["work_dir"] / episode.clip_id / episode.video_id / identity
         directory.mkdir(parents=True, exist_ok=True)
         atomic_json(directory / "source.json", {"episode": asdict(episode), "source": source, "identity": identity}, self.config["logging"])
-        self.stage(episode, "下载", message=f"{source['standardName']} · {source['videoFormat']} · {source['videoWidth']}×{source['videoHeight']}")
-        before = time.monotonic()
-
-        def refresh():
-            """使用相同具体源续签；无参数；返回新内存清单，源变化由下层明确拒绝。"""
-            renewed = resolved(self.client, episode, stream)
-            return playlists(self.client.transport, renewed["disp"]["info"])
-
-        manifests, evidence = download(self.client.transport, media, directory, self.config, refresh,
-                                       lambda done, total: self.stage(episode, "下载", f"{done}/{total}"), self.cancel)
-        return DownloadedEpisode(episode, source, identity, directory, manifests, evidence, started,
+        segments = download_steps(self.client.transport, media, directory, self.config,
+            lambda done, total: self.stage(episode, "下载", f"{done}/{total}"), self.cancel)
+        before, refreshed = time.monotonic(), None
+        try:
+            while True:
+                yield "download", None
+                check_cancel(self.cancel)
+                self.stage(episode, "下载", message=f"{source['standardName']} · {source['videoFormat']} · {source['videoWidth']}×{source['videoHeight']}")
+                try:
+                    segments.send(refreshed)
+                except StopIteration as done:
+                    manifests, evidence = done.value
+                    break
+                yield "resolve", None
+                check_cancel(self.cancel)
+                self.stage(episode, "续签来源")
+                renewed = resolved(self.client, episode, stream)
+                refreshed = playlists(self.client.transport, renewed["disp"]["info"])
+        finally:
+            segments.close()
+        task = DownloadedEpisode(episode, source, identity, directory, manifests, evidence, started,
                                  {"download_seconds": round(time.monotonic() - before, 3)})
+        yield "ready", task
+        check_cancel(self.cancel)
+        return self.process_episode(task)
 
     def process_episode(self, task: DownloadedEpisode) -> str:
         """对 task 的完整现场封装、验证、发布并按配置清理；返回成功，异常交调度器记录且保留现场。"""
@@ -284,7 +298,7 @@ def run(args) -> int:
                 counts[status] = counts.get(status, 0) + 1
                 failed |= status in ("失败", "认证失效")
 
-            run_pipeline(incoming(), config, pipeline.download_episode, pipeline.process_episode, complete, cancel, auth_stop,
+            run_pipeline(incoming(), config, pipeline.episode_steps, complete, cancel, auth_stop,
                          downloaded_size=lambda task: task.evidence["bytes"], waiting=pipeline.stage)
             if auth_stop.is_set():
                 failed = True

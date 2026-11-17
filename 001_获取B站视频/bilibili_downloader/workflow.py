@@ -1,4 +1,4 @@
-"""在主线程准备投稿与选流，独立调度原始流下载及封装、字幕和拼接收尾。"""
+"""主线程确认投稿方案，独立下载池传输，解析及封装、字幕和拼接收尾共用处理池。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from .config import Settings
 from .errors import DownloadCancelled, ToolError, check_cancel
 from .models import Quality, SubtitleTrack, VideoTarget
 from .manifest import DownloadRequest
-from .scheduler import PostTask, run_pipeline
+from .scheduler import PostTask, Ready, run_pipeline
 from .activity_log import Activity, HtmlLog
 from . import runtime
 from . import variants
@@ -112,13 +112,14 @@ class PartJob:
 
 @dataclass(frozen=True)
 class PartPayload:
-    """工作线程输入：job/info/tracks 为待下载数据，snapshot 为认证快照，errors 为字幕查询错误。"""
+    """工作线程输入：job/info/tracks 为待下载数据，snapshot 为认证快照，errors 为字幕查询错误，video 为处理池准备并检查复用的现场。"""
 
     job: PartJob
     info: dict[str, Any]
     tracks: list[SubtitleTrack]
     snapshot: auth.AuthSnapshot
     errors: list[str]
+    video: transfer.DownloadedVideo
 
 
 @dataclass(frozen=True)
@@ -448,7 +449,7 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
                          *, journal: HtmlLog | None = None) -> list[str]:
     """用 context 主线程查询 submissions 并按关联季共用一次确认，按 settings 下载并以 executable 封装，返回失败摘要。
 
-    journal 为可选 HTML 日志；投稿全部分 P 处理结束后，立即进入独立的串行合并队列。
+    journal 为可选 HTML 日志；投稿全部分 P 处理结束后进入共享处理池收尾；同一投稿的各拼接组顺序执行。
     """
     prepared, failures = [], []
     catalogs: dict[int, SubmissionCatalog] = {}
@@ -580,70 +581,74 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
         remaining[id(job.submission)].discard(id(job))
         finish_ready(job.submission)
 
-    def prepare(job: PartJob) -> PartPayload | None:
-        """在主线程按逐集排名或原上限刷新 job 的流和字幕、复制登录态；返回可执行负载，重复或失败任务返回 None。"""
+    def prepare(job: PartJob) -> PartPayload:
+        """在共享处理池用独立 HTTP 会话刷新 job 的流和字幕、核对复用；返回准备好的载荷，异常由主线程结算。"""
         submission = job.submission
         check_cancel(cancel_event)
-        try:
-            auth.ensure_login(context, settings)
-            with transfer.make_downloader(context, settings) as downloader:
-                raw = extract_target(downloader, job.target, context, settings)
-                if job.choice:
-                    # 只刷新所规划流的地址，不能让后来出现的其他帧率替换仍可用的原版本。
-                    raw['formats'] = [fmt for fmt in raw['formats'] if any(
-                        all(fmt.get(key) == selected.get(key) for key in ('vcodec', 'acodec', 'width', 'height', 'fps'))
-                        for selected in job.choice.formats)]
-                    info = qualities.select_quality(downloader, raw, job.quality,
-                                                    variants.compatibility(list(job.choice.formats)))
-                    if variants.variant_id(media.chosen_formats(info)) != job.choice.variant:
-                        raise ToolError('指定格式版本的帧率或编码已变化，请重新运行以规划拼接')
-                    info['download_variant'] = job.choice.variant
-                else:
-                    options = qualities.available_qualities(downloader, raw)
-                    choice = (ranked_quality(options, submission.selected_rank) if submission.request.quality_group
-                              else qualities.below_ceiling(options, submission.ceiling))
-                    if choice.code != job.quality.code:
-                        mark_failure(settings, job, '平台档位变化，已按各集排名重新选档' if submission.request.quality_group
-                                     else '平台档位变化，已在原上限内选择实际可用档位')
-                    job.quality = choice
-                    submission.assignments[job.target.part] = choice
-                    info = qualities.select_quality(downloader, raw, job.quality)
-                job.actual_variant = variants.variant_id(media.chosen_formats(info))
-                refreshed_formats = [{key: fmt.get(key) for key in ('format_id', 'vcodec', 'acodec', 'width', 'height', 'fps')}
-                                     for fmt in media.chosen_formats(info)]
-                if (job.size_info.get('download_key') != list(job_key(job))
-                        or (job.known_size_formats is not None and job.known_size_formats != refreshed_formats)):
-                    job.size_info['actual_size_bytes'] = None
-                job.size_info.update(media.expected_size(media.chosen_formats(info)), download_key=list(job_key(job)))
-                if job.activity:
-                    job.activity.update(**job.size_info)
-                identity = job_key(job)
-                if identity in completed:
-                    accept(job, completed[identity])
-                    return None
-                if identity in active:
-                    active[identity].append(job)
-                    return None
-                errors, subtitle_error = [], None
-                try:
-                    tracks = subtitles.list_subtitles(context, job.target, info, settings)
-                except Exception as exc:
-                    tracks, subtitle_error = [], str(exc)
-                    errors.append(f'{job.target.url} 字幕列表：{exc}')
-                print(f'[{submission.source_id} P{job.target.part}] 已选 {job.quality.name} · '
-                      + media.file_size_fields(job.size_info)['file_size_text'], flush=True)
-                if job.activity and not job.choice:
-                    job.activity.update(quality=job.quality.name)
-                snapshot = auth.snapshot_session(context)
-                with library.video_transaction(settings, submission.source_id) as record:
-                    record.entry(f'{submission.source_id}_p{job.target.part}', part=job.target.part, quality=job.quality,
-                                 variant=job.choice.variant if job.choice else '')
-                    record.save()
-                active[identity] = [job]
-                return PartPayload(job, info, tracks, snapshot, errors)
-        except Exception as exc:
-            accept(job, exc)
+        with auth.worker_session(auth_snapshot, settings) as session, transfer.make_downloader(session, settings) as downloader:
+            auth.ensure_login(session, settings)
+            raw = extract_target(downloader, job.target, session, settings)
+            if job.choice:
+                # 只刷新所规划流的地址，不能让后来出现的其他帧率替换仍可用的原版本。
+                raw['formats'] = [fmt for fmt in raw['formats'] if any(
+                    all(fmt.get(key) == selected.get(key) for key in ('vcodec', 'acodec', 'width', 'height', 'fps'))
+                    for selected in job.choice.formats)]
+                info = qualities.select_quality(downloader, raw, job.quality,
+                                                variants.compatibility(list(job.choice.formats)))
+                if variants.variant_id(media.chosen_formats(info)) != job.choice.variant:
+                    raise ToolError('指定格式版本的帧率或编码已变化，请重新运行以规划拼接')
+                info['download_variant'] = job.choice.variant
+            else:
+                options = qualities.available_qualities(downloader, raw)
+                choice = (ranked_quality(options, submission.selected_rank) if submission.request.quality_group
+                          else qualities.below_ceiling(options, submission.ceiling))
+                if choice.code != job.quality.code:
+                    mark_failure(settings, job, '平台档位变化，已按各集排名重新选档' if submission.request.quality_group
+                                 else '平台档位变化，已在原上限内选择实际可用档位')
+                job.quality = choice
+                submission.assignments[job.target.part] = choice
+                info = qualities.select_quality(downloader, raw, job.quality)
+            job.actual_variant = variants.variant_id(media.chosen_formats(info))
+            refreshed_formats = [{key: fmt.get(key) for key in ('format_id', 'vcodec', 'acodec', 'width', 'height', 'fps')}
+                                 for fmt in media.chosen_formats(info)]
+            if (job.size_info.get('download_key') != list(job_key(job))
+                    or (job.known_size_formats is not None and job.known_size_formats != refreshed_formats)):
+                job.size_info['actual_size_bytes'] = None
+            job.size_info.update(media.expected_size(media.chosen_formats(info)), download_key=list(job_key(job)))
+            if job.activity:
+                job.activity.update(**job.size_info)
+            errors, subtitle_error = [], None
+            try:
+                tracks = subtitles.list_subtitles(session, job.target, info, settings)
+            except Exception as exc:
+                tracks, subtitle_error = [], str(exc)
+                errors.append(f'{job.target.url} 字幕列表：{exc}')
+            print(f'[{submission.source_id} P{job.target.part}] 已选 {job.quality.name} · '
+                  + media.file_size_fields(job.size_info)['file_size_text'], flush=True)
+            if job.activity and not job.choice:
+                job.activity.update(quality=job.quality.name)
+            snapshot = auth.snapshot_session(session)
+            with library.video_transaction(settings, submission.source_id) as record:
+                record.entry(f'{submission.source_id}_p{job.target.part}', part=job.target.part, quality=job.quality,
+                             variant=job.choice.variant if job.choice else '')
+                record.save()
+            video = transfer.prepare_video(info, settings, submission.metadata['title'], job.target.total_parts,
+                                           source_cid=job.target.cid, prepared=True, cancel_event=cancel_event,
+                                           activity=job.activity)
+            return PartPayload(job, info, tracks, snapshot, errors, video)
+
+
+    def prepared_part(job: PartJob, payload: PartPayload) -> PartPayload | Ready | None:
+        """在主线程按 job 身份接纳 payload；重复任务复用结算，既有成品返回 Ready 跳过下载。"""
+        identity = job_key(job)
+        if identity in completed:
+            accept(job, completed[identity])
             return None
+        if identity in active:
+            active[identity].append(job)
+            return None
+        active[identity] = [job]
+        return Ready(PartTransfer(payload, payload.video)) if payload.video.existing is not None else payload
 
     def execute_part(payload: PartPayload, event: Event) -> PartTransfer:
         """在下载池按 event 传输 payload；使用独立会话及下载器，返回不持有会话的阶段结果。"""
@@ -674,9 +679,7 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
             if settings.threads > 1:
                 downloader.params['noprogress'] = True
             options = {'activity': activity} if activity else {}
-            video = transfer.download_video(downloader, payload.info, settings,
-                                            job.submission.metadata['title'], job.target.total_parts,
-                                            source_cid=job.target.cid, prepared=True, cancel_event=event,
+            video = transfer.transfer_video(downloader, payload.video, settings, cancel_event=event,
                                             size_tracker=sizes, **options)
             job.size_info.update(sizes.expected())
         return PartTransfer(payload, video)
@@ -702,7 +705,7 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
         """为 job 标记 status 等待阶段；用于区分队列容量和后处理排队，无返回值。"""
         if job.activity:
             job.activity.update(status, progress=None,
-                                detail='下载完成，等待队列容量' if status == 'waiting_queue' else '已下载，等待后处理')
+                                detail={'waiting_queue': '下载完成，等待队列容量', 'waiting_download': '来源已就绪，等待下载名额'}.get(status, '已下载，等待处理'))
 
     def downloaded_size(transferred: PartTransfer) -> int:
         """返回 transferred 的完整原始流大小，供队列计费；成品复用为零字节。"""
@@ -714,16 +717,22 @@ def download_submissions(context: Any, settings: Settings, executable: str, subm
         if outcome is None:
             raise ToolError('下载任务缺少结果')
         identity = job_key(job)
-        completed[identity] = outcome
-        for owner in active.pop(identity):
+        owners = active.get(identity, [])
+        if any(owner is job for owner in owners):
+            completed[identity] = outcome
+            owners = active.pop(identity)
+        else:
+            owners = [job]
+        for owner in owners:
             accept(owner, outcome)
 
     try:
+        auth_snapshot = auth.snapshot_session(context)
         for submission in prepared:
             finish_ready(submission)
         pending = [job for submission in prepared for job in submission.jobs]
         run_pipeline(pending, settings, prepare, execute_part, process_part, complete, cancel_event,
-                     downloaded_size=downloaded_size, waiting=waiting, finishers=finishing)
+                     downloaded_size=downloaded_size, waiting=waiting, finishers=finishing, prepared=prepared_part)
     except BaseException:
         cancel_event.set()
         if controller:

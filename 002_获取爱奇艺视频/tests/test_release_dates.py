@@ -17,7 +17,8 @@ from qsv_local.playback.configuration import read_profile
 from qsv_local.playback.download import manifest_identity
 from qsv_local.playback.naming import validate_date_prefix
 from qsv_local.playback.outputs import reusable_output, target_path
-from qsv_local.storage import atomic_json, fingerprint
+from qsv_local.playback.records import PlaybackDirectoryIndex
+from qsv_local.storage import fingerprint
 
 
 class ReleaseDateTests(unittest.TestCase):
@@ -126,8 +127,10 @@ class ReleaseDateTests(unittest.TestCase):
             proof = {"record_type": "playback_download", "schema_version": 1, "status": "completed", "source_identity": identity,
                      "media_verified": True, "verification": {"decode_exit_code": 0, "frames": 1}, "output": str(old),
                      "output_fingerprint": fingerprint(old, config["copy_buffer_bytes"]), "video": {key: value for key, value in self.video.items() if key != "release_date"}}
-            record = old.with_suffix(".playback.json")
-            atomic_json(record, proof)
+            index = PlaybackDirectoryIndex(old.parent, Path(config["output_path"]).resolve())
+            index.add(old.name, proof)
+            index.save()
+            record = index.path
             before = (old.stat().st_mtime_ns, record.read_bytes())
             media = {"width": 16, "height": 16, "duration_seconds": 20, "errors": []}
             with patch("qsv_local.playback.outputs.probe_media", return_value=media), patch("qsv_local.playback.outputs.require_same_metadata"):

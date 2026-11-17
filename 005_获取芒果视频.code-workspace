@@ -93,7 +93,7 @@
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 必填：专项配置，读取目标链接、本机登录态位置与原生请求参数。
-                    "--config", "${workspaceFolder:005_获取芒果视频}/configs/playback_research.yaml",
+                    "--config", "${workspaceFolder:005_获取芒果视频}/research/configs/playback_research.yaml",
                     // 必填：只探测播放接口并输出脱敏画质摘要，不操作客户端界面。
                     "--phase", "api"
                 ]
@@ -109,7 +109,7 @@
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 必填：专项配置，定义客户端文件位置和静态检查范围。
-                    "--config", "${workspaceFolder:005_获取芒果视频}/configs/playback_research.yaml",
+                    "--config", "${workspaceFolder:005_获取芒果视频}/research/configs/playback_research.yaml",
                     // 必填：只读检查文件结构，不加载或执行客户端 DLL。
                     "--phase", "inspect"
                 ]
@@ -125,7 +125,7 @@
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 必填：按专项配置验证全部链接、完整清单及抽样分片解码。
-                    "--config", "${workspaceFolder:005_获取芒果视频}/configs/playback_research.yaml"
+                    "--config", "${workspaceFolder:005_获取芒果视频}/research/configs/playback_research.yaml"
                 ]
             }
         ]

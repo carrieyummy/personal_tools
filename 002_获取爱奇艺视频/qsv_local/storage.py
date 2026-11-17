@@ -15,11 +15,21 @@ from threading import Event
 from .runtime import check_cancel
 
 
+def validate_lock_file(value: str) -> None:
+    """校验锁文件名 value 为无空白的单层 .lock 名称；非法时抛出 ValueError，无返回值。"""
+    if (not isinstance(value, str) or not value.endswith(".lock") or value == ".lock"
+            or re.search(r'[\s<>:"/\\|?*\x00-\x1f]', value)
+            or re.fullmatch(r"(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", value)):
+        raise ValueError("logging.lock_file 必须是无空白的单层 .lock 文件名")
+
+
 @contextmanager
-def output_lock(root: Path):
-    """独占输出根目录 root 的写入权；操作系统自动释放崩溃进程的锁，成功时提供空上下文。"""
+def output_lock(root: Path, lock_file: str):
+    """在目录 root 持有 lock_file 指定的非阻塞平台锁；名称由调用方提供，冲突抛错，退出或崩溃释放；产生 None。"""
+    validate_lock_file(lock_file)
+    root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    path = root / ".conversion.lock"
+    path = root / lock_file
     if not path.resolve().is_relative_to(root):
         raise ValueError("输出锁链接超出输出根目录")
     with path.open("a+b") as stream:
@@ -35,7 +45,7 @@ def output_lock(root: Path):
                 import fcntl
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as error:
-            raise RuntimeError(f"无法独占输出目录，可能已有另一个批次运行：{root}") from error
+            raise RuntimeError(f"无法获取本平台目录锁，可能已有本平台批次运行：{path}") from error
         try:
             yield
         finally:

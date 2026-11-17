@@ -1,0 +1,131 @@
+"""解析优酷链接清单和官方节目目录，保序展开正片并维护重复任务的全部归属。"""
+
+from datetime import date
+import json
+import re
+from urllib.parse import parse_qs, urlsplit
+
+from .configuration import read_yaml
+from .youku.client import PlaybackError
+
+
+def video_id(url: str) -> str:
+    """解析官方播放 url；支持 /video?vid= 和 /v_show/id_*.html，返回唯一合法视频 ID。"""
+    parsed = urlsplit(url.strip())
+    if parsed.scheme not in ("http", "https") or parsed.hostname not in ("v.youku.com", "m.youku.com"):
+        raise PlaybackError("清单需要优酷官方播放链接")
+    values = parse_qs(parsed.query).get("vid", [])
+    match = re.fullmatch(r"/v_show/id_([A-Za-z0-9=]+)\.html/?", parsed.path)
+    value = values[0] if len(values) == 1 and parsed.path.rstrip("/") == "/video" else match[1] if match else ""
+    if not re.fullmatch(r"[A-Za-z0-9]+={0,2}", value):
+        raise PlaybackError("播放链接缺少唯一合法 vid")
+    return value
+
+
+def requests(config: dict) -> list[dict]:
+    """读取 config 指定清单，按任务/全局/主配置继承设置；返回保序请求列表。"""
+    root = read_yaml(config["default_list"])
+    if not isinstance(root.get("download_list"), list) or not root["download_list"]:
+        raise PlaybackError("download_list 必须为非空列表")
+    result = []
+    for number, item in enumerate(root["download_list"]):
+        if not isinstance(item, dict) or not isinstance(item.get("url"), str):
+            raise PlaybackError("每个清单项必须包含 url")
+        quality = item.get("quality", root.get("quality", config["download"]["quality"]))
+        whole = item.get("all-parts", root.get("all-parts", config["download"]["all_parts"]))
+        if type(quality) is not int or quality <= 0 or type(whole) is not bool:
+            raise PlaybackError("清单 quality/all-parts 类型或取值无效")
+        vid = video_id(item["url"])
+        result.append({"video_id":vid, "quality":quality, "all_parts":whole,
+                       "note":str(item.get("title", "")), "url":"https://v.youku.com/video?vid="+vid, "list_index":number})
+    return result
+
+
+def release_date(client, vid: str, show_id: str, title: str) -> str:
+    """请求 vid/show_id 的官方详情并核对 title；返回整剧真实首播 ISO 日期，缺失或矛盾时报错。"""
+    options = client.profile["detail"]
+    params = dict(options["params"], videoId=vid, showId=show_id, utdid=client.context["utid"])
+    system = dict(options["system_info"], utdid=client.context["utid"])
+    response = client.request(options, {"ms_codes":options["ms_codes"], "params":json.dumps(params), "system_info":json.dumps(system)})
+    matches = []
+
+    def visit(value) -> None:
+        """遍历内存响应 value，只收集同时包含真实剧名和首播时间的对象；无返回值。"""
+        if isinstance(value, dict):
+            if "showReleaseTime" in value and value.get("showName") == title:
+                matches.append(str(value["showReleaseTime"]).split(" ", 1)[0])
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+    visit(response)
+    if len(set(matches)) != 1:
+        raise PlaybackError("官方详情缺少唯一匹配的整剧首播时间")
+    result = matches[0]
+    date.fromisoformat(result)
+    return result
+
+
+def discover(client, items: list[dict]) -> tuple[list[dict], list[dict]]:
+    """展开客户端 client 的 items 请求；返回去重任务和失败项，局部失败不丢其他清单项。"""
+    tasks, failures, seen = [], [], {}
+    shows = {}
+    for request in items:
+        try:
+            body, _ = client.ups(request["video_id"])
+            show = body.get("show", {})
+            sid, title = show.get("encodeid"), show.get("title")
+            if not isinstance(sid,str) or re.fullmatch(r"[A-Za-z0-9]+",sid) is None or not title:
+                raise PlaybackError("无法确认官方节目编号及标题")
+            if sid not in shows:
+                premiered = release_date(client, request["video_id"], sid, title)
+                episodes, ids, pages = [], set(), None
+                for page in range(1, client.profile["catalog"]["max_pages"] + 1):
+                    model = client.catalog(request["video_id"], sid, page)
+                    info = model.get("showInfoDTO", {})
+                    if info.get("showId") != sid or info.get("showName") != title or model.get("curPage") != page:
+                        raise PlaybackError("选集响应节目或页码不匹配")
+                    if pages is None:
+                        pages = int(model["totalPages"])
+                        total = int(model["total"])
+                    if pages != int(model["totalPages"]) or total != int(model["total"]):
+                        raise PlaybackError("选集分页期间目录变化")
+                    values = model.get("videoItemList", [])
+                    if not values or any(x.get("vid") in ids for x in values):
+                        raise PlaybackError("选集返回空页或重复视频")
+                    ids.update(x["vid"] for x in values)
+                    episodes.extend(values)
+                    if page == pages:
+                        break
+                else:
+                    raise PlaybackError("选集页数超过配置上限")
+                if len(ids) != total:
+                    raise PlaybackError("选集数量与官方总量不一致")
+                shows[sid] = (premiered, episodes)
+            premiered, episodes = shows[sid]
+            selected = [x for x in episodes if x.get("videoType") == "正片" and
+                        (request["all_parts"] or x["vid"] == request["video_id"])]
+            if not selected:
+                raise PlaybackError("清单链接未匹配已上线正片")
+            for item in sorted(selected, key=lambda x:int(x["stage"])):
+                stage = int(item["stage"])
+                if stage <= 0:
+                    raise PlaybackError("正片集序无效")
+                group = {"id":str(request["list_index"]), "url":request["url"], "title":request["note"] or title}
+                identity = (item["vid"], request["quality"])
+                if identity in seen:
+                    seen[identity]["groups"].append(group)
+                    continue
+                task = {"video_id":item["vid"], "series_id":sid, "series":title, "title":item["title"],
+                        "index":stage, "release_date":premiered, "duration":float(item["seconds"]),
+                        "quality":request["quality"], "groups":[group]}
+                if task["duration"] <= 0:
+                    raise PlaybackError("官方正片目录缺少有效时长")
+                tasks.append(task)
+                seen[identity] = task
+        except Exception as error:
+            from .errors import safe_message
+            failures.append({"video_id":request["video_id"], "title":request["note"], "series":request["note"],
+                             "detail":safe_message(error), "groups":[{"id":str(request["list_index"]),"url":request["url"],"title":request["note"]}]})
+    return tasks, failures

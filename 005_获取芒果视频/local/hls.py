@@ -175,6 +175,22 @@ def download(transport: Transport, initial: list[Playlist], directory: Path, con
 
     返回本地清单和证据；bytes 为所有原始分片实际字节数，包含已校验断点和初始化片段，不含清单及元数据。
     """
+    steps = download_steps(transport, initial, directory, config, progress, cancel)
+    current = None
+    try:
+        while True:
+            try:
+                steps.send(current)
+            except StopIteration as done:
+                return done.value
+            current = refresh()
+    finally:
+        steps.close()
+
+
+def download_steps(transport: Transport, initial: list[Playlist], directory: Path, config: dict[str, Any],
+                   progress: Callable[[int, int], None], cancel: Event):
+    """用 transport/config 下载 initial 至 directory；progress 报进度，cancel 可取消；让出续签请求，send 接收同源清单，返回路径及证据。"""
     expected = [playlist.identity for playlist in initial]
     state_path = directory / "segments.json"
     state = read_json(state_path, {"playlists": expected, "completed": {}})
@@ -226,7 +242,8 @@ def download(transport: Transport, initial: list[Playlist], directory: Path, con
                     if refreshed >= config["download"]["refresh_attempts"]:
                         raise
                     refreshed += 1
-                    current = refresh()
+                    current = yield "refresh"
+                    check_cancel(cancel)
                     if [item.identity for item in current] != expected:
                         raise SourceChanged("续签后的媒体清单发生变化，旧现场已保留") from None
                 except (ToolError, OSError, IncompleteRead) as error:

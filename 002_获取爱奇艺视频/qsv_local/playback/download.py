@@ -55,7 +55,7 @@ def manifest_identity(profile: dict, video: dict, source: dict, segments: list[d
 
 def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: Path, headers: dict,
                    selection: dict | None, controls: StageControls, notify=None):
-    """按 profile 下载 video/source/body 到 work；headers/selection 为请求头及选档证明，controls 限制阶段，notify 上报单集；让出字节数后返回发布报告。"""
+    """按 profile 处理 video/source/body 到 work；headers/selection 为请求及选档，controls 限制资源，notify 报进度；让出下载和待处理阶段，返回发布报告。"""
     settings = profile["playback"]["media_download"]
     config = media_config(profile)
     stopped = controls.cancel
@@ -100,7 +100,7 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
         if notify:
             notify({"stage": "downloading", "progress": 100.0, "current_bytes": sum(sizes), "total_bytes": sum(sizes), "detail": "已验证候选完整，复用本地媒体", "work_dir": str(work)})
             notify({"stage": "waiting_processing", "detail": "候选摘要与全片验证证明匹配，等待发布"})
-        yield validated["validated_fingerprint"]["size_bytes"]
+        yield "ready", validated["validated_fingerprint"]["size_bytes"]
         return publish_validated(profile, config, video, source, work, validated, controls, notify)
     cached = read_json(cache_path) if cache_path.exists() else {"source_identity": identity["sha256"], "segments": {}}
     if cached.get("source_identity") != identity["sha256"] or not isinstance(cached.get("segments"), dict):
@@ -189,6 +189,8 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
 
     pool, pending = None, {}
     try:
+        yield "download", 0
+        check_cancel(stopped)
         transfer_progress(-1, 0)
         advance("下载", "开始下载所选音视频媒体", True)
         pool = ThreadPoolExecutor(max_workers=settings["workers"])
@@ -215,7 +217,7 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
         report["segments"] = [{"index": index, **records[index]} for index in range(len(urls))]
         report["status"] = "waiting_processing"
         advance("等待处理", "分段下载完成，等待后处理", True)
-        yield sum(record["size_bytes"] for record in records.values())
+        yield "ready", sum(record["size_bytes"] for record in records.values())
         check_cancel(stopped)
         paths = [work / f"segment_{index:05d}.ts" for index in range(len(urls))]
         for index, path in enumerate(paths):
@@ -329,9 +331,11 @@ def download_full(profile: dict, video: dict, source: dict, body: bytes, work: P
                   selection: dict | None = None) -> dict:
     """按 profile 完整处理 video/source/body；work 保存现场，headers 为请求头，selection 为选档证明；返回发布报告。"""
     steps = download_steps(profile, video, source, body, work, headers, selection, StageControls(media_config(profile)))
-    next(steps)
     try:
-        next(steps)
-    except StopIteration as result:
-        return result.value
-    raise RuntimeError("完整下载出现未知阶段")
+        while True:
+            try:
+                next(steps)
+            except StopIteration as result:
+                return result.value
+    finally:
+        steps.close()

@@ -38,7 +38,7 @@ class Settings:
     all_seasons: bool  # 番剧展开原站关联季，每季下载全部正片；普通投稿不受影响。
     threads: int  # 原始流下载并发上限，不包含封装、字幕和拼接。
     queue_capacity_gb: float  # 已下载且等待后处理的流容量，按 1024³ 字节换算。
-    max_in_flight: int  # 封装、字幕及投稿拼接收尾共用的并发上限。
+    max_in_flight: int  # 解析、选档、复用检查、封装、字幕及投稿拼接收尾共用的并发上限。
     mix_quality: bool
     priority: str
     subtitle_languages: list[str]

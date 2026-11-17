@@ -20,6 +20,7 @@ from .manifests import selected_media_plan
 from .outputs import reusable_output
 from .source import select_av_source
 from .scheduler import schedule
+from .records import consolidate_output
 
 
 def build_plan(profile: dict, indexes: list[int] | None, episode_orders: list[int] | None = None) -> tuple[list[dict], list[dict]]:
@@ -52,7 +53,7 @@ def build_plan(profile: dict, indexes: list[int] | None, episode_orders: list[in
 
 
 def job_steps(profile: dict, config: dict, work_root: Path, job: dict, controls: StageControls, progress=None):
-    """解析 job 并获取资源；profile/config 控制媒体，work_root 保存断点，controls 限制并发，progress 接收单集事件；让出字节数并返回结果。"""
+    """解析 job 并获取资源；profile/config 控制媒体，work_root 保存断点，controls 限制并发，progress 接收事件；让出下载/处理阶段并返回结果。"""
     video = job["video"]
     if progress:
         progress({"stage": "waiting_source", "detail": "等待原生播放资源接口"})
@@ -83,7 +84,7 @@ def job_steps(profile: dict, config: dict, work_root: Path, job: dict, controls:
 
 def run_downloads(path: Path, indexes: list[int] | None = None, plan_only: bool = False,
                   episode_orders: list[int] | None = None) -> tuple[dict, Path]:
-    """按 path 处理 indexes 链接，episode_orders 可过滤展开后的集序；plan_only 只查询公开目录；返回安全批次报告及路径。"""
+    """按 path 处理 indexes 链接，episode_orders 可过滤集序；正式下载先合并旧逐集索引，plan_only 只查询公开目录；返回批次报告及路径。"""
     profile = read_profile(path)
     main = yaml.safe_load(profile["main_config"].read_text(encoding="utf-8-sig"))
     work_root = resolve_path(main["work_dir"], profile["main_config"].parent) / "playback_downloads"
@@ -110,7 +111,8 @@ def run_downloads(path: Path, indexes: list[int] | None = None, plan_only: bool 
         controls = StageControls(config)
         log_config = {**config, "output_path": resolve_path(main["output_path"], profile["main_config"].parent),
                       "work_dir": resolve_path(main["work_dir"], profile["main_config"].parent)}
-        with output_lock(work_root), Journal(log_config, mode="playback") as journal:
+        with output_lock(work_root, config["logging"]["lock_file"]), Journal(log_config, mode="playback") as journal:
+            report["consolidated_records"] = consolidate_output(log_config["output_path"], config)
             print(f"实时下载与解析进度：{journal.url}", flush=True)
             if config["logging"]["open_browser"]:
                 try:
@@ -151,7 +153,7 @@ def run_downloads(path: Path, indexes: list[int] | None = None, plan_only: bool 
                     journal.update(entry, status="interrupted", detail="已停止，可靠断点保留")
                 else:
                     item["status"] = status
-                    journal.update(entry, status, detail="等待解析阶段资源")
+                    journal.update(entry, status, detail={"waiting_download": "来源已就绪，等待下载名额", "waiting_queue": "下载完成，等待队列容量", "waiting_processing": "已下载，等待处理"}.get(status, "等待处理阶段资源"))
                 checkpoint(output, report)
 
             def notify_for(entry):

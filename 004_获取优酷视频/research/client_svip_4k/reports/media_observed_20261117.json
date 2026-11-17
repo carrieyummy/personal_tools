@@ -1,0 +1,227 @@
+{
+  "observed_at_utc": "2026-11-17T07:43:39.478032+00:00",
+  "media": {
+    "observed_at_utc": "2026-11-17T07:39:56.702422+00:00",
+    "sample": {
+      "title": "难哄",
+      "url": "https://v.youku.com/video?vid=XNjQ1NDI4ODY2MA=="
+    },
+    "stream": {
+      "stream_type": "hls5hd4_hbr_bit10",
+      "width": 3840,
+      "height": 2160,
+      "size": 925390708,
+      "milliseconds_video": 2747000,
+      "milliseconds_audio": 2747000,
+      "drm_type": "copyrightDRM",
+      "media_type": "standard",
+      "audio_lang": "default",
+      "subtitle_lang": "default"
+    },
+    "work_subdir": "873e97cb6c885f56c9c9",
+    "manifest": {
+      "tags": {
+        "#EXTM3U": 1,
+        "#EXT-X-VERSION": 1,
+        "#EXT-X-TARGETDURATION": 1,
+        "#EXT-X-MEDIA-SEQUENCE": 1,
+        "#EXTINF": 243,
+        "#EXT-X-PRIVINF": 243,
+        "#EXT-X-DISCONTINUITY": 5,
+        "#EXT-X-ENDLIST": 1
+      },
+      "key_methods": [],
+      "duration": 2747.033333,
+      "fetch": {
+        "http_status": 200,
+        "bytes": 178179,
+        "content_length": 178179,
+        "host": "valipl-bs01.cp31.ott.cibntv.net"
+      },
+      "segment_count": 243
+    },
+    "samples": [
+      {
+        "http_status": 200,
+        "bytes": 2001448,
+        "content_length": 2001448,
+        "host": "valipl-bs01.cp31.ott.cibntv.net",
+        "index": 12,
+        "file": "segment_0012_3926c2d60e8c70d7.ts",
+        "duration": 14.4,
+        "private": {
+          "FILESIZE": 2001448
+        },
+        "discontinuity": 4,
+        "sha256": "3926c2d60e8c70d7ad54cd9fe60aee1f0a7567dfb0376be590c88479fed3f2f9",
+        "transport": {
+          "ts_aligned": true,
+          "bytes_mod_188": 0,
+          "scrambling_control_counts": {
+            "0": 10646
+          }
+        }
+      },
+      {
+        "http_status": 200,
+        "bytes": 1633344,
+        "content_length": 1633344,
+        "host": "valipl-bs01.cp31.ott.cibntv.net",
+        "index": 121,
+        "file": "segment_0121_ed313ff5169aee1e.ts",
+        "duration": 8.64,
+        "private": {
+          "FILESIZE": 1633344
+        },
+        "discontinuity": 4,
+        "sha256": "ed313ff5169aee1e185496ee402a0ce4cc1472f84988c7f2c31af4177cdf6185",
+        "transport": {
+          "ts_aligned": true,
+          "bytes_mod_188": 0,
+          "scrambling_control_counts": {
+            "0": 8688
+          }
+        }
+      },
+      {
+        "http_status": 200,
+        "bytes": 4387732,
+        "content_length": 4387732,
+        "host": "valipl-bs01.cp31.ott.cibntv.net",
+        "index": 230,
+        "file": "segment_0230_c84bad6f6b5c5ed0.ts",
+        "duration": 11.76,
+        "private": {
+          "FILESIZE": 4387732
+        },
+        "discontinuity": 4,
+        "sha256": "c84bad6f6b5c5ed0aea144c43471ab6fc04a9ba58d98d462349fd879ed8b7012",
+        "transport": {
+          "ts_aligned": true,
+          "bytes_mod_188": 0,
+          "scrambling_control_counts": {
+            "0": 23339
+          }
+        }
+      }
+    ],
+    "independent_file_verified": false,
+    "inspector": {
+      "activated_by_probe": true,
+      "owned_inspector_closed": true
+    }
+  },
+  "verification": {
+    "observed_at_utc": "2026-11-17T07:44:58.289906+00:00",
+    "sample": {
+      "title": "难哄",
+      "url": "https://v.youku.com/video?vid=XNjQ1NDI4ODY2MA=="
+    },
+    "stream": {
+      "stream_type": "hls5hd4_hbr_bit10",
+      "width": 3840,
+      "height": 2160,
+      "size": 925390708,
+      "milliseconds_video": 2747000,
+      "milliseconds_audio": 2747000,
+      "drm_type": "copyrightDRM",
+      "media_type": "standard",
+      "audio_lang": "default",
+      "subtitle_lang": "default"
+    },
+    "samples": [
+      {
+        "file": "segment_0012_3926c2d60e8c70d7.ts",
+        "sha256": "3926c2d60e8c70d7ad54cd9fe60aee1f0a7567dfb0376be590c88479fed3f2f9",
+        "exit_code": 3199971767,
+        "decode_passed": false,
+        "decoded_video_frames": 0,
+        "decoded_audio_frames": 0,
+        "timed_out": false,
+        "diagnostics": {
+          "invalid_data": true,
+          "missing_video_format": true,
+          "missing_codec_parameters": true,
+          "empty_output": false
+        }
+      },
+      {
+        "file": "segment_0121_ed313ff5169aee1e.ts",
+        "sha256": "ed313ff5169aee1e185496ee402a0ce4cc1472f84988c7f2c31af4177cdf6185",
+        "exit_code": 3199971767,
+        "decode_passed": false,
+        "decoded_video_frames": 0,
+        "decoded_audio_frames": 0,
+        "timed_out": false,
+        "diagnostics": {
+          "invalid_data": true,
+          "missing_video_format": true,
+          "missing_codec_parameters": true,
+          "empty_output": false
+        }
+      },
+      {
+        "file": "segment_0230_c84bad6f6b5c5ed0.ts",
+        "sha256": "c84bad6f6b5c5ed0aea144c43471ab6fc04a9ba58d98d462349fd879ed8b7012",
+        "exit_code": 3199971767,
+        "decode_passed": false,
+        "decoded_video_frames": 0,
+        "decoded_audio_frames": 0,
+        "timed_out": false,
+        "diagnostics": {
+          "invalid_data": true,
+          "missing_video_format": true,
+          "missing_codec_parameters": true,
+          "empty_output": false
+        }
+      }
+    ],
+    "independent_file_verified": false,
+    "all_samples_decoded": false,
+    "decoder": {
+      "name": "ffmpeg-win-x86_64-v9.0.2.exe",
+      "sha256": "3256173f3f8bffd7df12227c68adf68025edb1832273a9530688a7bb1ed8edec",
+      "maps": [
+        "0:v:0",
+        "0:a:0"
+      ],
+      "input_format": "mpegts",
+      "full_sample_decode": true,
+      "output": "framehash"
+    }
+  },
+  "sdk_evidence": {
+    "file": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\a298706a5c64e2532b3ed22250bd75bf.js",
+    "sha256": "c0e9d6b110dd23ee5552a9579e4e54a77635cbc62978e8f5a5ecd490d5330001",
+    "matches": [
+      {
+        "term": "decryptAES128ECB=function",
+        "offset": 54292,
+        "snippet": "gth;o+=16)t.copyArray(i,r,0,o,o+16),r=this._aes.decrypt(r),t.copyArray(r,n,o);return n},t.prototype.decryptAES128ECB=function(t,e){this._key!=e&&(this._aes=new l(e)),this._aes||(this._aes=new l(e));var i=t.length,n=i%16;if(n){var r=this.decrypt(t.subarray(0,i-n)),o=t.subarray(i-n),a=new Uint8Array(r.length+o.length);return a.set(r,0),a.set(o,r.length),a}return this.decrypt(t)},t}(),u=function(){function t(){}return t.copyArray=function(t,e,i,n,r){null==n&&null==r||(t=t.slice?t.slice(n,r):Array.prototype.slice.call(t,n,r"
+      },
+      {
+        "term": "t.data=this.packetFilter(t)",
+        "offset": 205316,
+        "snippet": "reamIndex],\"function\"==typeof this.packetFilter&&(e.encryption&&(t.default_encryption=e.encryption),t.data=this.packetFilter(t)),!t||!(e.NeedParse||this.bsfDefined[e.type]&&this.bsfDefined[e.type]!==t.bsf))return t;var i=e.codec.getParser().parse(t,this.bsfDefined[e.type]);if(i)return Array.isArray(i)?(this.outPacketBuffer=i.slice(1),i[0]):i}return this.demuxer.Flushed?(this.outPacketBuffer=e?e.codec.getParser().flush():function(t){for(var e=[],i=0;i<t.length;i++)Array.isArray(t[i])?e=e.concat(t[i]):e.push(t[i]);return e}"
+      },
+      {
+        "term": "t.encrypted=!t.info.DRM_NOTENCRYPT",
+        "offset": 1896700,
+        "snippet": "={agent:new Om(o,t.AESMode),type:t.type},i={segmentFilter:function(t){return t.forEach((function(t){t.encrypted=!t.info.DRM_NOTENCRYPT})),t}},this.clearMemory(\"4b4g59543c4h5g29\"),this.clearMemory(\"4b4b4b4b4k4h5f32\");var a={drm:e,filters:i},s={aligner:!0,alignerConfig:{type:\"\"},transmuxEnabled:!0};return\"AES-CBC\"===t.AESMode&&(s.alignerConfig.type=\"fmp4\"),a.transmuxerConfig=s,a}catch(t){return{error:Ag.DrmKeyError,code:\"DRMCUS00\",extension:{r1:this.context.upsParams.R1,encryptRServer:n.encryptRServer,copyrightKey:n.copyrightKey}}"
+      },
+      {
+        "term": "t.keyIndex=\"key01\"",
+        "offset": 2047568,
+        "snippet": "mType?t.drmType=this.ctx.drm.retryDrmType:m.isMac&&(e.match(\"pid mas\")||n)?t.drmType=19:t.drmType=3,t.keyIndex=\"key01\",this.onComplete(t)},e.prototype.getWebDRM=function(){var t=this,e={};this.ctx.upsParams.R1||(this.ctx.upsParams.R1=window._sce_r_skjhfnck()),e.encryptR1=window._sce_lgtcaygl(this.ctx.upsParams.R1),this.ctx.drm&&this.ctx.drm.retryDrmType?(e.drmType=this.ctx.drm.retryDrmType,e.keyIndex=\"web01\",this.onComplete(e)):this.ctx.config.environment===o.d.Tesla?(e.drmType=3,e.keyIndex=\"web01\",this.onComplet"
+      }
+    ]
+  },
+  "experiments": {
+    "web_key_index": "web01",
+    "web_business_error_code": -4009,
+    "native_key_index": "key01",
+    "native_to_web_adapter_validated": false,
+    "native_public_file_export_found": false
+  },
+  "independent_file_verified": false
+}

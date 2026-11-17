@@ -9,12 +9,12 @@ quality: 1 # 每集单独排名：1 为账号可获取的最高档，2 为次高
 # 保留列表与集序顺序；当前剧集派发完后，空闲线程继续后续剧集。
 # title 仅用于日志备注，保存目录和文件名继续使用原站标题；url 必填。
 download_list:
-  - title: 嫁金钗 # 视频标题 手动填写 不一定是实际的剧集名字
-    url: https://v.youku.com/video?vid=XNjU2ODM3MDIzNg==
-  - title: 难哄
-    url: https://v.youku.com/video?vid=XNjQ1NDI4ODY2MA==
-  - title: 嘘，国王在冬眠
-    url: https://v.youku.com/video?vid=XNjQ1OTQ2NTk4MA==
+  - title:  # 视频标题 手动填写 不一定是实际的剧集名字
+    url: https://v.youku.com/video?vid=XMzcxNDY5ODQ4
+  - title: 
+    url: https://v.youku.com/video?vid=XNTk1MjQxNjQzMg==
+  - title: 
+    url: https://v.youku.com/video?vid=XNTg5OTk1MjAzMg==
   # - title: 
   #   url:
   # - title: 

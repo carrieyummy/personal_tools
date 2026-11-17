@@ -1,46 +1,60 @@
-"""独立调度链接下载、已下载字节队列和有界后处理。"""
+"""独立限制媒体下载，解析和后处理共用处理池，已下载字节队列有界。"""
 
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from ..runtime import check_cancel
 
 
 def advance(steps):
     """推进单个任务生成器 steps；返回阶段名称及字节数或最终结果。"""
     try:
-        return "ready", next(steps)
+        return next(steps)
     except StopIteration as result:
         return "done", result.value
 
 
 def schedule(jobs: list, config: dict, controls, update) -> None:
-    """调度 jobs 中的 (条目, 生成器)，config 限制下载、队列和后处理；controls 控制取消，update 登记状态；无返回值。"""
+    """调度 jobs 的 (条目, 阶段生成器)；config 独立限制下载及共享处理并发，controls 可取消，update 登记状态；无返回值。"""
     pending = deque(jobs)
-    waiting, ready = deque(), deque()
+    prepared, waiting, ready = deque(), deque(), deque()
     active_downloads, active_processing = {}, {}
     capacity = int(config["download"]["queue_capacity_gb"] * 1024**3)
     queued = 0
     downloads = ThreadPoolExecutor(max_workers=config["download"]["threads"], thread_name_prefix="iqiyi-download")
     processing = ThreadPoolExecutor(max_workers=config["max_in_flight"], thread_name_prefix="iqiyi-process")
 
-    def submit(pool, active, item, steps):
-        """向 pool 提交 item 的 steps 并登记到 active；无返回值。"""
-        active[pool.submit(advance, steps)] = (item, steps)
+    def submit(pool, active, item, steps, phase):
+        """向 pool 提交 item 的 steps，记录 phase 并登记到 active；无返回值。"""
+        future = pool.submit(advance, steps)
+        future.phase = phase
+        active[future] = (item, steps)
 
     try:
-        while pending or waiting or ready or active_downloads or active_processing:
+        while pending or prepared or waiting or ready or active_downloads or active_processing:
+            check_cancel(controls.cancel)
             while waiting and (queued + waiting[0][2] <= capacity or not ready):
                 item, steps, size = waiting.popleft()
                 ready.append((item, steps, size))
                 queued += size
                 update(item, "waiting_processing", None)
-            while ready and len(active_processing) < config["max_in_flight"]:
-                item, steps, size = ready.popleft()
-                queued -= size
-                update(item, "processing", None)
-                submit(processing, active_processing, item, steps)
-            while pending and len(active_downloads) + len(waiting) < config["download"]["threads"]:
-                item, steps = pending.popleft()
-                submit(downloads, active_downloads, item, steps)
+            while len(active_processing) < config["max_in_flight"]:
+                if ready:
+                    item, steps, size = ready.popleft()
+                    queued -= size
+                    update(item, "processing", None)
+                    phase = "processing"
+                elif pending and not waiting:
+                    preparing = sum(future.phase == "initial" for future in active_processing)
+                    if len(prepared) + preparing >= config["download"]["threads"]:
+                        break
+                    item, steps = pending.popleft()
+                    phase = "initial"
+                else:
+                    break
+                submit(processing, active_processing, item, steps, phase)
+            while prepared and not waiting and len(active_downloads) < config["download"]["threads"]:
+                item, steps = prepared.popleft()
+                submit(downloads, active_downloads, item, steps, "download")
             futures = set(active_downloads) | set(active_processing)
             if not futures:
                 continue
@@ -50,7 +64,10 @@ def schedule(jobs: list, config: dict, controls, update) -> None:
                 item, steps = (active_downloads if was_download else active_processing).pop(future)
                 try:
                     kind, result = future.result()
-                    if kind == "ready" and was_download:
+                    if kind == "download":
+                        prepared.append((item, steps))
+                        update(item, "waiting_download", None)
+                    elif kind == "ready":
                         if type(result) is not int or result <= 0:
                             raise ValueError("下载完成的分片字节数必须为正整数")
                         waiting.append((item, steps, result))
@@ -68,7 +85,7 @@ def schedule(jobs: list, config: dict, controls, update) -> None:
             future.cancel()
         downloads.shutdown(wait=True, cancel_futures=True)
         processing.shutdown(wait=True, cancel_futures=True)
-        remaining = list(pending) + [(item, steps) for item, steps, _ in waiting] + [(item, steps) for item, steps, _ in ready]
+        remaining = list(pending) + list(prepared) + [(item, steps) for item, steps, _ in waiting] + [(item, steps) for item, steps, _ in ready]
         for future, (item, steps) in list(active_downloads.items()) + list(active_processing.items()):
             if not future.cancelled():
                 try:

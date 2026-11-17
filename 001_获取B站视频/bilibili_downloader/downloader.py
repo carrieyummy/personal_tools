@@ -103,12 +103,16 @@ def download_video(downloader: Any, info: dict[str, Any], settings: Settings,
                    video_title: str, total_parts: int, *, source_cid: int, prepared: bool = False,
                    cancel_event: Event | None = None, activity: Activity | None = None,
                    size_tracker: media.StreamSizes | None = None) -> DownloadedVideo:
-    """按 info 传输原始流，返回等待后处理的 DownloadedVideo，不执行封装或媒体探测。
+    """同步准备并下载 info；downloader/settings 控制传输，video_title/total_parts 标识投稿，source_cid 标识来源，prepared 表示已归档；cancel_event 可取消，activity/size_tracker 报进度；返回媒体载荷。"""
+    video = prepare_video(info, settings, video_title, total_parts, source_cid=source_cid, prepared=prepared,
+                          cancel_event=cancel_event, activity=activity, size_tracker=size_tracker)
+    return transfer_video(downloader, video, settings, cancel_event=cancel_event, activity=activity, size_tracker=size_tracker)
 
-    downloader 为本线程下载器，settings 控制目录与下载策略，video_title/total_parts 描述投稿。
-    source_cid 必须为正整数；prepared 表示主线程已整理目录；cancel_event 控制取消并保留断点。
-    activity 为可选日志，size_tracker 为可选流大小计量器；info 在后处理成功后补齐成品信息。
-    """
+
+def prepare_video(info: dict[str, Any], settings: Settings, video_title: str, total_parts: int, *,
+                  source_cid: int, prepared: bool = False, cancel_event: Event | None = None,
+                  activity: Activity | None = None, size_tracker: media.StreamSizes | None = None) -> DownloadedVideo:
+    """按 info/settings 及标题 video_title、总P数 total_parts 准备现场；source_cid 标识来源，prepared 表示已归档，cancel_event 可取消，activity/size_tracker 报进度；返回含复用结果的媒体载荷。"""
     check_cancel(cancel_event)
     if type(source_cid) is not int or source_cid < 1:
         raise ToolError('下载来源 CID 必须为正整数')
@@ -170,6 +174,19 @@ def download_video(downloader: Any, info: dict[str, Any], settings: Settings,
     staging = staging_root / provenance.stream_version(source_cid, signature)
     staging.mkdir(parents=True, exist_ok=True)
     video.staging, video.staging_root = staging, staging_root
+    return video
+
+
+def transfer_video(downloader: Any, video: DownloadedVideo, settings: Settings, *,
+                   cancel_event: Event | None = None, activity: Activity | None = None,
+                   size_tracker: media.StreamSizes | None = None) -> DownloadedVideo:
+    """用 downloader/settings 传输已准备 video 的原始流；cancel_event 可取消，activity/size_tracker 报进度；返回下载完整的同一载荷。"""
+    check_cancel(cancel_event)
+    if video.existing is not None:
+        return video
+    info, formats = video.info, media.chosen_formats(video.info)
+    staging = video.staging
+    size_tracker = size_tracker if size_tracker is not None else media.StreamSizes(formats)
     sources = video.sources
     try:
         for index, fmt in enumerate(formats):
@@ -295,7 +312,7 @@ def save_video(downloader: Any, info: dict[str, Any], settings: Settings, execut
 
     downloader 为下载器，settings/executable 控制下载与封装，video_title/total_parts 描述投稿。
     source_cid 为正整数，prepared 表示已整理目录，cancel_event 控制取消；activity/size_tracker 可选。
-    批量流程分别调用 download_video/finish_video，由调度器独立限制两阶段并发。
+    批量流程在处理池调用 prepare_video，在独立下载池调用 transfer_video，再回处理池调用 finish_video。
     """
     video = download_video(downloader, info, settings, video_title, total_parts, source_cid=source_cid,
                            prepared=prepared, cancel_event=cancel_event, activity=activity, size_tracker=size_tracker)

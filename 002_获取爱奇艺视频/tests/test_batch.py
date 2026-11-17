@@ -335,10 +335,10 @@ class StorageTests(ProjectCase):
         self.assertEqual(target.read_bytes(), b"original")
 
     def test_output_lock_rejects_second_writer_and_releases(self):
-        """同一输出根目录不能同时执行两个批次，退出后锁自动释放；无参数或返回值。"""
-        with output_lock(self.output):
+        """同平台配置的锁拒绝第二批次，退出后自动释放；无参数或返回值。"""
+        with output_lock(self.output, self.config["logging"]["lock_file"]):
             with self.assertRaises(RuntimeError):
-                with output_lock(self.output):
+                with output_lock(self.output, self.config["logging"]["lock_file"]):
                     self.fail("不应获得第二把锁")
-        with output_lock(self.output):
+        with output_lock(self.output, self.config["logging"]["lock_file"]):
             self.assertTrue(self.output.is_dir())

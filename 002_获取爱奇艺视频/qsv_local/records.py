@@ -2,13 +2,14 @@
 
 from copy import deepcopy
 from pathlib import Path
+from threading import Event
 from uuid import uuid4
 
 from .storage import atomic_json, fingerprint, read_json, time_tag, timestamp, valid_digest
 
 
 class DirectoryIndex:
-    """持有单个输出目录的 video_info.json，历史成品与每次转换结果分别保存。"""
+    """持有单个输出目录的 video_info.json，保存 QSV 索引并保留其他来源的独立记录分区。"""
 
     def __init__(self, folder: Path, output_root: Path):
         """加载输出边界 output_root 内的 folder；缺记录时建内存索引，损坏记录明确报错，不写盘。"""
@@ -59,11 +60,16 @@ class DirectoryIndex:
                     or result.get("status") not in {"completed", "reused", "failed", "interrupted", "migrated"}):
                 raise ValueError(f"转换结果条目无效：{self.path}")
 
-    def save(self) -> None:
-        """原子保存本目录索引；失败传播给调度器，无参数及返回值。"""
+    def save(self, *, retry_settings: dict | None = None, cancel_event: Event | None = None) -> None:
+        """原子保存本目录索引；retry_settings 为可选写盘重试配置，cancel_event 为取消信号；失败传播，无返回值。"""
         self._validate()
         self.data["updated_at"] = timestamp()
-        atomic_json(self.path, self.data)
+        options = {}
+        if retry_settings is not None:
+            options["retry_settings"] = retry_settings
+        if cancel_event is not None:
+            options["cancel_event"] = cancel_event
+        atomic_json(self.path, self.data, **options)
 
     def reusable(self, source_relative: str, source_fp: dict, buffer_bytes: int) -> dict | None:
         """为 source_relative/source_fp 寻找有效历史版本；buffer_bytes 为校验块长，返回条目或 None，更新内存缓存。"""

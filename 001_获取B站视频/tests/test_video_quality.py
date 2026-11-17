@@ -193,12 +193,12 @@ class VideoQualityTests(unittest.TestCase):
         target = models.VideoTarget('https://www.bilibili.com/video/BV1xx411c7mD?p=1', 1, 1, 2)
         source = {'bvid': 'BV1xx411c7mD', 'title': '测试投稿', 'owner': {'mid': 1, 'name': 'test'}}
         args = cli_entry.parse_args(['--url', target.url])
-        with patch.object(download_service, 'make_downloader', return_value=self.downloader), patch.object(auth, 'ensure_login'), patch.object(self.downloader, 'extract_info', side_effect=[sample_info(), sample_info(codes=(80,)), sample_info(codes=(80,))]) as extract, patch('builtins.input', side_effect=['1', '1']) as prompt, patch.object(download_service, 'download_video', return_value=MagicMock(existing=None, queued_bytes=lambda: 0)) as save, patch.object(download_service, 'finish_video', return_value=(self.root, 'test')), patch.object(subtitle_service, 'list_subtitles', return_value=[]), patch.object(workflow, 'print_video_info'):
+        with patch.object(download_service, 'make_downloader', return_value=self.downloader), patch.object(auth, 'ensure_login'), patch.object(self.downloader, 'extract_info', side_effect=[sample_info(), sample_info(codes=(80,)), sample_info(codes=(80,))]) as extract, patch('builtins.input', side_effect=['1', '1']) as prompt, patch.object(download_service, 'prepare_video', return_value=MagicMock(existing=None, queued_bytes=lambda: 0)) as save, patch.object(download_service, 'transfer_video', side_effect=lambda downloader, video, settings, **kwargs: video), patch.object(download_service, 'finish_video', return_value=(self.root, 'test')), patch.object(subtitle_service, 'list_subtitles', return_value=[]), patch.object(workflow, 'print_video_info'):
             failures = workflow.download_submission(MagicMock(), self.settings, 'ffmpeg', source, [target], args)
         self.assertEqual(failures, [])
         self.assertEqual(prompt.call_count, 1)
         self.assertEqual(extract.call_count, 2)
-        self.assertEqual(save.call_args.args[1]['selected_quality']['code'], 80)
+        self.assertEqual(save.call_args.args[0]['selected_quality']['code'], 80)
         record = library.get_video_info(self.settings, source['bvid'])
         self.assertEqual(next(item['status'] for item in record.data['files'] if item['quality_id'] == 120), 'failed')
 
@@ -209,18 +209,18 @@ class VideoQualityTests(unittest.TestCase):
         session = MagicMock()
         args = cli_entry.parse_args(['--url', targets[0].url, '--url', targets[1].url, '--url', targets[0].url])
         infos = [sample_info(), sample_info(2, (80,)), sample_info(), sample_info(2, (80,))]
-        with patch.object(configuration, 'load_settings', return_value=self.settings), patch.object(media, 'resolve_ffmpeg', return_value='ffmpeg'), patch.object(auth, 'authenticated_session', return_value=session), patch.object(auth, 'ensure_login', return_value={}), patch.object(api, 'resolve_targets', side_effect=[[targets[0]], [targets[1]], [targets[0]]]), patch.object(api, 'api_json', return_value={'data': source}), patch.object(download_service, 'make_downloader', return_value=self.downloader), patch.object(self.downloader, 'extract_info', side_effect=infos) as extract, patch.object(download_service, 'download_video', return_value=MagicMock(existing=None, queued_bytes=lambda: 0)) as save, patch.object(download_service, 'finish_video', return_value=(self.root, 'test')), patch.object(subtitle_service, 'list_subtitles', return_value=[]), patch.object(workflow, 'print_video_info'), patch('builtins.input', side_effect=['1', '1']) as prompt:
+        with patch.object(configuration, 'load_settings', return_value=self.settings), patch.object(media, 'resolve_ffmpeg', return_value='ffmpeg'), patch.object(auth, 'authenticated_session', return_value=session), patch.object(auth, 'ensure_login', return_value={}), patch.object(api, 'resolve_targets', side_effect=[[targets[0]], [targets[1]], [targets[0]]]), patch.object(api, 'api_json', return_value={'data': source}), patch.object(download_service, 'make_downloader', return_value=self.downloader), patch.object(self.downloader, 'extract_info', side_effect=infos) as extract, patch.object(download_service, 'prepare_video', return_value=MagicMock(existing=None, queued_bytes=lambda: 0)) as save, patch.object(download_service, 'transfer_video', side_effect=lambda downloader, video, settings, **kwargs: video), patch.object(download_service, 'finish_video', return_value=(self.root, 'test')), patch.object(subtitle_service, 'list_subtitles', return_value=[]), patch.object(workflow, 'print_video_info'), patch('builtins.input', side_effect=['1', '1']) as prompt:
             self.assertEqual(application.run(args), 0)
         self.assertEqual(prompt.call_count, 1)
         self.assertEqual(extract.call_count, 4)
-        self.assertEqual([call.args[1]['selected_quality']['code'] for call in save.call_args_list], [120, 80])
+        self.assertEqual([call.args[0]['selected_quality']['code'] for call in save.call_args_list], [120, 80])
 
     def test_cancel_and_skip_never_start_transfer(self) -> None:
         """验证下载确认阶段取消返回 130、跳过返回 2，均不调用视频或字幕传输；无返回值。"""
         target = models.VideoTarget('https://www.bilibili.com/video/BV1xx411c7mD?p=1', 1, 1, 1)
         source = {'bvid': 'BV1xx411c7mD', 'title': '测试投稿', 'owner': {'mid': 1, 'name': 'test'}}
         for answer, expected in (('q', 130), ('s', 2)):
-            with self.subTest(answer=answer), patch.object(configuration, 'load_settings', return_value=self.settings), patch.object(media, 'resolve_ffmpeg', return_value='ffmpeg'), patch.object(auth, 'authenticated_session', return_value=MagicMock()), patch.object(auth, 'ensure_login', return_value={}), patch.object(api, 'resolve_targets', return_value=[target]), patch.object(api, 'api_json', return_value={'data': source}), patch.object(download_service, 'make_downloader', return_value=self.downloader), patch.object(self.downloader, 'extract_info', return_value=sample_info()), patch.object(download_service, 'download_video') as save, patch.object(subtitle_service, 'fetch_subtitles') as subtitles, patch('builtins.input', return_value=answer):
+            with self.subTest(answer=answer), patch.object(configuration, 'load_settings', return_value=self.settings), patch.object(media, 'resolve_ffmpeg', return_value='ffmpeg'), patch.object(auth, 'authenticated_session', return_value=MagicMock()), patch.object(auth, 'ensure_login', return_value={}), patch.object(api, 'resolve_targets', return_value=[target]), patch.object(api, 'api_json', return_value={'data': source}), patch.object(download_service, 'make_downloader', return_value=self.downloader), patch.object(self.downloader, 'extract_info', return_value=sample_info()), patch.object(download_service, 'transfer_video') as save, patch.object(subtitle_service, 'fetch_subtitles') as subtitles, patch('builtins.input', return_value=answer):
                 self.assertEqual(cli_entry.main(['--url', target.url]), expected)
                 save.assert_not_called()
                 subtitles.assert_not_called()
@@ -257,7 +257,7 @@ class VideoQualityTests(unittest.TestCase):
     def test_list_formats_does_not_prompt_or_create_download_records(self) -> None:
         """验证画质查看模式不提示确认、不创建归档记录，字幕失败仍展示画质；无返回值。"""
         target = models.VideoTarget('https://www.bilibili.com/video/BV1xx411c7mD?p=1', 1, 1, 1)
-        with patch.object(configuration, 'load_settings', return_value=self.settings), patch.object(auth, 'authenticated_session', return_value=MagicMock()), patch.object(auth, 'ensure_login', return_value={}), patch.object(api, 'resolve_targets', return_value=[target]), patch.object(download_service, 'make_downloader', return_value=self.downloader), patch.object(self.downloader, 'extract_info', return_value=sample_info()), patch.object(subtitle_service, 'list_subtitles', side_effect=errors.ToolError('字幕接口失败')), patch.object(workflow, 'print_video_info') as show, patch('builtins.input') as prompt, patch.object(download_service, 'download_video') as save:
+        with patch.object(configuration, 'load_settings', return_value=self.settings), patch.object(auth, 'authenticated_session', return_value=MagicMock()), patch.object(auth, 'ensure_login', return_value={}), patch.object(api, 'resolve_targets', return_value=[target]), patch.object(download_service, 'make_downloader', return_value=self.downloader), patch.object(self.downloader, 'extract_info', return_value=sample_info()), patch.object(subtitle_service, 'list_subtitles', side_effect=errors.ToolError('字幕接口失败')), patch.object(workflow, 'print_video_info') as show, patch('builtins.input') as prompt, patch.object(download_service, 'transfer_video') as save:
             self.assertEqual(application.run(cli_entry.parse_args(['--url', target.url, '--list-formats'])), 2)
         prompt.assert_not_called()
         save.assert_not_called()

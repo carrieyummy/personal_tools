@@ -14,7 +14,7 @@
 const live=__LIVE__, interval=__INTERVAL__, client=__CLIENT__;
 const search=document.getElementById('search'), errors=document.getElementById('errors'), runs=document.getElementById('runs'), connection=document.getElementById('connection');
 const labels={running:'进行中',pending:'等待中',completed:'已完成',reused:'已复用',failed:'失败',interrupted:'已中断',skipped:'已跳过',warning:'需关注'};
-const stages={resolving:'解析来源',downloading:'下载',waiting_queue:'等待队列容量',waiting_processing:'等待后处理',extracting:'还原',migrating:'核对旧版',checking:'复核',muxing:'封装',verifying:'完整解码',checking_source:'复核来源',publishing:'发布'};
+const stages={resolving:'解析来源',downloading:'下载',waiting_download:'等待下载',waiting_queue:'等待队列容量',waiting_processing:'等待处理',extracting:'还原',migrating:'核对旧版',checking:'复核',muxing:'封装',verifying:'完整解码',checking_source:'复核来源',publishing:'发布'};
 const attention=new Set(['failed','interrupted','skipped','warning']);
 const expanded=new Map(), expandedGroups=new Map(), selected=new Map(); let currentData, connected=live, receivedAt=performance.now(), clock;
 // 创建纯文本节点，避免日志内容被当作 HTML；tag、text、className 分别是元素名、内容和样式，返回元素。

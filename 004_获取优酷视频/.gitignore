@@ -1,0 +1,11 @@
+# Python 运行缓存
+__pycache__/
+*.py[cod]
+
+# 本机验收与研究媒体；包含不可发布的临时产物
+tests/artifacts/
+research/client_svip_4k/private/
+research/client_svip_4k/reports/latest/
+
+# 未完成的文件写入
+*.partial

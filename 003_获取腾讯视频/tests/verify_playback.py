@@ -49,7 +49,7 @@ def main() -> int:
               "manifest_durations": [item.duration for item in selected.manifests]}
     code = 0
     if args.full_download:
-        with output_lock(config["output_path"]), output_lock(config["work_dir"] / "url"):
+        with output_lock(config["output_path"], config["logging"]["lock_file"]), output_lock(config["work_dir"] / "url", config["logging"]["lock_file"]):
             journal = Journal(config)
             try:
                 first = UrlBatch(config, journal, client=client).run([task])

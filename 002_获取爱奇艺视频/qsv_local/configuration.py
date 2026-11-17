@@ -8,6 +8,7 @@ import codecs
 import yaml
 
 from .naming import validate_component
+from .storage import validate_lock_file
 
 
 def validate_concurrency(config: dict) -> None:
@@ -31,6 +32,7 @@ def read_config(path: Path) -> dict:
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError("配置必须是 YAML 对象")
+    validate_lock_file(config["logging"]["lock_file"])
     validate_concurrency(config)
     for name in ("input_root", "output_path", "work_dir", "native_profile", "ffmpeg_path"):
         config[name] = resolve_path(config[name], path.parent)

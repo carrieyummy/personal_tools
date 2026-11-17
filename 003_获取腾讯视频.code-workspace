@@ -60,7 +60,7 @@
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
                     // 必填：目标来自当前清单；研究参数和脱敏报告目录在专项 YAML 中维护。
-                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/playback_research.yaml"
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/research/configs/playback_research.yaml"
                 ]
             },
             {
@@ -107,7 +107,7 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/playback_research.yaml"
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/research/configs/playback_research.yaml"
                     // 可选：显式指定已核对的播放器 SDK 进程；省略时按正式配置自动匹配。
                     // , "--pid", "${input:tencentPlaybackObserverPid}"
                     // 可选：仅核对签名结构；同时省略 --pid 时测试独立加载 DLL 的初始化依赖。
@@ -124,7 +124,7 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/playback_research.yaml",
+                    "--config", "${workspaceFolder:003_获取腾讯视频}/research/configs/playback_research.yaml",
                     // 必填：只观察已核对安装目录及用途的腾讯主进程或播放器进程；不会自动启动客户端。
                     "--pid", "${input:tencentPlaybackObserverPid}"
                 ]

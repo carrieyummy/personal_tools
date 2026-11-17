@@ -13,25 +13,176 @@
         },
         {
             "path": "E:/qycache"
+        },
+        {
+            "path": "Z:/003_电视剧"
         }
     ],
     "settings": {
         "python.defaultInterpreterPath": "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe",
         "python.terminal.activateEnvironment": true,
-        "python.testing.cwd": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k",
+        "python.testing.cwd": "${workspaceFolder:004_获取优酷视频}",
         "python.testing.unittestEnabled": true,
         "python.testing.unittestArgs": [
             // 输出每个测试用例的执行结果。
             "-v",
-            // 从独立研究目录下的 tests 文件夹发现测试。
+            // 从正式工具 tests 文件夹发现测试；研究回归另有独立启动项。
             "-s", "tests",
-            // 以研究目录为导入根目录，供测试导入 lib 模块。
+            // 以工具根目录为导入根目录，供测试导入 local 模块。
             "-t", "."
         ]
     },
     "launch": {
         "version": "0.2.0",
         "configurations": [
+            {
+                "name": "优酷：按清单并发下载并完整验证",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/decode.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：下载任务、并发、CPU/GPU 与输出均读取主 YAML。
+                    "--config", "${workspaceFolder:004_获取优酷视频}/configs/config.yaml"
+                ]
+            },
+            {
+                "name": "优酷验收：指定清单的限量剧集",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/tests/verify_playback.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:004_获取优酷视频}/configs/config.yaml",
+                    // 必填：当前清单中的零基序号与本次最大验收集数。
+                    "--list-index", "${input:youkuListIndex}",
+                    "--episodes", "${input:youkuEpisodeCount}"
+                    // 可选：实际整片下载、还原、完整验证和发布；默认仅查来源。
+                    // , "--full-download"
+                ]
+            },
+            {
+                "name": "优酷测试：正式流水线",
+                "type": "debugpy", "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "module": "unittest",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "args": ["discover", "-v", "-s", "tests", "-t", "."]
+            },
+            {
+                "name": "优酷测试：原研究回归",
+                "type": "debugpy", "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "module": "unittest",
+                "cwd": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k",
+                "console": "integratedTerminal",
+                "args": ["discover", "-v", "-s", "tests", "-t", "."]
+            },
+            {
+                "name": "优酷研究：还原帧享媒体抽样",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    // 必须已采样且当前播放页仍为同一集；原生模块摘要不符时停止。
+                    "--action", "media-restore",
+                    "--pid", "${command:pickProcess}",
+                    // 若修改了 YAML 的 output_dir，选择相应目录的 media.json。
+                    "--input", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/reports/latest/media.json"
+                ]
+            },
+            {
+                "name": "优酷研究：验证还原后的帧享抽样",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    "--action", "media-verify",
+                    "--input", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/reports/latest/media-restore.json"
+                ]
+            },
+            {
+                "name": "优酷研究：帧享媒体分段抽样",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    // 采样位置、档位和字节预算读取 YAML；必须已打开同一配置样本。
+                    "--action", "media",
+                    "--pid", "${command:pickProcess}"
+                ]
+            },
+            {
+                "name": "优酷研究：验证本地媒体抽样",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    "--action", "media-verify",
+                    // 必填：先运行 media；若修改了 YAML 的 output_dir，选择对应目录中的 media.json。
+                    "--input", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/reports/latest/media.json"
+                ]
+            },
+            {
+                "name": "优酷研究：实时帧享请求对照",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    // 先在优酷打开配置样本；采样不自动切集或改变播放状态。
+                    "--action", "live",
+                    // 必填：选择 YOUKU.exe 主进程；新增调试端口会在采样结束回收。
+                    "--pid", "${command:pickProcess}"
+                ]
+            },
+            {
+                "name": "优酷研究：核对原生播放日志中的样本流",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/research.py",
+                "cwd": "${workspaceFolder:004_获取优酷视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 必填：日志范围、扫描预算及样本均读取 YAML。
+                    "--config", "${workspaceFolder:004_获取优酷视频}/research/client_svip_4k/configs/research.yaml",
+                    // 只读精确匹配样本的媒体请求，报告不含 URL、设备值或密钥。
+                    "--action", "playback"
+                ]
+            },
             {
                 "name": "优酷研究：检查当前客户端与登录态",
                 "type": "debugpy",
@@ -80,5 +231,9 @@
                 ]
             }
         ]
-    }
+    },
+    "inputs": [
+        {"id": "youkuListIndex", "type": "promptString", "description": "当前下载清单条目的零基序号"},
+        {"id": "youkuEpisodeCount", "type": "promptString", "description": "本次最多验收多少集"}
+    ]
 }

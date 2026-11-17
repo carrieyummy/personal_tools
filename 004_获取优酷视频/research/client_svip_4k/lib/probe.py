@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from contextlib import closing
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -40,14 +41,63 @@ def load_config(path: Path) -> dict[str, Any]:
     for name in ("context_chars", "matches_per_term"):
         if type(config["source"][name]) is not int or config["source"][name] <= 0:
             raise ValueError(f"source.{name} 必须为正整数")
+    media = config["media"]
+    restoration = config["restoration"]
+    for name in ("function_rva", "output_bytes", "timeout_seconds"):
+        if type(restoration[name]) is not int or restoration[name] <= 0:
+            raise ValueError(f"restoration.{name} 必须为正整数")
+    for name in ("library_sha256", "challenge_module_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", restoration[name]):
+            raise ValueError(f"restoration.{name} 必须为 SHA-256")
+    if not 25 <= restoration["output_bytes"] <= 4096:
+        raise ValueError("restoration.output_bytes 超出已支持的缓冲区范围")
+    if Path(restoration["library"]).is_absolute() or ".." in Path(restoration["library"]).parts:
+        raise ValueError("restoration.library 必须位于客户端安装目录内")
+    for name in ("work_dir", "ffmpeg"):
+        media[name] = resolve_path(media[name], path.parent)
+    for name in ("timeout_seconds", "max_manifest_bytes", "max_segment_bytes", "decode_timeout_seconds"):
+        if type(media[name]) is not int or media[name] <= 0:
+            raise ValueError(f"media.{name} 必须为正整数")
+    positions = media["sample_positions"]
+    if not isinstance(positions, list) or not positions or any(type(x) not in (float, int) or not 0 <= x <= 1 for x in positions):
+        raise ValueError("media.sample_positions 必须为 0 到 1 的非空位置列表")
+    domains = media["allowed_domains"]
+    if not isinstance(domains, list) or not domains or any(not isinstance(x, str) or not re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}", x) for x in domains):
+        raise ValueError("media.allowed_domains 必须为有效域名后缀列表")
+    if not isinstance(media["allowed_schemes"], list) or not media["allowed_schemes"] or any(x not in ("http", "https") for x in media["allowed_schemes"]):
+        raise ValueError("media.allowed_schemes 仅允许 http/https")
+    if not isinstance(media["stream_type"], str) or not media["stream_type"] or not isinstance(media["user_agent"], str) or not media["user_agent"]:
+        raise ValueError("media.stream_type 和 user_agent 必须为非空字符串")
     for name in ("max_file_bytes", "max_total_bytes", "max_json_candidates_per_file"):
         if type(config["cache"][name]) is not int or config["cache"][name] <= 0:
             raise ValueError(f"cache.{name} 必须为正整数")
     for section, names in (("native", ("timeout_seconds",)),
-                           ("network", ("timeout_seconds", "max_response_bytes"))):
+                           ("network", ("timeout_seconds", "max_response_bytes")),
+                           ("playback_log", ("max_file_bytes", "max_total_bytes", "decode_rounds")),
+                           ("live", ("timeout_seconds", "max_result_bytes", "connect_attempts", "close_delay_ms"))):
         for name in names:
             if type(config[section][name]) is not int or config[section][name] <= 0:
                 raise ValueError(f"{section}.{name} 必须为正整数")
+    endpoint = urlsplit(config["live"]["inspector_url"])
+    if endpoint.scheme != "http" or endpoint.hostname != "127.0.0.1" or not endpoint.port:
+        raise ValueError("live.inspector_url 必须为明确端口的 127.0.0.1 HTTP 地址")
+    interval = config["live"]["retry_interval_seconds"]
+    if type(interval) not in (float, int) or interval <= 0:
+        raise ValueError("live.retry_interval_seconds 必须为正数")
+    for case in config["live"]["cases"]:
+        for key in ("remove_biz_fields", "ad_fields"):
+            value = case[key]
+            if key == "ad_fields" and value is None:
+                continue
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise ValueError(f"live.cases.{key} 必须为字段名列表")
+    for case in config["network"]["ups"]["cases"]:
+        if case["user_agent_source"] not in ("template", "client_log"):
+            raise ValueError("user_agent_source 必须为 template 或 client_log")
+        if case["device_source"] not in ("cookie", "client_log"):
+            raise ValueError("device_source 必须为 cookie 或 client_log")
+        if type(case["client_hardware_fields"]) is not bool:
+            raise ValueError("client_hardware_fields 必须为布尔值")
     fields = config["cache"]["stream_fields"]
     if not isinstance(fields, list) or not fields or any(k not in PUBLIC_STREAM_FIELDS for k in fields):
         raise ValueError("cache.stream_fields 只能选择公开流元数据，禁止 URL、会话和密钥字段")

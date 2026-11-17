@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>优酷视频任务进度</title>
+<style>
+:root{color-scheme:light;font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;color:#263448;background:#f3f5f9}*{box-sizing:border-box}body{margin:0;padding:24px 30px}h1{font-size:25px;margin:0}h2{font-size:15px;margin:0}p{margin:0}.intro{color:#607086;margin:5px 0 18px}.toolbar{display:flex;gap:18px;align-items:center;margin-bottom:18px;flex-wrap:wrap}input[type=search]{padding:9px 12px;width:360px;border:1px solid #cad4e1;border-radius:6px;font:inherit}.export{padding:8px 13px;background:#1a579e;color:white;border-radius:6px;text-decoration:none}.run{background:white;margin-bottom:18px;border:1px solid #dce3ed;border-radius:9px}.run-summary{padding:14px 18px;font-weight:600;cursor:pointer;background:#eaf0f8;border-radius:9px}.run-content{padding:16px}.overview{display:grid;grid-template-columns:minmax(200px,1fr) minmax(200px,1fr) auto;gap:32px;align-items:center;margin-bottom:16px}.overview-time{font-size:22px;font-weight:600}.table-wrap{overflow-x:auto;border:1px solid #dce3ed;border-radius:7px}table{width:100%;min-width:850px;border-collapse:collapse;text-align:left;table-layout:fixed}th{color:#607086;white-space:nowrap;font-size:12px;font-weight:400}th,td{padding:9px 12px;border-bottom:1px solid #e6ebf2;vertical-align:middle;overflow-wrap:anywhere}tr:last-child td{border-bottom:0}th:nth-child(1){width:30%}th:nth-child(2){width:12%}th:nth-child(3){width:17%}th:nth-child(4){width:23%}th:nth-child(5){width:18%}.entry-row.selected{background:#f0f6ff}.text-button{padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}.text-button:hover{color:#166ab8}button:focus-visible,a:focus-visible{outline:2px solid #166ab8;outline-offset:3px}.muted,small{color:#607086;font-size:12px}small{display:block}.number{font-variant-numeric:tabular-nums}.error-summary{color:#aa3030;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badge{display:inline-block;border-radius:5px;padding:2px 8px;background:#edf0f5;white-space:nowrap;font-size:12px}.completed,.reused{background:#e0f4e9;color:#176740}.running{background:#e0edff;color:#1a579e}.failed,.interrupted{background:#fde6e6;color:#aa3030}.warning,.skipped{background:#fff0d7;color:#8f5908}.progress-label{display:flex;justify-content:space-between;gap:8px;font-size:12px}.progress-track{height:6px;background:#e9eef5;border-radius:3px;overflow:hidden;margin-top:5px}.progress-fill{height:100%;background:#2166b5}.progress-track.done .progress-fill{background:#247049}.progress-track.error .progress-fill{background:#b83b3b}.progress-track.indeterminate .progress-fill{width:32%;animation:progress 1.6s ease-in-out infinite alternate}.detail-panel{margin-top:14px;border:1px solid #dce3ed;border-radius:7px;padding:14px 16px}.detail-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 24px;margin-top:12px}.detail-value{overflow-wrap:anywhere}.detail-message{margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}.detail-panel a{display:inline-block;color:#166ab8;margin-top:8px;overflow-wrap:anywhere}.empty{padding:20px;color:#607086}[hidden]{display:none!important}@keyframes progress{from{transform:translateX(0)}to{transform:translateX(210%)}}@media(prefers-reduced-motion:reduce){.progress-track.indeterminate .progress-fill{animation:none}}@media(max-width:700px){body{padding:16px}.overview,.detail-grid{grid-template-columns:1fr}}
+.task-row{background:#eaf0f8}.detail-row>td{background:#fafbfd;padding:0 12px 12px}.detail-row .detail-panel{margin-top:0}.device-cell{font-weight:600}th:nth-child(1){width:26%}th:nth-child(2){width:10%}th:nth-child(3){width:13%}th:nth-child(4){width:20%}th:nth-child(5){width:11%}th:nth-child(6){width:20%}</style>
+</head><body>
+<h1>优酷视频任务进度</h1><p class="intro" id="connection"></p>
+<div class="toolbar"><input type="search" id="search" placeholder="搜索标题、视频编号、阶段或错误原因" aria-label="搜索日志"><label><input type="checkbox" id="errors"> 只看失败、中断和提示</label><a class="export" id="export" href="/snapshot">导出 HTML</a></div>
+<main id="runs"></main><script id="download-log-data" type="application/json">__DATA__</script>
+<script>
+const live=__LIVE__, interval=__INTERVAL__, client=__CLIENT__;
+const search=document.getElementById('search'), errors=document.getElementById('errors'), runs=document.getElementById('runs'), connection=document.getElementById('connection');
+const labels={running:'进行中',pending:'等待中',completed:'已完成',reused:'已复用',failed:'失败',interrupted:'已中断',skipped:'已跳过',warning:'需关注'};
+const stages={resolving:'解析来源',downloading:'下载',waiting_download:'等待下载',waiting_queue:'等待队列容量',waiting_processing:'等待处理',restoring:'还原',extracting:'还原',migrating:'核对旧版',checking:'复核',muxing:'封装',verifying:'完整解码',checking_source:'复核来源',publishing:'发布'};
+const attention=new Set(['failed','interrupted','skipped','warning']);
+const expanded=new Map(), expandedGroups=new Map(), selected=new Map(); let currentData, connected=live, receivedAt=performance.now(), clock;
+// 创建纯文本节点，避免日志内容被当作 HTML；tag、text、className 分别是元素名、内容和样式，返回元素。
+function node(tag,text,className){const e=document.createElement(tag);if(text!==undefined&&text!==null)e.textContent=String(text);if(className)e.className=className;return e}
+// 将状态转换为显示文字；未知状态保留原文，返回字符串。
+function label(value){return labels[value]||value||'—'}
+// 将秒数格式化为累计时分秒；未知值显示占位，返回字符串。
+function duration(value){if(typeof value!=='number'||!Number.isFinite(value)||value<0)return '--:--:--';const n=Math.floor(value);return String(Math.floor(n/3600)).padStart(2,'0')+':'+String(Math.floor(n/60)%60).padStart(2,'0')+':'+String(n%60).padStart(2,'0')}
+// 格式化 ISO 日期文本；value 缺失时返回占位。
+function dateTime(value){return value?value.slice(0,10).replaceAll('-',':')+' '+value.slice(11,19):'—'}
+// 创建状态标签；status 为日志状态，返回元素。
+function badge(status){return node('span',label(status),'badge '+(labels[status]?status:''))}
+// 格式化实际字节值 value；未知值返回占位，不估算传输量。
+function bytes(value){if(typeof value!=='number'||!Number.isFinite(value)||value<0)return '—';if(value>=1024**3)return (value/1024**3).toFixed(2)+' GiB';if(value>=1024**2)return (value/1024**2).toFixed(2)+' MiB';return (value/1024).toFixed(1)+' KiB'}
+// 按当前阶段进度创建进度条；entry 为日志条目，返回元素。
+function progress(entry){const box=node('div'),head=node('div',undefined,'progress-label'),known=typeof entry.progress==='number'&&Number.isFinite(entry.progress),value=known?Math.max(0,Math.min(100,entry.progress)):0;head.append(node('span',stages[entry.stage]||entry.stage||'等待'),node('span',known?value.toFixed(1)+'%':'—','number'));const track=node('div',undefined,'progress-track '+(entry.status==='completed'||entry.status==='reused'?'done':attention.has(entry.status)?'error':!known&&entry.status==='running'?'indeterminate':'')),fill=node('div',undefined,'progress-fill');if(known)fill.style.width=value+'%';track.append(fill);box.append(head,track);if(typeof entry.downloaded_bytes==='number'){const total=typeof entry.total_bytes==='number'?bytes(entry.total_bytes):'总量未知';box.append(node('small',bytes(entry.downloaded_bytes)+' / '+total+' · '+bytes(entry.bytes_per_second)+'/s'))}return box}
+// 以纯文本渲染条目详情；host 为目标容器，entry 为日志条目。
+function showDetail(host,entry){const panel=node('section',undefined,'detail-panel'),heading=node('div',undefined,'detail-heading');heading.append(node('h2',entry.title||entry.video_id||'未知任务'),badge(entry.status));panel.append(heading);const grid=node('div',undefined,'detail-grid');const fields=[['视频编号',entry.video_id],['当前阶段',stages[entry.stage]||entry.stage],['验证设备',entry.device],['输出文件',entry.output],['阶段耗时',entry.stages&&Object.keys(entry.stages).length?Object.entries(entry.stages).map(([key,value])=>(stages[key]||key)+' '+duration(value)).join('；'):null],['资源耗时',entry.resources&&Object.keys(entry.resources).length?Object.entries(entry.resources).map(([key,value])=>key+'：等待 '+duration(value.wait_seconds)+'，执行 '+duration(value.execution_seconds)).join('；'):null],['认证状态',entry.authentication?JSON.stringify(entry.authentication):null]];fields.forEach(([name,value])=>{const item=node('div');item.append(node('div',name,'muted'),node('div',value||'—','detail-value number'));grid.append(item)});panel.append(grid,node('p',entry.detail||'','detail-message'));if(live&&entry.file_url){const a=node('a','打开已发布成品');a.href=entry.file_url;a.target='_blank';a.rel='noopener';panel.append(a)}host.replaceChildren(panel)}
+// 按 URL 分组；entries 是日志条目列表，返回保序分组，历史和缓存条目放在独立组。
+function groupEntries(entries){
+  const groups=new Map();
+  entries.forEach((entry,index)=>{
+    const memberships=entry.groups?.length?entry.groups:[{id:'local',title:'历史任务',url:''}];
+    memberships.forEach(info=>{
+      if(!groups.has(info.id))groups.set(info.id,{...info,entries:[]});
+      groups.get(info.id).entries.push({entry,index});
+    });
+  });
+  return Array.from(groups.values());
+}
+// 在 body 插入任务行及相邻详情；key 为稳定展开标识，entry 为日志条目。
+function appendEntry(body,key,entry){
+  const open=selected.get(key)===true, row=node('tr',undefined,'entry-row'+(open?' selected':''));
+  const title=node('td'),button=node('button',(open?'▾ ':'▸ ')+(entry.title||entry.video_id||'未知任务'),'text-button');
+  button.type='button';button.setAttribute('aria-expanded',String(open));
+  button.addEventListener('click',()=>{selected.set(key,!open);render(currentData)});
+  title.append(button,node('small',entry.video_id||'—'));
+  if(attention.has(entry.status)&&entry.detail){const reason=node('small',entry.detail,'error-summary');reason.title=entry.detail;title.append(reason)}
+  const state=node('td');state.append(badge(entry.status));
+  const bar=node('td');bar.append(progress(entry));
+  row.append(title,state,node('td',stages[entry.stage]||entry.stage||'—'),bar,node('td',entry.device?entry.device.toUpperCase():'—','device-cell'),node('td',entry.output||entry.detail||'—'));
+  body.append(row);
+  if(open){const detailRow=node('tr',undefined,'detail-row'),cell=node('td');cell.colSpan=6;showDetail(cell,entry);detailRow.append(cell);body.append(detailRow)}
+}
+// 以当前筛选条件重绘历史；data 为服务快照，保留批次、URL 分组及相邻详情的展开状态。
+function render(data){
+  currentData=data;
+  const fragment=document.createDocumentFragment(),query=search.value.trim().toLowerCase(),position=window.scrollY;
+  data.runs.slice().reverse().forEach((run,index)=>{
+    const section=node('details',undefined,'run');section.open=expanded.has(run.id)?expanded.get(run.id):index===0;
+    section.addEventListener('toggle',()=>expanded.set(run.id,section.open));
+    section.append(node('summary','第 '+(data.runs.length-index)+' 次 · '+dateTime(run.started)+' · '+label(run.status),'run-summary'));
+    const content=node('div',undefined,'run-content'),overview=node('div',undefined,'overview'),description=node('div'),entries=run.entries||[],counts={};
+    entries.forEach(e=>counts[e.status]=(counts[e.status]||0)+1);
+    description.append(node('p','任务 '+entries.length+' · 进行中 '+((counts.running||0)+(counts.pending||0))+' · 需关注 '+entries.filter(e=>attention.has(e.status)).length),node('p','批次：'+(run.id||'—'),'muted'));
+    if(run.error)description.append(node('p',run.error,'error-summary'));
+    const totals=node('div');totals.append(node('p','完成 '+(counts.completed||0)+' · 复用 '+(counts.reused||0)),node('p','失败 '+(counts.failed||0)+' · 中断 '+(counts.interrupted||0)+' · 跳过 '+(counts.skipped||0),'muted'));
+    const elapsed=node('div'),clockValue=node('p','--:--:--','overview-time');clockValue.dataset.started=run.started||'';clockValue.dataset.finished=run.finished||'';clockValue.dataset.elapsed=run.elapsed_seconds??'';
+    elapsed.append(node('p','运行总耗时','muted'),clockValue);overview.append(description,totals,elapsed);content.append(overview);
+    const wrapper=node('div',undefined,'table-wrap'),table=node('table'),head=node('thead'),headRow=node('tr');
+    ['任务 / 视频编号','状态','阶段','进度','解码 device','详情'].forEach(name=>headRow.append(node('th',name)));head.append(headRow);table.append(head);
+    const body=node('tbody');
+    groupEntries(entries).forEach(group=>{
+      const matched=group.entries.filter(({entry})=>(!errors.checked||attention.has(entry.status))&&(!query||[group.title,group.url,entry.title,entry.video_id,entry.stage,entry.detail,entry.output,entry.device].join(' ').toLowerCase().includes(query)));
+      if(!matched.length)return;
+      const groupKey=run.id+':'+group.id,open=expandedGroups.get(groupKey)!==false;
+      const row=node('tr',undefined,'task-row'),title=node('td'),button=node('button',(open?'▾ ':'▸ ')+(group.title||group.url||'URL 任务'),'text-button');
+      button.type='button';button.setAttribute('aria-expanded',String(open));button.addEventListener('click',()=>{expandedGroups.set(groupKey,!open);render(currentData)});
+      title.append(button,node('small',group.url||''));
+      const groupCounts={};group.entries.forEach(({entry})=>groupCounts[entry.status]=(groupCounts[entry.status]||0)+1);
+      const summary=node('td','共 '+group.entries.length+' 集 · 完成 '+(groupCounts.completed||0)+' · 复用 '+(groupCounts.reused||0)+' · 失败 '+(groupCounts.failed||0));summary.colSpan=5;row.append(title,summary);body.append(row);
+      if(open)matched.forEach(({entry,index})=>appendEntry(body,groupKey+':'+index,entry));
+    });
+    if(!body.children.length){const row=node('tr'),cell=node('td','暂无匹配活动','empty');cell.colSpan=6;row.append(cell);body.append(row)}
+    table.append(body);wrapper.append(table);content.append(wrapper);section.append(content);fragment.append(section);
+  });
+  runs.replaceChildren(fragment);updateTimes();window.scrollTo(0,position);
+}
+// 刷新运行时钟；离线和断线时固定在最后接收的时间，无参数及返回值。
+function updateTimes(){runs.querySelectorAll('[data-started]').forEach(e=>{const start=Date.parse(e.dataset.started),finish=Date.parse(e.dataset.finished),fixed=Number(e.dataset.elapsed),now=live?Date.now()-(connected?0:performance.now()-receivedAt):Date.parse(currentData.captured_at);e.textContent=duration(Number.isFinite(finish)&&Number.isFinite(start)?(finish-start)/1000:e.dataset.elapsed!==''&&Number.isFinite(fixed)?fixed:Number.isFinite(start)&&Number.isFinite(now)?Math.max(0,(now-start)/1000):null)})}
+// 获取实时快照；收到最终状态后确认并停止轮询，失败时保留最后画面。
+async function refresh(){try{const response=await fetch('/state?client='+encodeURIComponent(client),{cache:'no-store'});if(!response.ok)throw new Error('HTTP '+response.status);const data=await response.json();receivedAt=performance.now();connected=true;render(data);if(data.closed){connection.textContent='运行已结束 · 当前为最终状态';clearInterval(clock);await fetch('/ack?client='+encodeURIComponent(client)+'&run='+encodeURIComponent(data.current_id),{cache:'no-store'})}else{connection.textContent='实时连接 · 每 '+interval/1000+' 秒更新 · 日期 YYYY:MM:DD · 耗时 HH:MM:SS';setTimeout(refresh,interval)}}catch(error){connected=false;clearInterval(clock);updateTimes();connection.textContent='连接已断开 · 以下为最后接收的数据，最终状态请查看离线快照'}}
+search.addEventListener('input',()=>render(currentData));errors.addEventListener('change',()=>render(currentData));render(JSON.parse(document.getElementById('download-log-data').textContent));document.getElementById('export').hidden=!live;if(live){clock=setInterval(updateTimes,1000);refresh()}else connection.textContent='离线快照 · 已内嵌全部数据 · 耗时固定为导出时的状态';
+</script></body></html>

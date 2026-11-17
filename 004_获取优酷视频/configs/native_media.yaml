@@ -1,0 +1,9 @@
+# 当前已验证客户端版本；升级后不得只改摘要，须重新验证 ABI 与媒体。
+library: nplayer64/aliplayerVS.dll
+library_sha256: bb113b451036f8ee737aeb7b04e47dc57713d8339c2bdb7af87adafd30a38a39
+# 函数偏移仅适用于上述摘要；升级必须重新研究并验收。
+function_rva: 0x256220
+output_bytes: 96
+timeout_seconds: 20
+key_index: key01
+challenge_module_sha256: b1e5851ca2c9404e602b4f9943f8bde03267e568c1616e2131bb9427400dc9ed

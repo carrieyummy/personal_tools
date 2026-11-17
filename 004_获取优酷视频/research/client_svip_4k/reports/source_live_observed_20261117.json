@@ -1,0 +1,269 @@
+{
+  "files": [
+    {
+      "path": "C:\\Program Files (x86)\\YOUKU\\9.5.3.1001\\resources\\app\\app\\main\\dist\\main.prod.js",
+      "sha256": "4b709f2c2edb44e8fb562f4bb0a6f5240b9cc6be0260b14c69fe55cb8c2a4df8",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 194103,
+          "snippet": "am@1.3.0@string-to-file-stream/index.js\"),vt=n.n(At);function wt(e,t){return(wt=Object.setPrototypeOf?Object.setPrototypeOf.bind():function(e,t){return e.__proto__=t,e})(e,t)}var qt=function(e){function t(t){var n;return(n=e.call(this,t)||this).apiList=[{api:\"mtop.youku.play.ups.appinfo.get\",key:\"ups\"},{api:\"mtop.youku.danmu.common.profile\"},{api:\"mtop.youku.danmu.profile.v2\"},{api:\"mopen.youku.danmu.list\"}],n}var o,r;r=e,(o=t).prototype=Object.create(r.prototype),o.prototype.constructor=o,wt(o,r);var a=t.prototype;return a.stringify=function(e)"
+        },
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 195665,
+          "snippet": "==c){var l=Object(p.getLocalVid)(o),u={};if(l.endsWith(\".kux\"))u=function(e){if(e=e.replace(/(\\/)+/g,\"/\").replace(/(\\\\)+/g,\"/\"),s.a.existsSync(e))try{var t=JSON.parse(Object(M.a)(e));if(\"success\"===t.ret&&t.m3u8Url&&t.vid){var n=t.duration,o=t.vid;return{api:\"mtop.youku.play.ups.appinfo.get\",data:{data:{playlog:{lastpoint:\"0\"},video:{stream_types:{default:[\"mp4hd\"]},title:t.name||e.split(\"/\")[e.split(\"/\").length-1].split(\".kux\")[0],encodeid:o,seconds:n.toFixed(3),id:Object(p.decodeId)(o),playTypes:\"local\"},stream:[{milliseconds_audio:1e3*n.toFix"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Program Files (x86)\\YOUKU\\9.5.3.1001\\resources\\app\\app\\preload\\nplayer.js",
+      "sha256": "306d3236c698f410d082b5cf605e53af6ccc5c3385d39ee307eb4ce137e13553",
+      "matches": [
+        {
+          "term": "getCollinaCkey",
+          "offset": 4265,
+          "snippet": "n,r=o.value,i=o.key,a=void 0===i?\"hardware\":i;return a=\"iku_global_\"+a,\"get\"===t?u.sendSync(\"get-global-vars\",a):\"set\"===t?(u.send(\"update-global-vars\",((n={})[a]=r,n)),t+\" success\"):t+\" error\"},supportSoundEffect:function(){return\"darwin\"===process.platform},getCollinaCkey:function(e){var n=w();v[n]=e,u.send(\"get-collina-ckey\",n)},sendPerformanceAlarmMessage:function(){for(var e=arguments.length,n=new Array(e),o=0;o<e;o++)n[o]=arguments[o];u.send.apply(u,[\"send-performance-alarm-message\"].concat(n))},getSystemInfos:function(){v"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Program Files (x86)\\YOUKU\\9.5.3.1001\\resources\\app\\app\\renderer\\dist\\rendererv2.prod.js",
+      "sha256": "6d1f35979ad432dcc80b586e1ff2ba33b159aa8c80dbd70843c4c467f74022db",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 18514,
+          "snippet": "urn JSON.parse(e)||{}}catch(e){return{}}};function f(e,n){return p.apply(this,arguments)}function p(){return(p=u(a().m((function n(t,o){var i,s,l,u,f,p,v,h,g,y,b,w,k,x,_,T,S,C,E,j,P,O,N,L,I,A,D,R,U;return a().w((function(n){for(;;)switch(n.n){case 0:return l=\"mtop.youku.play.ups.appinfo.get\",n.n=1,window.ikuApi.getGlobalConfig([\"appBuildVersion\",\"platform\",\"UTDID\",\"hardwareAbility\",\"systemInfos\"]);case 1:if(u=n.v,f=u.appBuildVersion,p=u.platform,v=u.UTDID,h=d(u.hardwareAbility||null),g=window.ikuApi.getPcdnNgVersion(\"getPcdnNgVersion\"),y=u.syste"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\0335dc3573d77fbb8b35ab3c82e4e5ab.js",
+      "sha256": "3ab76d2a110d8fad3e12e5fef00b7231e90c407bcae9d93fd0ab4798b2c315b7",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 2031177,
+          "snippet": "t?void 0:t.env)&&\"staging\"===window.__PAGE_CONF__.env?this.env=\"pre-acs\":this.env=\"un-acs\");var n,r,a=this.getUpsParams();switch(this.requestType){case o.e.MTOP:r=new zt({prefix:this.env,mainDomain:this.ctx.config.mainDomain,appKey:this.ctx.config.appKey,api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry]}),n=Qt(r,a,this.resolveUPSEnc);break;case o.e.JSONP:r=new qt({prefix:\"_JSONPCallback\",url:i.url||\"https://ups.\"+this.ctx.config.mainDomain+\"/ups/get.json\",timeout:this.timeout[this.retry]}),n=Yt(r,a,this.resolveUPSEnc);break;"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2020360,
+          "snippet": "his.ctx.config.vid,\"192.168.1.1\",r.toString());if(o&&-1===o.indexOf(\"er00_2__1_\"))return void this.onComplete(o)}catch(t){console.log(\"----\\x3egetUpsCKey\",t)}this.onComplete(pn.decode64(this.ctx.initConfig.ikuDefaultCkey))}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){if(t)e.onComplete(t);else{var i=pn.decode64(e.ctx.initConfig.defaultCkey);e.onComplete(i)}}));else{var a=this.getLocalKey();a?this.onComplete(a):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.init"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2020389,
+          "snippet": ".1\",r.toString());if(o&&-1===o.indexOf(\"er00_2__1_\"))return void this.onComplete(o)}catch(t){console.log(\"----\\x3egetUpsCKey\",t)}this.onComplete(pn.decode64(this.ctx.initConfig.ikuDefaultCkey))}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){if(t)e.onComplete(t);else{var i=pn.decode64(e.ctx.initConfig.defaultCkey);e.onComplete(i)}}));else{var a=this.getLocalKey();a?this.onComplete(a):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.initAWSC().then((function(){e.get"
+        },
+        {
+          "term": "r.chipset=d.data",
+          "offset": 2033402,
+          "snippet": "nDevice&&window.ElectronDevice.gpu){var c=window.ElectronDevice.gpu,u=c.find((function(t){return t&&t.data&&t.data.toUpperCase().indexOf(\"NVIDIA\")>-1})),p=c.find((function(t){return t&&t.data&&t.data.toUpperCase().indexOf(\"AMD\")>-1})),d=u||p||c[0];d&&d.data&&(r.chipset=d.data)}return r.extParams=l,\"function\"==typeof this.ctx.upsParams.params&&(r=this.ctx.upsParams.params(r)),r},e.prototype.getTimeout=function(){return 6e4},e.prototype.onComplete=function(e){this.isStop||(this.ctx.mediaResource=e,t.prototype.onComplete.call(this,e)"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\07d5dc9e7cbd5aae017b11d4020485e2.js",
+      "sha256": "33d4d003e708b04eb2ba5580635e224396d982ce9322030619b91c0ab392af3d",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 2851837,
+          "snippet": ";t.requestType?this.requestType=t.requestType:this.requestType||(this.requestType=o.MTOP);var e,n,i=this.getUpsParams();switch(this.requestType){case o.MTOP:n=new SA({prefix:t.env||\"acs\",mainDomain:this.ctx.config.mainDomain,appKey:this.ctx.config.appKey,api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry]}),e=HA(n,i,null);break;case o.JSONP:n=new LA({prefix:\"_JSONPCallback\",url:t.url||\"https://ups.\"+this.ctx.config.mainDomain+\"/ups/get.json\",timeout:this.timeout[this.retry]}),e=UA(n,i,null);break;case o.FETCH:n=new OA({method:"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2842976,
+          "snippet": "eturn void this.onComplete(r)}catch(A){console.log(\"----\\x3egetUpsCKey\",A)}this.onComplete(\"7B19C0AB12633B22E7FE81271162026020570708D6CC189E4924503C49D243A0DE6CD84A766832C2C99898FC5ED31F3709BB3CDD82C96492E721BDD381735026\")}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(A){A?t.onComplete(A):t.onComplete(hg)}));else{var o=this.getLocalKey();o?this.onComplete(o):window.AWSC?this.getUab().then((function(A){t.onComplete(A)})):this.initAWSC().then((function(){t.getUab().then((function(A){t.o"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2843005,
+          "snippet": "}catch(A){console.log(\"----\\x3egetUpsCKey\",A)}this.onComplete(\"7B19C0AB12633B22E7FE81271162026020570708D6CC189E4924503C49D243A0DE6CD84A766832C2C99898FC5ED31F3709BB3CDD82C96492E721BDD381735026\")}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(A){A?t.onComplete(A):t.onComplete(hg)}));else{var o=this.getLocalKey();o?this.onComplete(o):window.AWSC?this.getUab().then((function(A){t.onComplete(A)})):this.initAWSC().then((function(){t.getUab().then((function(A){t.onComplete(A)}))})).catch((fun"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\16cfdd9dd491ec987ba227ba11b1dfa4.js",
+      "sha256": "1809311f76ab583c617375562f431d6765a5e6f926526139bd9135820203ecd2",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 650425,
+          "snippet": "MTOP);var t,r,i=this.getUpsParams(this.vid);if(this.config.source)t=ze(this.config.source,i);else switch(this.requestType){case it.MTOP:r=new N({prefix:\"pre\"===this.config.env?\"pre-acs\":\"un-acs\",mainDomain:this.config.mainDomain,appKey:this.config.appKey,api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry],extra:{AntiFlood:!0,AntiCreep:!0}}),t=Xe(r,i);break;case it.JSONP:r=new D({prefix:\"_JSONPCallback\",url:this.config.url||\"https://ups.\"+this.config.mainDomain+\"/ups/get.json\",timeout:this.timeout[this.retry]}),t=ze(r,i);break;"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 646284,
+          "snippet": ".defaultCkey&&(r.defaultCkey=ct.decode64(t.defaultCkey)),r}return dt(t,e),t.prototype.main=function(){var e=this;if(this.timer&&(clearTimeout(this.timer),this.timer=null),this.timer=window.setTimeout((function(){e.onError()}),3e3),window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){e.onComplete(t)}));else{var t=this.getLocalKey();t?this.onComplete(t):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.initAWSC().then((function(){e.getUab().then((function(t){e.onComplete(t)}))}))."
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 646313,
+          "snippet": "ct.decode64(t.defaultCkey)),r}return dt(t,e),t.prototype.main=function(){var e=this;if(this.timer&&(clearTimeout(this.timer),this.timer=null),this.timer=window.setTimeout((function(){e.onError()}),3e3),window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){e.onComplete(t)}));else{var t=this.getLocalKey();t?this.onComplete(t):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.initAWSC().then((function(){e.getUab().then((function(t){e.onComplete(t)}))})).catch((function(){e.onError()"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\19512b7494a2413e6caef3cdae32918e.js",
+      "sha256": "348c310f22c0516cae289887aa1810f36540f61bcfbdec0265c6b99e5fa984db",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 165510,
+          "snippet": "C96492E721BDD381735026\";function h(e,t){return m.apply(this,arguments)}function m(){return(m=o()(regeneratorRuntime.mark((function e(t,n){var r,o,a,s,c,l,u,d,h,m,v,y,g,_;return regeneratorRuntime.wrap((function(e){for(;;)switch(e.prev=e.next){case 0:return r=\"mtop.youku.play.ups.appinfo.get\",e.next=1,window.ikuApi.getGlobalConfig([\"appBuildVersion\",\"platform\",\"UTDID\"]);case 1:return o=e.sent,a=o.appBuildVersion,s=o.platform,c=o.UTDID,l=\"darwin\"===s?\"03010105\":\"03020102\",e.next=2,f();case 2:return u=e.sent,d=u.R1Random,h=u.encryptR1,e.next=3,wind"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\5b5c0a55d25e48689e66665b8df1609c.js",
+      "sha256": "68ffe9f6f559722feaf555af466b6a59e6eecb31198456a64f64135c82b30ad1",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 3012310,
+          "snippet": "y.v.youku.com\"===location.hostname?this.env=\"pre-acs\":t.env?this.env=t.env:this.env=\"acs\";var e,n,i=this.getUpsParams();switch(this.requestType){case o.MTOP:n=new SA({prefix:t.env||\"acs\",mainDomain:this.ctx.config.mainDomain,appKey:this.ctx.config.appKey,api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry]}),e=HA(n,i,null);break;case o.JSONP:n=new LA({prefix:\"_JSONPCallback\",url:t.url||\"https://ups.\"+this.ctx.config.mainDomain+\"/ups/get.json\",timeout:this.timeout[this.retry]}),e=UA(n,i,null);break;case o.FETCH:n=new kA({method:"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 3003318,
+          "snippet": "eturn void this.onComplete(r)}catch(A){console.log(\"----\\x3egetUpsCKey\",A)}this.onComplete(\"7B19C0AB12633B22E7FE81271162026020570708D6CC189E4924503C49D243A0DE6CD84A766832C2C99898FC5ED31F3709BB3CDD82C96492E721BDD381735026\")}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(A){A?t.onComplete(A):t.onComplete(Mg)}));else{var o=this.getLocalKey();o?this.onComplete(o):window.AWSC?this.getUab().then((function(A){t.onComplete(A)})):this.initAWSC().then((function(){t.getUab().then((function(A){t.o"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 3003347,
+          "snippet": "}catch(A){console.log(\"----\\x3egetUpsCKey\",A)}this.onComplete(\"7B19C0AB12633B22E7FE81271162026020570708D6CC189E4924503C49D243A0DE6CD84A766832C2C99898FC5ED31F3709BB3CDD82C96492E721BDD381735026\")}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(A){A?t.onComplete(A):t.onComplete(Mg)}));else{var o=this.getLocalKey();o?this.onComplete(o):window.AWSC?this.getUab().then((function(A){t.onComplete(A)})):this.initAWSC().then((function(){t.getUab().then((function(A){t.onComplete(A)}))})).catch((fun"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\6c08ac7a09df30efd895c4fd79021e93.js",
+      "sha256": "c505387911ae42a1112a28904d696964ec1dac7846b99ca0165767169b5c1cb4",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 650425,
+          "snippet": "MTOP);var t,r,i=this.getUpsParams(this.vid);if(this.config.source)t=ze(this.config.source,i);else switch(this.requestType){case it.MTOP:r=new N({prefix:\"pre\"===this.config.env?\"pre-acs\":\"un-acs\",mainDomain:this.config.mainDomain,appKey:this.config.appKey,api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry],extra:{AntiFlood:!0,AntiCreep:!0}}),t=Xe(r,i);break;case it.JSONP:r=new D({prefix:\"_JSONPCallback\",url:this.config.url||\"https://ups.\"+this.config.mainDomain+\"/ups/get.json\",timeout:this.timeout[this.retry]}),t=ze(r,i);break;"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 646284,
+          "snippet": ".defaultCkey&&(r.defaultCkey=ct.decode64(t.defaultCkey)),r}return dt(t,e),t.prototype.main=function(){var e=this;if(this.timer&&(clearTimeout(this.timer),this.timer=null),this.timer=window.setTimeout((function(){e.onError()}),3e3),window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){e.onComplete(t)}));else{var t=this.getLocalKey();t?this.onComplete(t):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.initAWSC().then((function(){e.getUab().then((function(t){e.onComplete(t)}))}))."
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 646313,
+          "snippet": "ct.decode64(t.defaultCkey)),r}return dt(t,e),t.prototype.main=function(){var e=this;if(this.timer&&(clearTimeout(this.timer),this.timer=null),this.timer=window.setTimeout((function(){e.onError()}),3e3),window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){e.onComplete(t)}));else{var t=this.getLocalKey();t?this.onComplete(t):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.initAWSC().then((function(){e.getUab().then((function(t){e.onComplete(t)}))})).catch((function(){e.onError()"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\6d49bbbb9f8807b5deeb3d4be3a66a76.js",
+      "sha256": "6c1e6311429dc85528fcd9599c5de3fb851ed880a7c50e109c520354a822cbce",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 2053173,
+          "snippet": "t?void 0:t.env)&&\"staging\"===window.__PAGE_CONF__.env?this.env=\"pre-acs\":this.env=\"un-acs\");var n,r,a=this.getUpsParams();switch(this.requestType){case o.e.MTOP:r=new zt({prefix:this.env,mainDomain:this.ctx.config.mainDomain,appKey:this.ctx.config.appKey,api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry]}),n=Qt(r,a,this.resolveUPSEnc);break;case o.e.JSONP:r=new qt({prefix:\"_JSONPCallback\",url:i.url||\"https://ups.\"+this.ctx.config.mainDomain+\"/ups/get.json\",timeout:this.timeout[this.retry]}),n=Yt(r,a,this.resolveUPSEnc);break;"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2042147,
+          "snippet": "his.ctx.config.vid,\"192.168.1.1\",r.toString());if(o&&-1===o.indexOf(\"er00_2__1_\"))return void this.onComplete(o)}catch(t){console.log(\"----\\x3egetUpsCKey\",t)}this.onComplete(pn.decode64(this.ctx.initConfig.ikuDefaultCkey))}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){if(t)e.onComplete(t);else{var i=pn.decode64(e.ctx.initConfig.defaultCkey);e.onComplete(i)}}));else{var a=this.getLocalKey();a?this.onComplete(a):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.init"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2042176,
+          "snippet": ".1\",r.toString());if(o&&-1===o.indexOf(\"er00_2__1_\"))return void this.onComplete(o)}catch(t){console.log(\"----\\x3egetUpsCKey\",t)}this.onComplete(pn.decode64(this.ctx.initConfig.ikuDefaultCkey))}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){if(t)e.onComplete(t);else{var i=pn.decode64(e.ctx.initConfig.defaultCkey);e.onComplete(i)}}));else{var a=this.getLocalKey();a?this.onComplete(a):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.initAWSC().then((function(){e.get"
+        },
+        {
+          "term": "r.chipset=d.data",
+          "offset": 2055554,
+          "snippet": "nDevice&&window.ElectronDevice.gpu){var c=window.ElectronDevice.gpu,u=c.find((function(t){return t&&t.data&&t.data.toUpperCase().indexOf(\"NVIDIA\")>-1})),p=c.find((function(t){return t&&t.data&&t.data.toUpperCase().indexOf(\"AMD\")>-1})),d=u||p||c[0];d&&d.data&&(r.chipset=d.data)}return r.extParams=l,\"function\"==typeof this.ctx.upsParams.params&&(r=this.ctx.upsParams.params(r)),r},e.prototype.getTimeout=function(){return 6e4},e.prototype.onComplete=function(e){this.isStop||(this.ctx.mediaResource=e,t.prototype.onComplete.call(this,e)"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\a298706a5c64e2532b3ed22250bd75bf.js",
+      "sha256": "c0e9d6b110dd23ee5552a9579e4e54a77635cbc62978e8f5a5ecd490d5330001",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 2053101,
+          "snippet": "t?void 0:t.env)&&\"staging\"===window.__PAGE_CONF__.env?this.env=\"pre-acs\":this.env=\"un-acs\");var n,r,a=this.getUpsParams();switch(this.requestType){case o.e.MTOP:r=new zt({prefix:this.env,mainDomain:this.ctx.config.mainDomain,appKey:this.ctx.config.appKey,api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry]}),n=Qt(r,a,this.resolveUPSEnc);break;case o.e.JSONP:r=new qt({prefix:\"_JSONPCallback\",url:i.url||\"https://ups.\"+this.ctx.config.mainDomain+\"/ups/get.json\",timeout:this.timeout[this.retry]}),n=Yt(r,a,this.resolveUPSEnc);break;"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2042075,
+          "snippet": "his.ctx.config.vid,\"192.168.1.1\",r.toString());if(o&&-1===o.indexOf(\"er00_2__1_\"))return void this.onComplete(o)}catch(t){console.log(\"----\\x3egetUpsCKey\",t)}this.onComplete(pn.decode64(this.ctx.initConfig.ikuDefaultCkey))}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){if(t)e.onComplete(t);else{var i=pn.decode64(e.ctx.initConfig.defaultCkey);e.onComplete(i)}}));else{var a=this.getLocalKey();a?this.onComplete(a):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.init"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2042104,
+          "snippet": ".1\",r.toString());if(o&&-1===o.indexOf(\"er00_2__1_\"))return void this.onComplete(o)}catch(t){console.log(\"----\\x3egetUpsCKey\",t)}this.onComplete(pn.decode64(this.ctx.initConfig.ikuDefaultCkey))}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){if(t)e.onComplete(t);else{var i=pn.decode64(e.ctx.initConfig.defaultCkey);e.onComplete(i)}}));else{var a=this.getLocalKey();a?this.onComplete(a):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.initAWSC().then((function(){e.get"
+        },
+        {
+          "term": "r.chipset=d.data",
+          "offset": 2055482,
+          "snippet": "nDevice&&window.ElectronDevice.gpu){var c=window.ElectronDevice.gpu,u=c.find((function(t){return t&&t.data&&t.data.toUpperCase().indexOf(\"NVIDIA\")>-1})),p=c.find((function(t){return t&&t.data&&t.data.toUpperCase().indexOf(\"AMD\")>-1})),d=u||p||c[0];d&&d.data&&(r.chipset=d.data)}return r.extParams=l,\"function\"==typeof this.ctx.upsParams.params&&(r=this.ctx.upsParams.params(r)),r},e.prototype.getTimeout=function(){return 6e4},e.prototype.onComplete=function(e){this.isStop||(this.ctx.mediaResource=e,t.prototype.onComplete.call(this,e)"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\cc3b92424d3112d844fa74603075b86e.js",
+      "sha256": "8b2c2a9e9ec34540335b7dcd0d3aec1b174a63789bed283d889d4061d387b536",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 2029102,
+          "snippet": "t?void 0:t.env)&&\"staging\"===window.__PAGE_CONF__.env?this.env=\"pre-acs\":this.env=\"un-acs\");var n,r,a=this.getUpsParams();switch(this.requestType){case o.e.MTOP:r=new zt({prefix:this.env,mainDomain:this.ctx.config.mainDomain,appKey:this.ctx.config.appKey,api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry]}),n=Jt(r,a,this.resolveUPSEnc);break;case o.e.JSONP:r=new qt({prefix:\"_JSONPCallback\",url:i.url||\"https://ups.\"+this.ctx.config.mainDomain+\"/ups/get.json\",timeout:this.timeout[this.retry]}),n=Yt(r,a,this.resolveUPSEnc);break;"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2018285,
+          "snippet": "his.ctx.config.vid,\"192.168.1.1\",r.toString());if(o&&-1===o.indexOf(\"er00_2__1_\"))return void this.onComplete(o)}catch(t){console.log(\"----\\x3egetUpsCKey\",t)}this.onComplete(pn.decode64(this.ctx.initConfig.ikuDefaultCkey))}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){if(t)e.onComplete(t);else{var i=pn.decode64(e.ctx.initConfig.defaultCkey);e.onComplete(i)}}));else{var a=this.getLocalKey();a?this.onComplete(a):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.init"
+        },
+        {
+          "term": "getCollinaCkey",
+          "offset": 2018314,
+          "snippet": ".1\",r.toString());if(o&&-1===o.indexOf(\"er00_2__1_\"))return void this.onComplete(o)}catch(t){console.log(\"----\\x3egetUpsCKey\",t)}this.onComplete(pn.decode64(this.ctx.initConfig.ikuDefaultCkey))}else if(window.ikuApi&&window.ikuApi.getCollinaCkey)window.ikuApi.getCollinaCkey((function(t){if(t)e.onComplete(t);else{var i=pn.decode64(e.ctx.initConfig.defaultCkey);e.onComplete(i)}}));else{var a=this.getLocalKey();a?this.onComplete(a):window.AWSC?this.getUab().then((function(t){e.onComplete(t)})):this.initAWSC().then((function(){e.get"
+        },
+        {
+          "term": "r.chipset=d.data",
+          "offset": 2031327,
+          "snippet": "nDevice&&window.ElectronDevice.gpu){var c=window.ElectronDevice.gpu,u=c.find((function(t){return t&&t.data&&t.data.toUpperCase().indexOf(\"NVIDIA\")>-1})),p=c.find((function(t){return t&&t.data&&t.data.toUpperCase().indexOf(\"AMD\")>-1})),d=u||p||c[0];d&&d.data&&(r.chipset=d.data)}return r.extParams=l,\"function\"==typeof this.ctx.upsParams.params&&(r=this.ctx.upsParams.params(r)),r},e.prototype.getTimeout=function(){return 6e4},e.prototype.onComplete=function(e){this.isStop||(this.ctx.mediaResource=e,t.prototype.onComplete.call(this,e)"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\f744fd863c3280fc215aec5b29cbfe31.js",
+      "sha256": "682eac2ed07aceb15c0684d8905eeeaa4f74851231efa9867b52dae0073f7517",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 224844,
+          "snippet": "C96492E721BDD381735026\";function h(e,t){return m.apply(this,arguments)}function m(){return(m=i()(regeneratorRuntime.mark((function e(t,n){var r,i,a,s,l,c,u,d,h,m,v,y,g,_;return regeneratorRuntime.wrap((function(e){for(;;)switch(e.prev=e.next){case 0:return r=\"mtop.youku.play.ups.appinfo.get\",e.next=1,window.ikuApi.getGlobalConfig([\"appBuildVersion\",\"platform\",\"UTDID\"]);case 1:return i=e.sent,a=i.appBuildVersion,s=i.platform,l=i.UTDID,c=\"darwin\"===s?\"03010105\":\"03020102\",e.next=2,f();case 2:return u=e.sent,d=u.R1Random,h=u.encryptR1,e.next=3,wind"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\Administrator\\AppData\\Roaming\\youku-app\\local_caches\\v2\\static\\f812af6a337fa60978017c591dce68a0.js",
+      "sha256": "292b2562432a9978e6e3d74465b0af27025a325f625573347c18d28cb25f8fda",
+      "matches": [
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 830332,
+          "snippet": "e=this;this.config.requestType?this.requestType=this.config.requestType:this.requestType||(this.requestType=ft.MTOP);var t,i,n=this.getUpsParams(this.vid);switch(this.requestType){case ft.MTOP:i=new h({prefix:this.config.env||\"acs\",mainDomain:\"youku.com\",api:\"mtop.youku.play.ups.appinfo.get\",timeout:this.timeout[this.retry]}),t=Le(i,n);break;case ft.JSONP:i=new u({prefix:\"_JSONPCallback\",url:this.config.url||\"https://ups.youku.com/ups/get.json\",timeout:this.timeout[this.retry]}),t=xe(i,n);break;case ft.FETCH:i=new l({method:\"POST\",url:this.confi"
+        },
+        {
+          "term": "mtop.youku.play.ups.appinfo.get",
+          "offset": 832676,
+          "snippet": "_ts)||parseInt(String((new Date).getTime()/1e3)))},this.drm&&(m.drm=this.drm),m.adParams={mdl:p},g={benefit:!0},m.extParams=g,m.bizParams={playMode:\"normal\",pn:\"com.youku.iku\",native_ver:s},y=new h({prefix:this.config.env||\"un-acs\",mainDomain:\"youku.com\",api:\"mtop.youku.play.ups.appinfo.get\",timeout:3e3}),[4,Le(y,m)];case 3:if(v=E.sent()){if((null==(b=v.raw)?void 0:b.error)&&b.error.code&&[\"-3001\",\"-3007\"].includes(b.error.code.toString()))return this.onFatal(b.error,b),[2];b&&(e.raw||(e.raw={}),b.user&&(e.raw.user=b.user),b.video&&(e.raw.video|"
+        }
+      ]
+    }
+  ],
+  "note": "实时研究关联的静态源码定位；具体请求和响应以 live_observed_20261117.json 为准。"
+}

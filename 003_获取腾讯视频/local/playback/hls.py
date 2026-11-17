@@ -207,6 +207,22 @@ def local_manifest(playlist: Playlist, directory: Path) -> Path:
 def download(transport: Transport, initial: list[Playlist], directory: Path, config: dict[str, Any], refresh: Callable[[], list[Playlist]],
              progress: Callable[[int, int], None], cancel: Event) -> tuple[list[Path], dict[str, Any]]:
     """顺序下载单集资源；initial 为清单，directory 为源版本现场，config 控制重试；refresh 续签，progress 报已完成/总数，cancel 取消；返回本地清单和证据。"""
+    steps = download_steps(transport, initial, directory, config, progress, cancel)
+    current = None
+    try:
+        while True:
+            try:
+                steps.send(current)
+            except StopIteration as done:
+                return done.value
+            current = refresh()
+    finally:
+        steps.close()
+
+
+def download_steps(transport: Transport, initial: list[Playlist], directory: Path, config: dict[str, Any],
+                   progress: Callable[[int, int], None], cancel: Event):
+    """用 transport/config 下载 initial 至 directory；progress 报进度，cancel 可取消；让出续签请求，send 接收同源清单，返回路径及证据。"""
     expected = [playlist.identity for playlist in initial]
     state_path = directory / "segments.json"
     state = read_json(state_path) if state_path.exists() else {"playlists": expected, "completed": {}}
@@ -270,7 +286,8 @@ def download(transport: Transport, initial: list[Playlist], directory: Path, con
                     if refreshed >= config["download"]["refresh_attempts"]:
                         raise
                     refreshed += 1
-                    current = refresh()
+                    current = yield "refresh"
+                    check_cancel(cancel)
                     if [item.identity for item in current] != expected:
                         raise SourceChanged("续签后的媒体清单发生变化，旧现场已保留") from None
                 except AuthenticationError:

@@ -9,6 +9,7 @@ from ..process import probe_media
 from ..storage import atomic_json, fingerprint, output_lock, publish, read_json, valid_digest
 from .metadata import require_same_metadata
 from .outputs import target_path
+from .records import PlaybackDirectoryIndex, consolidate_directory
 
 
 def resume_validated(work: Path, identity: dict, video: dict, config: dict, controls) -> dict | None:
@@ -44,23 +45,34 @@ def resume_validated(work: Path, identity: dict, video: dict, config: dict, cont
 
 
 def publish_validated(profile: dict, config: dict, video: dict, source: dict, work: Path, report: dict, controls, notify=None) -> dict:
-    """将 work/report 的已验证候选发布到 profile/config 输出目录；video/source 核对命名，controls/notify 限制及上报阶段；返回成品报告。"""
+    """在配置的平台输出锁内发布 work/report 并重载提交索引；profile/config 控制输出，video/source 核对命名，controls/notify 限制及上报阶段；返回成品报告。"""
     candidate = work / "validated.partial.mp4"
     try:
         require_same_metadata(profile, video)
         root = resolve_path(config["output_path"], profile["main_config"].parent)
         if notify:
-            notify({"stage": "publishing", "detail": "获取输出目录写入权并保存成品"})
-        with controls.slot("publish"), output_lock(root):
+            notify({"stage": "publishing", "detail": "获取本平台写入权并保存成品"})
+        with controls.slot("publish"), output_lock(root, config["logging"]["lock_file"]):
             target = target_path(config, profile["main_config"], video, source)
-            if target.exists() or target.with_suffix(".playback.json").exists():
+            consolidate_directory(target.parent, root, config)
+            index = PlaybackDirectoryIndex(target.parent, root)
+            known = {name.casefold() for name in index.records()} | {entry["path"].casefold() for entry in index.data["files"]}
+            while target.exists() or target.name.casefold() in known:
                 target = target.with_stem(target.stem + "_" + datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f"))
             if not target.is_relative_to(root):
                 raise ValueError("播放成品路径超出主配置输出目录")
             report["status"] = "publishing"
             report["output_fingerprint"] = publish(candidate, target, report["validated_fingerprint"]["sha256"], config["copy_buffer_bytes"], cancel_event=controls.cancel)
             report.update(output=str(target), status="completed")
-            atomic_json(target.with_suffix(".playback.json"), report, retry_settings=config["logging"], cancel_event=controls.cancel)
+            try:
+                index.add(target.name, report)
+                index.save(retry_settings=config["logging"], cancel_event=controls.cancel)
+            except BaseException:
+                # 索引未提交时只回收本次新发布且内容未变化的副本，保留已验证候选用于续发。
+                actual = fingerprint(target, config["copy_buffer_bytes"], report["output_fingerprint"])
+                if actual["sha256"] == report["output_fingerprint"]["sha256"]:
+                    target.unlink()
+                raise
         if not config["keep_intermediates"]:
             paths = [candidate, work / "outer.ts", work / "clear.ts", work / "highest_audio.m4a", *work.glob("clear_*.mp4"), *work.glob("segment_*.ts")]
             warnings = []

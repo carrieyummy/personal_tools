@@ -1,0 +1,141 @@
+# 优酷专项配置；相对路径基于本文件，运行值不在代码中重复默认。
+client_dir: C:/Program Files (x86)/YOUKU/9.5.3.1001
+user_data: '%APPDATA%/youku-app'
+# 隔离签名子进程使用客户端自带的 Electron，不能换用系统 Node。
+native:
+  executable: YOUKU.exe
+  module: youku-player.node
+  ccode: '03020102'
+  client_ip: 192.168.1.1
+  timeout_seconds: 20
+# 仅连接本机 Inspector；自动识别唯一主进程，只关闭本次开启的连接。
+live:
+  inspector_url: http://127.0.0.1:9229/json/list
+  player_url_prefix: client://iku.youku.com/video
+  timeout_seconds: 15
+  max_result_bytes: 8388608
+  connect_attempts: 20
+  retry_interval_seconds: 0.2
+  close_delay_ms: 50
+# 账号接口 UA 读取真实客户端；超时、代理、响应限制和 Referer 从主配置读取。
+network:
+  base_url: https://acs.youku.com/h5
+  app_key: '24679788'
+  jsv: 2.7.5
+  data_type: originaljson
+  token_cookie: _m_h5_tk
+  ups:
+    api: mtop.youku.play.ups.appinfo.get
+    version: '1.1'
+    base_url: https://un-acs.youku.com/h5
+# 官方选集分页，不调用创建下载任务接口。
+catalog:
+  api: mtop.youku.pixiu.downloadmix.load
+  version: '1.0'
+  payload:
+    show_id: ''
+    appPackageId: com.youku.iku
+    device: pc
+    paging: true
+    page_size: 52
+  system_info:
+    apppackagekey: com.youku.iku
+    device: iku
+    resource: electron
+  max_pages: 100
+  page_field: page_no
+# 单段及 PES 上限独立于等待队列容量；遇到更大结构时明确失败。
+media:
+  max_manifest_bytes: 2097152
+  # 实测帧享分段超过 16 MiB；流式传输按主配置缓冲读取，允许更大的完整分段。
+  max_segment_bytes: 67108864
+  allowed_domains:
+  - cp31.ott.cibntv.net
+  allowed_schemes:
+  - http
+  - https
+  max_pes_bytes: 33554432
+# 保留真实平台参数，移除上一播放集、播放位置和清晰度切换的临时上下文。
+request:
+  # 当前桌面 SDK 的 UPS 映射；实时能力、设备、版本来自播放器，禁止借用历史请求。
+  # 只适配已经核实的桌面原生 HLS 模式，模式变化时明确报错。
+  context:
+    adapter:
+      environment: eleAndIku
+      support_type: NPlayer
+      default_support_type: hls
+    biz_params:
+      media_type: standard,subtitle,sei
+      extag: EXT-X-PRIVINF
+      master_m3u8: 1
+      wdm: 1
+      pn: com.youku.iku
+      playMode: normal
+  ad_fields:
+  - os
+  - osv
+  remove_biz_fields:
+  - clarity_chg_ts
+  - current_showid
+  - last_clarity
+  - local_time
+  - local_vid
+  - skh
+  - start_point_ms
+# 先比较实际像素面积；相同面积按此列表优先。未知类型拒绝猜测排名。
+quality_order:
+- hls5hd4_hbr_bit10
+- hls5hd4_hbr
+- mp5hd4
+- hls5hd3_hbr_bit10
+- hls5hd3_hbr
+- hd3
+- mp4hd3
+- mp5hd3
+- mp4hd2
+- mp5hd2
+- mp4hd
+- mp5hd
+- mp5sd
+- flvhd
+- 3gphd
+# 只有以下画质通过当前原生适配；其他已选画质明确失败，不自动降档。
+supported_streams:
+  hls5hd4_hbr_bit10:
+    name: 帧享4K
+    video_codec: hevc
+    pixel_format: yuv420p10le
+    audio_codec: aac
+# 明确的认证拒绝代码；token 更新留在内存，过期后的请求重新签名。
+authentication:
+  rejected_codes:
+  - FAIL_SYS_TOKEN_EXOIRED
+  - FAIL_SYS_TOKEN_EXPIRED
+  - FAIL_SYS_SESSION_EXPIRED
+  - FAIL_SYS_ILLEGAL_ACCESS
+# 官方节目详情，用于精确节目名与整剧首播日期。
+detail:
+  api: mtop.youku.detail.innovation.query
+  version: '1.0'
+  ms_codes: '2019030100'
+  params:
+    biz: new_detail_innovation
+    appPackageKey: com.youku.YouKu
+    isAdolescent: 0
+    appKey: '23569910'
+    scene: screenMode
+    playMode: normal
+    componentVersion: '58'
+    userId: ''
+    source: hot
+  system_info:
+    osVer: 1.0.0
+    appPackageKey: com.youku.YouKu
+    os: pc
+    device: pc
+    ver: 1.0.0
+# 当前选择源语言；语言与音质排名分离，不把其他配音当作更高音质。
+audio_language: default
+# 自适应入口不代表独立档位，排除出画质排名。
+adaptive_streams:
+- auto

@@ -42,15 +42,21 @@ class PlaybackSchedulerTests(unittest.TestCase):
         release = Event()
         processing = Event()
         waiting = Event()
+        prepared = Event()
         started, states, guard = [], {}, Lock()
 
         def steps(index):
             """模拟 index 的下载和后处理，下载产生 8 字节，返回完成结果。"""
+            if index == 3:
+                prepared.set()
+            yield "download", 0
+            if index == 0 and not prepared.wait(5):
+                raise TimeoutError("预解析未完成")
             with guard:
                 started.append(index)
             if index and not processing.wait(5):
                 raise TimeoutError("首集未开始后处理")
-            yield 8
+            yield "ready", 8
             if index == 0:
                 processing.set()
                 if not release.wait(5):
@@ -97,13 +103,14 @@ class PlaybackSchedulerTests(unittest.TestCase):
 
         def steps(index):
             """模拟 index 下载并等待 release；返回合成完成结果。"""
+            yield "download", 0
             with guard:
                 started.append(index)
                 if len(started) == self.config["download"]["threads"]:
                     both_started.set()
             if not release.wait(5):
                 raise TimeoutError("测试下载未释放")
-            yield 1
+            yield "ready", 1
             return {"status": "completed"}
 
         def update(item, status, value):
@@ -131,7 +138,7 @@ class PlaybackSchedulerTests(unittest.TestCase):
             """模拟 index 下载，首集超限、第二集失败；成功时返回结果。"""
             if index == 1:
                 raise ValueError("synthetic failure")
-            yield 11 if index == 0 else 1
+            yield "ready", 11 if index == 0 else 1
             return {"status": "completed"}
 
         def update(item, status, value):
@@ -149,7 +156,7 @@ class PlaybackSchedulerTests(unittest.TestCase):
         def steps():
             """模拟下载后等待处理，关闭时通知测试；无最终结果。"""
             try:
-                yield 1
+                yield "ready", 1
             finally:
                 closed.set()
 

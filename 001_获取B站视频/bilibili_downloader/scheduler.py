@@ -1,4 +1,4 @@
-"""提供顺序补位的下载与后处理池，按原始流字节限制等待队列并协作取消。"""
+"""媒体下载独立限流，准备及后处理共用处理池，按原始流字节背压并协作取消。"""
 
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -26,19 +26,27 @@ class PostTask:
     complete: Callable[[BaseException | None], None]
 
 
+@dataclass
+class Ready:
+    """无需下载的后处理载荷；value 为已复用成品或本地完整媒体，直接进入处理队列。"""
+
+    value: object
+
+
 def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], Payload | None],
                  download: Callable[[Payload, Event], Transfer], process: Callable[[Transfer, Event], Result],
                  complete: Callable[[Job, Result | None, BaseException | None], None], cancel_event: Event, *,
                  downloaded_size: Callable[[Transfer], int], waiting: Callable[[Job, str], None],
-                 finishers: deque[PostTask]) -> None:
-    """按 jobs 顺序独立调度下载及后处理，settings 提供两池上限、字节容量和取消轮询间隔。
+                 finishers: deque[PostTask], prepared: Callable[[Job, Payload], Payload | Ready | None] | None = None) -> None:
+    """按 jobs 顺序调度独立下载及共享处理池，settings 提供并发和字节容量，cancel_event 可取消。
 
-    prepare/complete/waiting 在调用线程执行；download/process 在独立池接收共享 cancel_event。
+    prepare/process/finishers 在共享处理池运行，download 独立接收 cancel_event；complete/waiting/prepared 在调用线程结算。
     downloaded_size 返回完整原始流字节数，waiting 接收等待容量或后处理的状态键；prepare 可返回 None。
-    finishers 可由准备或完成回调追加，共用后处理池并优先派发；无返回值。
-    容量仅统计 ready；下载中与等待入队共用下载名额，单个超容量任务允许独占空队列。
+    prepared 可按 job 和解析载荷去重并返回 None，或返回 Ready 跳过下载；finishers 优先派发，无返回值。
+    容量仅统计 ready；等待入队不占下载名额，积压时暂停新下载，预解析有界，单项超限允许独占空队列。
     """
     pending = deque(jobs)
+    resolved: deque[tuple[Job, Payload]] = deque()
     admission: deque[tuple[Job, Transfer, int]] = deque()
     ready: deque[tuple[Job, Transfer, int]] = deque()
     queued_bytes = 0
@@ -50,10 +58,17 @@ def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], P
     active_processing: dict[Future, Job | PostTask] = {}
     started: dict[int, Job] = {}
     finished: SimpleQueue[Future] = SimpleQueue()
+    preparation_results = {}
+    prepare_sequence = next_prepared = 0
 
-    def submit(pool: ThreadPoolExecutor, active: dict, owner: Job | PostTask, function: Callable, *args) -> None:
-        """将 owner 的 function/args 绑定当前运行后交给 pool，并登记 active；无返回值。"""
+    def submit(pool: ThreadPoolExecutor, active: dict, owner: Job | PostTask, function: Callable, *args, phase='processing') -> None:
+        """将 owner 的 function/args 绑定运行后交给 pool，记录 phase 并登记 active；无返回值。"""
+        nonlocal prepare_sequence
         future = pool.submit(runtime.run_bound, controller, function, *args)
+        future.phase = phase
+        if phase == 'prepare':
+            future.order = prepare_sequence
+            prepare_sequence += 1
         active[future] = owner
         future.add_done_callback(finished.put)
 
@@ -63,30 +78,36 @@ def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], P
         started.pop(id(job), None)
 
     try:
-        while pending or admission or ready or active_downloads or active_processing or finishers:
+        while pending or resolved or admission or ready or active_downloads or active_processing or finishers:
             check_cancel(cancel_event)
             while admission and (queued_bytes + admission[0][2] <= capacity or not ready):
                 job, transferred, size = admission.popleft()
                 ready.append((job, transferred, size))
                 queued_bytes += size
                 waiting(job, 'waiting_processing')
-            while len(active_processing) < settings.max_in_flight and (finishers or ready):
+            # 先将已解析载荷交给下载池，释放预解析缓存，处理池可继续准备下一批任务。
+            while resolved and not admission and len(active_downloads) < settings.threads:
+                check_cancel(cancel_event)
+                job, payload = resolved.popleft()
+                submit(downloads, active_downloads, job, download, payload, cancel_event, phase='download')
+            while len(active_processing) < settings.max_in_flight:
                 check_cancel(cancel_event)
                 if finishers:
                     task = finishers.popleft()
                     submit(processing, active_processing, task, task.execute)
-                else:
+                elif ready:
                     job, transferred, size = ready.popleft()
                     queued_bytes -= size
                     submit(processing, active_processing, job, process, transferred, cancel_event)
-            while pending and len(active_downloads) + len(admission) < settings.threads:
-                check_cancel(cancel_event)
-                job = pending.popleft()
-                payload = prepare(job)
-                if payload is not None:
+                elif pending and not admission:
+                    preparing = sum(future.phase == 'prepare' for future in active_processing) + len(preparation_results)
+                    if len(resolved) + preparing >= settings.threads:
+                        break
+                    job = pending.popleft()
                     started[id(job)] = job
-                    check_cancel(cancel_event)
-                    submit(downloads, active_downloads, job, download, payload, cancel_event)
+                    submit(processing, active_processing, job, prepare, job, phase='prepare')
+                else:
+                    break
             # prepare 可能追加纯收尾任务；没有 Future 时立刻回到派发，避免空队列等待。
             if (not active_downloads and not active_processing
                     or admission and (queued_bytes + admission[0][2] <= capacity or not ready)
@@ -98,6 +119,33 @@ def run_pipeline(jobs: list[Job], settings: Settings, prepare: Callable[[Job], P
                 continue
             is_download = future in active_downloads
             owner = active_downloads.pop(future) if is_download else active_processing.pop(future)
+            if future.phase == 'prepare':
+                try:
+                    value = future.result()
+                except DownloadCancelled:
+                    raise
+                except Exception as error:
+                    preparation_results[future.order] = (owner, None, error)
+                else:
+                    preparation_results[future.order] = (owner, value, None)
+                # 解析可以并行完成，但按输入顺序接纳，避免后投稿越过尚未就绪的当前投稿。
+                while next_prepared in preparation_results:
+                    job, value, error = preparation_results.pop(next_prepared)
+                    next_prepared += 1
+                    if error is not None:
+                        settle(job, None, error)
+                        continue
+                    if value is not None and prepared is not None:
+                        value = prepared(job, value)
+                    if value is None:
+                        started.pop(id(job), None)
+                    elif isinstance(value, Ready):
+                        admission.append((job, value.value, downloaded_size(value.value)))
+                        waiting(job, 'waiting_queue')
+                    else:
+                        resolved.append((job, value))
+                        waiting(job, 'waiting_download')
+                continue
             try:
                 value = future.result()
                 size = downloaded_size(value) if is_download else 0

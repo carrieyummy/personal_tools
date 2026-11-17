@@ -56,12 +56,17 @@ class UrlQueueTests(unittest.TestCase):
         journal = QueueJournal("3")
         transport = Transport(self.config, Event())
         batch = UrlBatch(self.config, journal, client=SimpleNamespace(transport=transport))
-        release, processing_started, third_started = Event(), Event(), Event()
+        release, processing_started, third_started, prepared = Event(), Event(), Event(), Event()
         lock, started, processed, result = Lock(), [], [], []
 
         def steps(task, entry):
             """模拟 task 的下载和后处理；entry 为日志条目，让出实际大小。"""
             self.assertEqual(len(journal.entries), len(sizes))
+            if task["video_id"] == "3":
+                prepared.set()
+            yield "download", 0
+            if task["video_id"] == "0" and not prepared.wait(5):
+                raise TimeoutError("预解析未完成")
             if task["video_id"] == "1" and not processing_started.wait(5):
                 raise TimeoutError("首集未开始后处理")
             if int(task["video_id"]) >= 2 and not journal.first_queued.wait(5):
@@ -119,10 +124,12 @@ class UrlQueueTests(unittest.TestCase):
 
         def steps(task, entry):
             """以 task 和 entry 模拟一次重试，让出阶段并返回终态。"""
+            yield "download", 0
             stages.append("download")
             yield "ready", 1
             stages.append("process")
             yield "retry", 0
+            yield "download", 0
             stages.append("download")
             yield "ready", 1
             stages.append("process")
@@ -139,11 +146,16 @@ class UrlQueueTests(unittest.TestCase):
         self.config["download"]["threads"] = 2
         journal = QueueJournal("3")
         batch = UrlBatch(self.config, journal, client=SimpleNamespace(transport=Transport(self.config, Event())))
-        processing_started, release = Event(), Event()
+        processing_started, release, prepared = Event(), Event(), Event()
         result = []
 
         def steps(task, entry):
             """按 task 模拟下载并响应取消，entry 是对应日志项。"""
+            if task["video_id"] == "3":
+                prepared.set()
+            yield "download", 0
+            if task["video_id"] == "0":
+                prepared.wait(5)
             check_cancel(batch.cancel)
             if task["video_id"] == "1":
                 processing_started.wait(5)

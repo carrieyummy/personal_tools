@@ -486,7 +486,7 @@ class Batch:
 
 def run_batch(config: dict) -> dict:
     """按 config 获取输出锁、自动验收变化的 DLL 并处理批次；返回汇总，故障保留记录并向上传播。"""
-    with output_lock(config["output_path"]):
+    with output_lock(config["output_path"], config["logging"]["lock_file"]):
         tasks, skipped = discover_all(config)
         from .premiere import add_cache_dates
         tasks, date_errors = add_cache_dates(config, tasks)

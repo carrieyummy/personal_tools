@@ -1,6 +1,6 @@
 # 腾讯播放画质与交付调查
 
-本记录是 2026-11-16 对当前清单的实测证据，不是固定的视频规格或配置默认值。运行参数以 `configs/` 下实际 YAML 为准。
+本记录是 2026-11-16 对当前清单的实测证据，不是固定的视频规格或配置默认值。正式运行参数以 `configs/` 下实际 YAML 为准，研究参数以 `research/configs/` 下实际 YAML 为准。
 
 ## 整剧首次上映日期（2026-11-17）
 
@@ -47,8 +47,8 @@ DLL 摘要、输出长度边界、同一 CRT 的 free 导入位置及一次性�
 以下为 PowerShell，工作目录是本工具根目录。先在客户端播放已授权正片，保持唯一播放器运行。
 
 ```powershell
-& "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe" -X utf8 research/probe_native_key.py --config configs/playback_research.yaml
-& "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe" -X utf8 research/probe_native_key.py --config configs/playback_research.yaml --local-only
+& "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe" -X utf8 research/probe_native_key.py --config research/configs/playback_research.yaml
+& "C:/ProgramData/miniconda3/envs/test_regression_py3.12/python.exe" -X utf8 research/probe_native_key.py --config research/configs/playback_research.yaml --local-only
 ```
 
 第一条检查实际播放响应及有界分片传输；第二条故意独立加载 DLL，用于诊断初始化依赖。要仅核对运行中 SDK 的签名结构，可为第二条追加 `--pid <已核对的播放器编号>`。

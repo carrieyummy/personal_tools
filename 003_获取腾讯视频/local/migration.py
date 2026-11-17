@@ -1,4 +1,4 @@
-"""在输出锁内为既有腾讯剧目录补首播日期，保留索引并同步运行历史。"""
+"""在本平台输出锁内为既有腾讯剧目录补首播日期，保留索引并同步运行历史。"""
 
 from copy import deepcopy
 import hashlib
@@ -117,7 +117,7 @@ def migrate_existing(config: dict, *, plan: list[dict] | None = None) -> list[di
     old_bytes = state.read_bytes() if state.exists() else None
     old_history = json.loads(old_bytes.decode("utf-8-sig")) if old_bytes is not None else None
     new_history = update_history(old_history, plan) if old_history is not None else None
-    with output_lock(root):
+    with output_lock(root, config["logging"]["lock_file"]):
         current_bytes = state.read_bytes() if state.exists() else None
         if current_bytes != old_bytes:
             raise RuntimeError("迁移预检后运行历史发生变化，停止以免覆盖")

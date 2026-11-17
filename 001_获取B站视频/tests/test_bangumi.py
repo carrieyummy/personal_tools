@@ -231,6 +231,7 @@ class BangumiIntegrationTests(unittest.TestCase):
             __enter__=MagicMock(return_value=self.context))))
         self.enterContext(patch.object(auth, 'ensure_login', return_value={'uname': 'test'}))
         self.enterContext(patch.object(auth, 'snapshot_session', return_value=fake_auth_snapshot()))
+        self.enterContext(patch.object(auth.AuthenticatedHttpSession, 'get', side_effect=self.context.request.get))
         self.enterContext(patch.object(transfer, 'make_downloader', side_effect=self.make_downloader))
         self.enterContext(patch.object(media, 'resolve_ffmpeg', return_value='ffmpeg'))
         self.enterContext(patch.object(media, 'mux_streams', side_effect=self.mux))

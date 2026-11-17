@@ -40,7 +40,7 @@ python ".\download_iqiyi.py" --config ".\configs\playback.yaml" --plan
 - 主配置 `audio.quality` 独立指定音轨排名，`1` 表示同一匹配语言的最高原生声明档位；排序字段读取专项配置 `playback.audio_selection.rank_fields`。脚本另行请求准确 AID 的完整音轨，并核对实际编码、时长及最终成品轨道，不使用清单内的默认 AAC 代替选定音轨。
 - 每集严格核对原生请求及响应的 TVID、选定 VID、授权状态、完整清单和公开正片时长。档位不存在、无完整授权或所选格式未适配时明确失败，不将试看或其他档位当成成功。
 
-“帧绮映画 / 4K”是播放档位标签，不能证明编码、位深及音轨相同。相同分辨率可能返回 HEVC Main、Main 10 或 AV1；客户端历史离线 QSV 的杜比音轨也不代表当前播放接口一定提供相同音轨。本工具选择本次原生响应中的最高视频组及最高音轨，保留原编码，实际属性写入成品侧记并显示在进度网页。
+“帧绮映画 / 4K”是播放档位标签，不能证明编码、位深及音轨相同。相同分辨率可能返回 HEVC Main、Main 10 或 AV1；客户端历史离线 QSV 的杜比音轨也不代表当前播放接口一定提供相同音轨。本工具选择本次原生响应中的最高视频组及最高音轨，保留原编码，实际属性写入目录索引并显示在进度网页。
 
 ### 下载、复用和输出
 
@@ -50,7 +50,7 @@ python ".\download_iqiyi.py" --config ".\configs\playback.yaml" --plan
 
 完整下载按主配置 `copy_buffer_bytes` 流式写盘，内存不随整个长分段增大；MP4 单片结构处理受专项配置 `max_fragment_bytes` 限制。单集分片并发、重试、进度间隔和时长容差读取 `playback.media_download`。`media_probe.max_segment_bytes` 仅限制研究抽样。
 
-链接模式的 `download.threads` 限制同时解析或下载的剧集数，单集仍使用专项配置的 `workers` 并发获取分片，理论分片请求上限为两者的乘积。下载完成后进入由 `download.queue_capacity_gb` 限制的等待队列，单位为 1024³ 字节；空队列允许单集超限。该容量不包含下载中、等待入队、处理中及历史失败断点的磁盘占用。`max_in_flight` 限制同时后处理的剧集数，也控制本地 QSV 转换的在途数；授权处理、封装、完整性检查和发布各一个槽，CPU 和 GPU 各一个解码槽，空闲时优先使用 GPU。
+链接模式的 `download.threads` 仅限制同时传输媒体的剧集数，来源解析及复用检查在共享处理池执行，单集仍使用专项配置的 `workers` 并发获取分片，理论分片请求上限为两者的乘积。下载完成后进入由 `download.queue_capacity_gb` 限制的等待队列，单位为 1024³ 字节；空队列允许单集超限。下载完成即释放下载名额；等待队列积压时暂停新下载，预解析缓存有界。该容量不包含下载中、等待入队、处理中及历史失败断点的磁盘占用。顶层 `max_in_flight` 统一限制解析、复用检查及后处理的总并发数，也控制本地 QSV 转换的在途数；授权处理、封装、完整性检查和发布各一个槽，CPU 和 GPU 各一个解码槽，空闲时优先使用 GPU。
 
 完成分段按长度及 SHA-256 保存断点。重新运行会重新取得临时资源，核对稳定来源标识、分段范围及实际内容后复用完成段；临时票据变化不影响断点，来源变化使用独立工作目录。未完成文件不登记为有效段，失败现场保留。
 
@@ -60,9 +60,11 @@ python ".\download_iqiyi.py" --config ".\configs\playback.yaml" --plan
 
 上映日期从专项配置 `network.album_info_url` 对应的官方专辑资料中读取 `publishTime`，按 `album_date_utc_offset_minutes` 展示偏移转换为年月日；不使用单集日期、`period`、`issueTime` 或当前时间替代。专辑编号须严格匹配，日期缺失或无效时明确报错。每个新运行批次按专辑缓存一次日期，并固定本次命名设置，同一批次内不会因后续配置编辑而改变日期前缀。重启脚本会重新读取配置和专辑资料。
 
-正在运行的旧下载批次继续使用原命名。新增日期功能不改原有模板值，不重启或停止现有进程，不迁移或重命名下载目录。新启动脚本的新成品使用日期目录；已登记的无日期旧成品仍会按来源、摘要和媒体属性校验后在原路径复用，视频和侧记保持原位，避免仅因目录前缀变化而重复下载。媒体断点身份不包含目录日期，因此既有完整分段及已验证候选可继续校验复用。
+正在运行的旧下载批次继续使用原命名。新增日期功能不改原有模板值，不重启或停止现有进程，不迁移或重命名下载目录。新启动脚本的新成品使用日期目录；已登记的无日期旧成品仍会按来源、摘要和媒体属性校验后在原路径复用，视频保持原位，避免仅因目录前缀变化而重复下载。媒体断点身份不包含目录日期，因此既有完整分段及已验证候选可继续校验复用。
 
-每个 MP4 旁的 `.playback.json` 保存上映日期、来源、视频与音轨选择、全片解码及复制证明。只复用来源一致、重新校验内容摘要并重新探测实际媒体通过的成品；已有文件不覆盖。链接下载记录与 QSV 的 `video_info.json` 独立。成功后的中间媒体清理由主配置 `keep_intermediates` 控制。
+每部剧只保存一个 `video_info.json`，与 QSV 转换共用目录索引文件；链接记录按 MP4 文件名保存在 `playback_files` 分区，完整保留上映日期、来源、视频与音轨选择、全片解码及复制证明，QSV 原有分区继续保留。多集并发发布时，在同一输出锁内重新加载索引并原子提交，避免互相覆盖；索引提交失败时回收本次新副本并保留已验证候选。只复用来源一致、重新校验内容摘要并重新探测实际媒体通过的成品；已有文件不覆盖。成功后的中间媒体清理由主配置 `keep_intermediates` 控制。
+
+正式下载启动时会在主配置 `output_path` 下合并已有的逐集 `.playback.json`：先检查全部旧记录的路径、成功证明及视频长度，原子写入各剧的 `video_info.json`，回读一致后才删除冗余逐集 JSON。记录冲突或检查失败时保留旧文件并报错；视频不复制、不移动、不重新下载。整理只处理元数据，成品复用仍执行内容摘要和实际媒体校验。`--plan` 不整理输出目录。已运行的旧批次保持原状态，完成后由下次正式运行整理其逐集记录。
 
 可在当前下载继续运行时只读查看清单中各剧的日期和新目录名；该命令不请求播放 SDK、不启动下载、不写输出目录：
 
@@ -103,7 +105,7 @@ python ".\research\probe_playback.py" --config ".\configs\playback.yaml" --index
 可在该命令末尾选择添加一个媒体验证参数：
 
 - `--sample-media`：当前用于 HLS/TS，按专项配置的 `playback.media_probe.positions` 获取前、中、后等短段，用本机 SDK 处理授权并完整解码每个样本。DASH 的结构抽样见 `tests/probe_dash_media.py`，正式入口的 DASH 整集下载不受此研究入口限制。
-- `--full-media`：按任务 `quality` 和主配置 `audio.quality` 获取链接指定集的所选视频与独立音轨，核对范围和时长；无损封装、完整解码，核对视频 PES/MP4 样本数、分辨率及复制摘要后发布到主配置 `output_path`。命名复用主配置 `naming`，元数据取自官方公开资料；已有同名文件不覆盖。播放来源与验证证明保存在成品旁的 `.playback.json`，不混入现有 QSV 来源索引。中间文件清理由主配置 `keep_intermediates` 控制。
+- `--full-media`：按任务 `quality` 和主配置 `audio.quality` 获取链接指定集的所选视频与独立音轨，核对范围和时长；无损封装、完整解码，核对视频 PES/MP4 样本数、分辨率及复制摘要后发布到主配置 `output_path`。命名复用主配置 `naming`，元数据取自官方公开资料；已有同名文件不覆盖。播放来源与验证证明保存在本剧 `video_info.json` 的 `playback_files` 分区，发布时也会先合并本剧的旧逐集记录。中间文件清理由主配置 `keep_intermediates` 控制。
 
 两个参数互斥。研究入口应用该任务的 `quality` 排名，只研究链接指定集；不进行 `all-parts` 全剧展开，批量下载使用 `download_iqiyi.py`。
 
@@ -232,7 +234,9 @@ output_path/
 - 已登记成品缺失或校验不符时重新转换。首次目标位置存在未登记的同名文件时会报冲突，不覆盖该文件。
 - SHA-256 以文件大小和纳秒修改时间作为缓存条件；两者均未变化的外部内容改写无法通过缓存检查发现。
 - 转换期间重新计算源内容摘要，确认未改变；成品发布时先复制到目标盘临时文件并校验摘要，再以不覆盖方式发布和提交索引。
-- 同一输出根目录使用 `.conversion.lock` 独占锁，避免两个批次同时写入。
+- 输出锁和链接工作目录锁的文件名读取主配置 `logging.lock_file`，仅限制本平台写入；本地 QSV 批次全程持锁，链接下载在整理旧记录和发布时持有输出锁。同平台冲突仍立即报错，已验证候选保留用于续发。
+- 可以与腾讯、优酷、芒果同时写入同一个 `output_path`，每个项目只运行一个进程。各工具的锁名、工作目录、日志文件名及带平台标识的剧集目录须保持独立；不同平台不要配置为同一个实际剧集目录，各平台的 `video_info.json` 格式并不通用。并发上限分别作用于各项目，不是跨项目的总限额。
+- 此规则在新启动的进程中生效；正在运行的旧批次保持原状，先让它结束后再使用新版共享目录并行运行。锁文件保留不代表被占用，不需要删除旧锁文件。
 
 旧单文件模式若在 `work_dir` 根层保留了能够证明成品有效的 `report.json`，首次访问相应源文件时会尝试迁移到当前目录布局，并在汇总中记录 `migrated`。
 
@@ -288,17 +292,17 @@ python ".\tests\inspect_formats.py" --config ".\configs\config.yaml"
 ### 比较 CPU/GPU 完整解码性能
 
 ```powershell
-python ".\tests\benchmark_decode.py" --config ".\configs\config.yaml" --benchmark-config ".\configs\benchmark_decode.yaml"
+python ".\tests\benchmark_decode.py" --config ".\configs\config.yaml" --benchmark-config ".\research\configs\benchmark_decode.yaml"
 ```
 
-从 `output_path` 中选取最新登记成功的 MP4，校验复制到工作目录后运行。任务数、重复次数、预热、并发、后端和报告位置均读取 [性能专项配置](configs/benchmark_decode.yaml)；可重复传入 `--case`，值必须是该配置 `cases` 中的 `name`，省略时运行全部组。
+从 `output_path` 中选取最新登记成功的 MP4，校验复制到工作目录后运行。任务数、重复次数、预热、并发、后端和报告位置均读取 [性能专项配置](research/configs/benchmark_decode.yaml)；可重复传入 `--case`，值必须是该配置 `cases` 中的 `name`，省略时运行全部组。
 
 比较范围为完整视频及全部音轨的解码，不含 QSV 提取、SDK 处理或成品发布。包含 GPU 的组需要可用 CUDA 环境；系统可找到 `nvidia-smi` 时额外采样 GPU 使用情况。报告保留，结束后删除本次输入副本。
 
 ### 验收真实 CPU/GPU 验证
 
 ```powershell
-python ".\tests\accept_verification.py" --config ".\configs\config.yaml" --benchmark-config ".\configs\benchmark_decode.yaml"
+python ".\tests\accept_verification.py" --config ".\configs\config.yaml" --benchmark-config ".\research\configs\benchmark_decode.yaml"
 ```
 
 需要已有登记成功的 MP4、对应源 QSV、客户端下载完成记录及工作目录中的原转换报告。该脚本分别用 CPU 和 GPU 验证正常副本及截断副本，始终检查两种设备；报告写入专项配置指定的报告根目录，不改写正式 MP4 或源 QSV。
@@ -313,7 +317,7 @@ python ".\tests\accept_verification.py" --config ".\configs\config.yaml" --bench
 | `SDK certificate/license failed` | 核对适配配置中的证书及客户端本机授权是否有效。 |
 | CUDA 初始化或视频硬解失败 | 检查 `gpu_probe.log`、视频现场的 `decode.log`、FFmpeg、NVIDIA 驱动及对应格式硬解能力，或显式改用 CPU 配置。 |
 | 封装、完整解码、帧数或超时失败 | 查看该视频工作目录的 `report.json`、`mux.log`、`decode.log` 和 `decode_progress.log`；结合实际媒体检查输入结构及主配置中的超时和缓冲限制。 |
-| 输出目录无法独占或同名文件冲突 | 确认没有批次仍在运行，检查报错目标及目录索引；锁文件的存在本身不代表锁仍被持有。 |
+| 本平台目录锁被占用或同名文件冲突 | 确认没有本平台批次仍在运行，检查报错目标及目录索引；锁文件的存在本身不代表锁仍被持有。 |
 | 索引或历史日志损坏 | 按报错路径检查并从可靠备份恢复；程序保留损坏记录并报错，不自动重建或覆盖。 |
 | 链接任务报“未提供媒体清单地址” | 某些最高档实际提供内嵌 MPD；当前版本按清单内容识别 DASH，无须切换该集播放器或降低画质。仍失败时查看批次中的安全片源诊断。 |
 | 链接断点文件短暂“拒绝访问” | 原子替换按 `logging.write_retries` 和 `write_retry_interval_seconds` 有界重试；持续失败保留现场，再次运行核对已登记段的长度和摘要。 |
@@ -325,7 +329,7 @@ python ".\tests\accept_verification.py" --config ".\configs\config.yaml" --bench
 ├── decode_qsv.py              # 本地 QSV 转换入口
 ├── download_iqiyi.py          # 链接下载入口
 ├── download_list/             # 用户链接清单及模板
-├── configs/                   # 主配置、本机适配与性能专项配置
+├── configs/                   # 正式下载和 QSV 转换的主配置、链接下载及本机适配配置
 ├── qsv_local/
 │   ├── configuration.py       # 配置校验与路径解析
 │   ├── discovery.py           # 输入发现和输出映射
@@ -346,8 +350,11 @@ python ".\tests\accept_verification.py" --config ".\configs\config.yaml" --bench
 │   └── templates/             # 转换记录网页模板
 ├── tests/                     # 单元测试、诊断、验收与性能比较脚本
 ├── research/                  # 调研入口、资料及第三方参考，非正式转换依赖
+│   └── configs/               # 研究专用配置，如 CPU/GPU 性能比较配置
 ├── requirements.txt           # 正式 Python 依赖
 └── README.md
 ```
+
+研究专用配置统一放在 `research/configs/`；研究脚本直接复用正式工具配置中的公共参数，不复制维护。配置文件中的相对路径以各自文件所在目录为基准；性能配置迁移后，报告仍写入其配置指定的位置。
 
 格式研究和适配边界见 [research/formats.yaml](research/formats.yaml)，资料索引见 [research/catalog.yaml](research/catalog.yaml)。本工具工作区文件位于父目录，启动和任务中的解释器统一引用其 `settings.python.defaultInterpreterPath`。

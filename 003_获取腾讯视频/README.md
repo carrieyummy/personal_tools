@@ -37,7 +37,7 @@ URL 模式还需要在客户端先播放一集**有权限的正片**，使播放
 
 5. 用主配置 `audio.quality` 选择每集可下载音源的音质排名：`1` 表示最高，`2` 表示次高。仅当前账号已授权、可下载的原始音源参与排名；档位不足或多个音源无法比较等级时，该任务会报错，批次继续处理其他任务。音质选择无需终端交互。
 
-下载与后处理独立并行：`download.threads` 限制同时解析及下载的剧集数，`max_in_flight` 限制同时进行封装、验证和发布的剧集数。`download.queue_capacity_gb` 限制已下载、等待后处理的分片总大小，1 GB 按 1024³ 字节计算；队列为空时允许一集超过容量。队列满时，完成下载但尚未入队的剧集仍占用下载名额。这个容量不是工作目录的总空间上限：下载中、等待入队、后处理中及历史失败断点还会额外占用磁盘。缓存还原模式的 `max_in_flight` 仍限制整个在途任务数。
+下载与后处理独立并行：`download.threads` 仅限制同时传输媒体的剧集数；顶层 `max_in_flight` 统一限制解析、复用检查、续签、封装、验证及发布的总并发数。媒体地址过期时释放下载名额，在处理池续签后重新排队下载。`download.queue_capacity_gb` 限制已下载、等待后处理的分片总大小，1 GB 按 1024³ 字节计算；队列为空时允许一集超过容量。下载完成即释放下载名额；队列积压时暂停新下载，预解析缓存也有界。并发参数是上限，任务不足或处理未就绪时不会保证下载满载。这个容量不是工作目录的总空间上限：下载中、等待入队、后处理中及历史失败断点还会额外占用磁盘。缓存还原模式的 `max_in_flight` 仍限制整个在途任务数。
 
 画质按接口返回的实际尺寸、帧率等指标排序，并检查最终文件的尺寸和帧率；已选来源返回其他档位或无法取得完整正片时会报错。当前已实测支持的音源是视频中复用的标准原轨，该轨就是这些样本唯一可下载的音质。客户端“清澈人声”“立体环绕”等由播放器实时滤镜实现，不进入下载音质列表。新的独立音轨协议需要实测适配后才能下载。
 
@@ -58,7 +58,9 @@ URL 模式通过已初始化的客户端 SDK 生成播放签名。当前适配�
 
 - 成品位置由主配置的 `output_path` 和 `naming` 模板决定；URL 模式的文件名包含集序、标题、画质和音质，视频编号可按需加入模板。原有缓存成品以及未登记的同名文件会保留，发生同名冲突时新成品会添加区分后缀。
 - 电视剧目录模板使用 `release_date`、`title`、`series_id`，其中 `release_date` 是腾讯整剧简介中的 `broadcast_time`，以 `YYYY-MM-DD` 表示；日期只加在目录，视频文件名继续使用 `episode_template`。同一剧的全部视频使用同一日期，缺少完整有效日期或专辑身份不匹配时该任务失败，不使用单集更新时间或文件时间替代。当前三部已核对剧集的该字段与实际首播日期一致，其他片源以腾讯提供的整剧资料为准。
-- 缓存还原同样按整剧编号查询一次腾讯公开简介以取得日期，因此需要联网；不需要为此重新打开剧集或读取播放器账号。历史目录迁移需在输出根目录独占锁内执行，检查目标冲突并保留视频及 `video_info.json`；运行历史中的成品路径同步更新，既有离线 HTML 快照保留原样。
+- 缓存还原同样按整剧编号查询一次腾讯公开简介以取得日期，因此需要联网；不需要为此重新打开剧集或读取播放器账号。历史目录迁移需在本平台输出锁内执行，检查目标冲突并保留视频及 `video_info.json`；运行历史中的成品路径同步更新，既有离线 HTML 快照保留原样。
+- 输出锁和 URL 工作目录锁的文件名读取主配置 `logging.lock_file`，只限制腾讯批次，URL 下载、缓存还原和目录迁移共用同一平台输出锁；同平台冲突仍立即报错。可以与爱奇艺、优酷、芒果同时写入同一个 `output_path`，每个项目只运行一个进程。各工具须使用独立锁名、工作目录和日志名，并保留剧集目录模板中的平台标识，避免跨平台混写同一目录及 `video_info.json`。各项目并发上限分别生效，共用磁盘、网络和 GPU 的负载会叠加。
+- 新锁规则仅对新启动的进程生效；正在运行的旧批次保持原状，先让它结束后再使用新版共享目录并行运行。锁文件保留不代表被占用，无需删除旧锁文件。
 - 中间文件使用 `work_dir`。下载中断、取消或失败时保留现场；重试时只复用已经核对、属于同一来源的分片。签名刷新后若来源发生变化，旧现场会保留并重新解析。
 - 封装后检查媒体属性并对完整视频和音轨执行解码验证，通过来源复核和目标文件摘要校验后才发布。CPU/GPU 是可用验证设备池；每个任务使用其中一个启用设备，不会在 GPU 失败时自动降级。
 - 剧集目录中的 `video_info.json` 长期保存成品的来源、大小、修改时间和 SHA-256；输出根目录的运行报告可以单独清理。`reuse_check: fast` 按来源、文件大小和修改时间检查已登记成品，不读取完整成品；旧记录缺少修改时间或文件属性变化时，会完整计算 SHA-256，匹配后补齐索引。`reuse_check: full` 每次重新计算成品 SHA-256。快速检查无法发现大小及修改时间均未变化的内容损坏；URL 模式仍需联网确认播放来源，缓存模式仍会检查来源缓存。`keep_intermediates` 控制成功后的中间文件清理，失败现场保留。
@@ -101,13 +103,15 @@ $playbackReport = Read-Host "输入已完成的 verify_playback 全片报告路�
 接口研究可运行：
 
 ```powershell
-& "$tencentPython" -X utf8 "research/playback_probe.py" --config "configs/playback_research.yaml"
-& "$tencentPython" -X utf8 "research/probe_native_key.py" --config "configs/playback_research.yaml"
+& "$tencentPython" -X utf8 "research/playback_probe.py" --config "research/configs/playback_research.yaml"
+& "$tencentPython" -X utf8 "research/probe_native_key.py" --config "research/configs/playback_research.yaml"
 ```
 
 研究目标、探测范围和报告目录由专项配置控制。`research/native_key_worker.py` 是父进程的内部签名管道，不应直接运行。脱敏结果放在已由 Git 忽略的 `research/results/`。已验证样本、画质对应及局限见 [research/playback_findings.md](research/playback_findings.md)；单集验证结果不能代替其他视频和协议结构的完整验收。
 
 ## 项目结构
+
+正式流程配置集中在 `configs/`，研究专用配置集中在 `research/configs/`。研究 YAML 的相对路径以其所在目录为基准，通过 `config` 引用主配置，共用原生协议和签名适配；报告位置由 `report_dir` 配置。
 
 ```text
 003_获取腾讯视频/
@@ -119,14 +123,15 @@ $playbackReport = Read-Host "输入已完成的 verify_playback 全片报告路�
 │   ├── config.yaml             来源、路径、画质、音质及运行配置
 │   ├── native_cache.yaml       客户端缓存 DLL 适配
 │   ├── native_playback.yaml    原生播放与选集接口配置
-│   ├── native_signing.yaml     原生签名 DLL 与设备上下文适配
-│   └── playback_research.yaml  研究目标和探测参数
+│   └── native_signing.yaml     原生签名 DLL 与设备上下文适配
 ├── download_list/
 │   ├── download_list.yaml      用户下载清单
 │   └── template.yaml           清单字段参考
 ├── local/                      缓存还原、调度、验证、日志和发布
 │   └── playback/               URL 来源、选集、音质、签名及 HLS 下载
 ├── research/                  协议研究、探测脚本及研究结论
+│   ├── configs/
+│   │   └── playback_research.yaml  研究目标和探测参数
 │   └── results/                本机生成的脱敏结果，Git 忽略
 └── tests/                     单元测试及显式实网/缓存验收入口
 ```

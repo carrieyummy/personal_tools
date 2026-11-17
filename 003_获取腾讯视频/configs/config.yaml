@@ -12,7 +12,7 @@ download:
   quality: 1
   # true 下载链接对应整剧的已上线正片；false 仅下载链接指定的视频。
   all_parts: true
-  # 下载任务的并发线程数上限，须为正整数；每集解析和下载共用一个名额，分片按顺序下载。
+  # 仅限制同时下载媒体的剧集数，须为正整数；解析、复用检查和续签不占下载名额，分片顺序下载。
   threads: 5
   # 已下载、等待后处理的分片容量；1 GB = 1024³ 字节，单集超限时允许独占队列。
   queue_capacity_gb: 20
@@ -30,7 +30,8 @@ authentication:
 audio:
   # 仅对当前账号可下载的原始音源排名：1 为最高，2 为次高；播放器滤镜不参与，档位不足时报错。
   quality: 1
-# 最大后处理剧集数（缓存模式为最大在途数）；封装、来源检查和发布各一个槽，每个启用设备各一个槽。
+# 非下载处理总并发上限：解析、复用检查、续签及后处理共用；缓存模式为最大在途数。
+# 封装、来源检查和发布各一个槽，每个启用设备各一个槽。
 max_in_flight: 4
 # 单个外部进程的超时时间，单位为秒，须为正整数。
 process_timeout_seconds: 3600
@@ -77,7 +78,7 @@ output_path: 'Z:/003_电视剧'
 # 三个占位符均须保留，目录名不能包含空白或路径分隔符；平台标记在模板中维护。
 naming:
   # 电视剧目录名模板；release_date 为源站整剧首次上映日期，格式 YYYY-MM-DD。
-  series_template: '{release_date}_{title}_wetv_{series_id}'
+  series_template: '{release_date}_{title}_tencent_{series_id}'
   # URL 成品文件名模板，须包含 index、title、quality、audio，可选 video_id。
   episode_template: '{index:03d}_{title}_{quality}_{audio}'
   # URL 成品文件名中标题的最大字符数，须为正整数。
@@ -96,6 +97,9 @@ decode_verification:
   gpu: true
 # 本机页面和运行记录；文件名相对 output_path。
 logging:
+  # 本平台的输出/工作目录锁；与其他工具共用 output_path 时须各用不同名称。
+  # 保留命名模板中的平台标记和独立日志名；锁不保护跨平台混写同一剧集目录。
+  lock_file: '.tencent_conversion.lock'
   # 本机进度页面监听端口；0 表示由系统分配端口。
   port: 0
   # 进度页面自动刷新的间隔，单位为秒，须大于 0。

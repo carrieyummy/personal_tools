@@ -38,7 +38,7 @@ def main() -> int:
     if proof.get("exit_code") != 0:
         parser.error("单集报告没有已通过的解码证明")
     results, code = [proof], 0
-    with output_lock(config["output_path"]):
+    with output_lock(config["output_path"], config["logging"]["lock_file"]):
         journal = Journal(config)
         try:
             for device, enabled in config["decode_verification"].items():
