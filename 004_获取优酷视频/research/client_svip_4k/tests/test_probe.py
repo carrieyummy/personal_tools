@@ -22,8 +22,8 @@ class ProbeTests(unittest.TestCase):
     def test_sample_comes_from_download_list(self) -> None:
         """确认样本来自清单；无参数和返回值。"""
         tasks = yaml.safe_load(self.config["download_list"].read_text(encoding="utf-8"))
-        task = next(t for t in tasks["download_list"] if t.get("title") == self.config["sample_title"])
-        self.assertEqual(self.config["sample"]["url"], task["url"])
+        task = tasks["download_list"][self.config["sample_index"]]
+        self.assertEqual(self.config["sample"]["url"], task)
 
     def test_relative_path_uses_config_base(self) -> None:
         """确认相对路径基准；无参数和返回值。"""

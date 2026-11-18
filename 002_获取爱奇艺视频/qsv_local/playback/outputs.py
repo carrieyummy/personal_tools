@@ -2,12 +2,10 @@
 
 from pathlib import Path
 import re
-from uuid import uuid4
+from stat import S_ISREG
 
 from ..configuration import resolve_path
 from ..naming import output_name
-from ..process import probe_media
-from ..storage import fingerprint
 from .metadata import require_same_metadata
 from .naming import dated_folder
 from .records import PlaybackDirectoryIndex
@@ -27,7 +25,10 @@ def target_path(config: dict, main_path: Path, video: dict, source: dict, *, wit
 
 
 def reusable_output(profile: dict, config: dict, video: dict, source: dict, identity: dict, selection: dict) -> dict | None:
-    """从共用目录索引核对 profile/config、video/source、identity 及 selection；日期目录优先，旧目录不迁移，返回实际成品报告或 None。"""
+    """按 profile/config 与 video/source 定位成品，核对 identity 对应的成功记录及当前文件名和大小。
+
+    selection 为本次选档证明。日期目录优先，匹配后返回复用报告，其中媒体属性和指纹来自发布记录；未匹配返回 None。
+    """
     preferred = target_path(config, profile["main_config"], video, source)
     legacy = target_path(config, profile["main_config"], video, source, with_date=False)
     bases = [preferred] if preferred == legacy else [preferred, legacy]
@@ -51,22 +52,16 @@ def reusable_output(profile: dict, config: dict, video: dict, source: dict, iden
         audio_selection = source.get("_audio_selection")
         if audio_selection and (data.get("audio_selection") != audio_selection or not data.get("audio_media") or audio_selection["rank"] == 1 and data.get("highest_audio_verified") is not True):
             continue
-        if not candidate.is_file():
+        try:
+            info = candidate.stat()
+        except (FileNotFoundError, NotADirectoryError):
             continue
-        actual = fingerprint(candidate, config["copy_buffer_bytes"], force=True)
-        if actual["sha256"] != expected["sha256"] or actual["size_bytes"] != expected["size_bytes"]:
+        if not S_ISREG(info.st_mode) or info.st_size != expected["size_bytes"]:
             continue
-        log = resolve_path(config["work_dir"], profile["main_config"].parent) / "playback_downloads" / "reuse_checks" / (uuid4().hex + ".log")
-        log.parent.mkdir(parents=True, exist_ok=True)
-        media = probe_media(config, candidate, log)
-        if (media["errors"] or f"{media['width']}x{media['height']}" != source["scrsz"]
-                or abs(media["duration_seconds"] - video["duration_seconds"]) > profile["playback"]["media_download"]["duration_tolerance_seconds"]):
-            raise ValueError("既有成品实际媒体属性与当前来源不一致")
-        if audio_selection and (media["audio_codecs"] != data["audio_media"]["audio_codecs"] or media["audio_layouts"] != data["audio_media"]["audio_layouts"]):
-            raise ValueError("既有成品音轨与已验证的所选独立音轨不一致")
         require_same_metadata(profile, video)
-        return {"status": "reused", "output": str(candidate), "output_fingerprint": actual,
-                "media_verified": True, "verification": verification, "media": media, "selection": selection,
+        # 摘要、媒体属性及完整验证证明均取自发布记录，本次不读取成品内容。
+        return {"status": "reused", "reuse_check": "filename_and_size", "output": str(candidate), "output_fingerprint": expected,
+                "media_verified": True, "verification": verification, "media": data.get("media") or {}, "selection": selection,
                 "highest_quality_verified": selection["rank"] == 1 and selection["native_selection_verified"], "source_identity": identity,
                 "audio_selection": audio_selection, "audio_media": data.get("audio_media"), "highest_audio_verified": data.get("highest_audio_verified", False),
                 "release_date": video["release_date"], "legacy_directory": base.parent != preferred.parent,

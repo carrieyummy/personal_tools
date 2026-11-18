@@ -3,7 +3,8 @@ client_dir: C:/Program Files (x86)/YOUKU/9.5.3.1001
 user_data: '%APPDATA%/youku-app'
 native_data: '%APPDATA%/youku'
 download_list: ../../../download_list/download_list.yaml
-sample_title: 难哄
+# 研究目标在当前下载清单中的下标，从 0 开始。
+sample_index: 0
 output_dir: ../reports/latest
 client_context:
   # 只读实际启动日志；不伪造 UTDID、ZREAL 或硬件型号。原始 UA 和设备值不写报告。

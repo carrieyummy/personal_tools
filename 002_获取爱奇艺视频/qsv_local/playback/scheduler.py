@@ -13,11 +13,13 @@ def advance(steps):
         return "done", result.value
 
 
-def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admit=None) -> None:
+def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admit=None, is_cancelled=None, retries=None) -> None:
     """调度 jobs 的单集阶段；config 限流，controls 取消，update 登记状态，无返回值。
 
     可选 discovery 为逐链接目录迭代器，在同一处理池推进；admit 在主线程接收目录批次或完成 None，
-    返回新增的 (条目, 阶段生成器) 列表。目录最多一个在途请求，不阻塞媒体派发及完成通知。
+    返回新增的 (条目, 阶段生成器) 列表。is_cancelled 可判断单项取消；目录最多一个在途请求。
+    retries 可接收当前是否空闲并返回待重试条目与生成器；可在空闲时等待网页操作，返回空列表后结束调度。
+    有待解析任务且未发生队列背压时，处理池至少两个位置会为解析保留一个位置；总处理上限不变。
     """
     pending = deque(jobs)
     prepared, waiting, ready = deque(), deque(), deque()
@@ -35,33 +37,63 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
         future.phase = phase
         active[future] = (item, steps)
 
+    def remove_cancelled(queue, sized=False):
+        """移除 queue 中已取消项并登记状态；sized 表示队列记录包含字节数，返回释放字节。"""
+        released = 0
+        for _ in range(len(queue)):
+            record = queue.popleft()
+            item, steps = record[:2]
+            if is_cancelled is not None and is_cancelled(item):
+                steps.close()
+                update(item, "cancelled", None)
+                if sized:
+                    released += record[2]
+            else:
+                queue.append(record)
+        return released
+
     try:
-        while pending or prepared or waiting or ready or active_downloads or active_processing or catalog_open:
+        while True:
             check_cancel(controls.cancel)
+            idle = not (pending or prepared or waiting or ready or active_downloads or active_processing or catalog_open)
+            if retries is not None:
+                pending.extend(retries(idle))
+            if idle and not pending:
+                break
+            remove_cancelled(pending)
+            remove_cancelled(prepared)
+            remove_cancelled(waiting)
+            queued -= remove_cancelled(ready, sized=True)
             while waiting and (queued + waiting[0][2] <= capacity or not ready):
                 item, steps, size = waiting.popleft()
                 ready.append((item, steps, size))
                 queued += size
                 update(item, "waiting_processing", None)
             while len(active_processing) < config["max_in_flight"]:
-                if ready:
+                preparing = sum(future.phase == "initial" for future in active_processing)
+                can_prepare = not waiting and queued < capacity
+                reserve = (can_prepare and config["max_in_flight"] > 1 and (pending or catalog_open))
+                if (can_prepare and pending and len(prepared) + preparing < config["download"]["threads"]
+                        and (not ready or config["max_in_flight"] > 1 and not preparing)):
+                    item, steps = pending.popleft()
+                    phase = "initial"
+                elif (can_prepare and catalog_open and not discovering and not pending
+                      and (not ready or config["max_in_flight"] > 1)):
+                    future = processing.submit(next, source, None)
+                    future.phase = "discovery"
+                    active_processing[future] = (None, source)
+                    discovering = True
+                    continue
+                elif ready:
+                    # 已准备的任务有限且下载尚在进行时，为后续解析保留一个共享处理位置。
+                    if reserve and not preparing and not discovering and len(active_processing) >= config["max_in_flight"] - 1:
+                        break
                     item, steps, size = ready.popleft()
                     queued -= size
                     update(item, "processing", None)
                     phase = "processing"
                 else:
-                    preparing = sum(future.phase == "initial" for future in active_processing)
-                    if pending and not waiting and len(prepared) + preparing < config["download"]["threads"]:
-                        item, steps = pending.popleft()
-                        phase = "initial"
-                    elif catalog_open and not discovering and not waiting:
-                        future = processing.submit(next, source, None)
-                        future.phase = "discovery"
-                        active_processing[future] = (None, source)
-                        discovering = True
-                        continue
-                    else:
-                        break
+                    break
                 submit(processing, active_processing, item, steps, phase)
             while prepared and not waiting and len(active_downloads) < config["download"]["threads"]:
                 item, steps = prepared.popleft()
@@ -81,6 +113,10 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
                     continue
                 try:
                     kind, result = future.result()
+                    if kind != "done" and is_cancelled is not None and is_cancelled(item):
+                        steps.close()
+                        update(item, "cancelled", None)
+                        continue
                     if kind == "download":
                         prepared.append((item, steps))
                         update(item, "waiting_download", None)
@@ -95,7 +131,7 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
                         raise RuntimeError("链接任务产生未知阶段")
                 except Exception as error:
                     steps.close()
-                    update(item, "failed", error)
+                    update(item, "cancelled" if is_cancelled is not None and is_cancelled(item) else "failed", error)
     except BaseException:
         controls.cancel.set()
         for future in list(active_downloads) + list(active_processing):

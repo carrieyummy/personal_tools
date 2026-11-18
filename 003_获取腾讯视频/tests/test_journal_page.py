@@ -46,10 +46,12 @@ class JournalPageTests(unittest.TestCase):
         """验证白名单快照、已登记成品限制、特殊字符和历史报告，无返回值。"""
         media = self.root / "video.mp4"
         media.write_bytes(b"media")
-        entry = self.journal.add({"video_id": "vid1", "title": "<script>标题</script>"})
+        page_url = "https://v.qq.com/x/cover/cover/vid1.html"
+        entry = self.journal.add({"video_id": "vid1", "title": "<script>标题</script>", "page_url": page_url})
         self.journal.update(entry, status="completed", output=str(media), source={"secret": "ticket-value"})
         state = json.loads(self.get("state"))
         self.assertNotIn("ticket-value", json.dumps(state))
+        self.assertEqual(state["runs"][-1]["entries"][0]["page_url"], page_url)
         self.assertEqual(self.get(state["runs"][-1]["entries"][0]["file_url"]), b"media")
         outside = self.root.parent / "unregistered.mp4"
         self.journal.update(entry, output=str(outside))
@@ -65,6 +67,7 @@ class JournalPageTests(unittest.TestCase):
         try:
             self.assertEqual(len(restarted.snapshot()["runs"]), 2)
             self.assertEqual(restarted.snapshot()["runs"][0]["entries"][0]["video_id"], "vid1")
+            self.assertEqual(restarted.snapshot()["runs"][0]["entries"][0]["page_url"], page_url)
         finally:
             restarted.close("completed", {})
 
@@ -85,7 +88,7 @@ class JournalPageTests(unittest.TestCase):
         with patch("local.playback.tasks.catalog", side_effect=[[dict(task)], [dict(task)], PlaybackError("选集失败")]):
             tasks, failed = discover(None, values)
         self.assertEqual(len(tasks), 1)
-        self.assertEqual([group["title"] for group in tasks[0]["groups"]], ["整剧", "单集"])
+        self.assertEqual([group["title"] for group in tasks[0]["groups"]], ["剧名", "剧名"])
         self.assertEqual(failed[0]["groups"][0]["title"], "失败组")
         self.journal.add(tasks[0])
         self.assertEqual(self.journal.snapshot()["runs"][-1]["entries"][0]["groups"], tasks[0]["groups"])
@@ -94,7 +97,8 @@ class JournalPageTests(unittest.TestCase):
         """浏览器验证更新、筛选、详情、离线快照和最终状态确认，无参数和返回值。"""
         from playwright.sync_api import sync_playwright
 
-        entry = self.journal.add({"video_id": "url_video", "title": "URL 第一集",
+        page_url = "https://v.qq.com/x/cover/cover1/urlvideo.html"
+        entry = self.journal.add({"video_id": "url_video", "title": "URL 第一集", "page_url": page_url,
                                   "groups": [{"id": "first", "title": "第一组", "url": "https://v.qq.com/x/cover/cover1.html"}]})
         other = self.journal.add({"video_id": "cache_video", "title": "缓存第二集",
                                   "groups": [{"id": "second", "title": "第二组", "url": "https://v.qq.com/x/cover/cover2.html"}]})
@@ -117,10 +121,13 @@ class JournalPageTests(unittest.TestCase):
                 page.locator("#search").fill("URL")
                 self.assertEqual(page.locator(".entry-row").count(), 0)
                 page.locator("#errors").uncheck()
-                self.journal.update(entry, "downloading", status="running", progress=42.0, device="gpu")
+                self.journal.update(entry, "downloading", status="running", progress=42.0, device="gpu",
+                                    downloaded_bytes=1048576, total_bytes=None, bytes_per_second=524288)
                 page.wait_for_function("document.querySelector('.entry-row')?.textContent.includes('42.0%')")
+                self.assertIn("1.00 MiB / 总量未知 · 平均 512.0 KiB/s", page.locator(".entry-row").inner_text())
                 page.locator(".entry-row button").click()
                 self.assertIn("url_video", page.locator(".detail-panel").inner_text())
+                self.assertEqual(page.locator(".detail-panel a").get_attribute("href"), page_url)
                 self.assertEqual(page.locator(".device-cell").inner_text(), "GPU")
                 self.assertTrue(page.locator(".entry-row").evaluate("row => row.nextElementSibling.classList.contains('detail-row')"))
                 page.locator("#search").fill("")
@@ -131,9 +138,12 @@ class JournalPageTests(unittest.TestCase):
                 offline = browser.new_page()
                 offline.goto(offline_path.as_uri())
                 self.assertIn("离线快照", offline.locator("#connection").inner_text())
+                offline.locator(".entry-row button").first.click()
+                self.assertEqual(offline.locator(".detail-panel a").get_attribute("href"), page_url)
                 self.journal.update(entry, status="completed", progress=100.0)
                 page.wait_for_function("document.querySelector('.entry-row')?.textContent.includes('100.0%')")
                 self.assertIn("42.0%", offline.locator(".entry-row").first.inner_text())
+                self.assertIn("512.0 KiB/s", offline.locator(".entry-row").first.inner_text())
                 thread = Thread(target=self.journal.close, args=("completed", {}))
                 thread.start()
                 page.wait_for_function("document.querySelector('#connection').textContent.includes('运行已结束')")

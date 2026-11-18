@@ -152,12 +152,16 @@ class ApplicationDiscoveryTests(unittest.TestCase):
         playback = yaml.safe_load((root/'configs/playback.yaml').read_text(encoding='utf-8-sig'))
         configured = task_options({'main_config':root/'configs/config.yaml',
                                    'download_list':(root/'configs'/playback['download_list']).resolve()})[0]
-        options = [{'index':i,'quality':configured['quality'],'all_parts':True,'note':''} for i in range(2)]
-        videos = [{'tvid':str(i),'episode':i+1,'title':'fixture','episode_title':str(i),'album_id':'fixture'} for i in range(2)]
+        options = [{'index':i,'url':configured['url'],'quality':configured['quality'],'all_parts':True} for i in range(2)]
+        videos = [{'index':i,'tvid':str(i),'episode':i+1,'title':'fixture','episode_title':str(i),'album_id':'fixture'} for i in range(2)]
         journal = MagicMock()
-        journal.run, journal.lock, journal.url = {}, RLock(), 'fixture'
+        journal.run, journal.lock, journal.url = {'id': 'fixture'}, RLock(), 'fixture'
         journal.__enter__.return_value = journal
         journal.add_episode.side_effect = lambda *args:{}
+        def stop_when_idle(_timeout):
+            """模拟无网页读取时仍等待手动停止；_timeout 为调度轮询秒数，无返回值。"""
+            self.assertTrue(journal.run.get('awaiting_stop'))
+            self.assertTrue(journal.stop_request(journal.run['id']))
         def steps(*args):
             """args 沿用正式单集调用协议；无媒体传输，直接返回复用结果。"""
             return {'status':'reused','output':'fixture','media':{}}
@@ -171,9 +175,12 @@ class ApplicationDiscoveryTests(unittest.TestCase):
                 patch('qsv_local.playback.application.linked_videos', side_effect=[[video] for video in videos]), \
                 patch('qsv_local.playback.application.expand_episodes', side_effect=lambda profile,video,whole,cancel=None:[video]), \
                 patch('qsv_local.playback.application.job_steps', side_effect=steps), \
+                patch('qsv_local.playback.application.Event') as control_event, \
                 patch('qsv_local.playback.application.atomic_json'), \
                 patch('qsv_local.playback.application.build_plan', side_effect=AssertionError('must not eagerly build all catalogs')):
+            control_event.return_value.wait.side_effect = stop_when_idle
             report, location = run_downloads(root/'configs/playback.yaml')
         self.assertEqual((report['total_episodes'], report['reused'], report['failed']), (2,2,0))
+        control_event.return_value.wait.assert_called_once()
         self.assertEqual(journal.run['catalog_status'], 'ready')
         self.assertEqual(journal.run['catalog_processed'], len(options))

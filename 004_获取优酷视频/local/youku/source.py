@@ -22,6 +22,32 @@ class Source:
     duration: float
 
 
+def select_stream(streams: list[dict], quality: int) -> dict:
+    """按像素面积及声明字节数排名 streams；quality 为从 1 开始的排名，返回唯一流，无法确定时拒绝。"""
+    areas = {}
+    for stream in streams:
+        dimensions = [stream.get("width"), stream.get("height")]
+        if any(type(value) is not int or value <= 0 for value in dimensions):
+            raise PlaybackError("画质来源缺少有效分辨率，无法排名")
+        area = dimensions[0] * dimensions[1]
+        areas.setdefault(area, []).append(stream)
+    if quality > len(streams):
+        raise PlaybackError("请求画质排名不可用，不降档")
+    for area in sorted(areas, reverse=True):
+        group = areas[area]
+        if quality > len(group):
+            quality -= len(group)
+            continue
+        if any(type(stream.get("size")) is not int or stream["size"] <= 0 for stream in group):
+            raise PlaybackError("目标分辨率的画质来源缺少有效 size，无法排名")
+        group.sort(key=lambda stream: stream["size"], reverse=True)
+        selected = group[quality - 1]
+        if sum(stream["size"] == selected["size"] for stream in group) != 1:
+            raise PlaybackError("目标分辨率存在相同 size 的画质来源，无法确定排名")
+        return selected
+    raise AssertionError("不可达的画质排名状态")
+
+
 def resolve(client, task: dict, expected: Source | None = None) -> Source:
     """为 client 的 task 按配置语言优先级选源并排名画质；expected 指定续签来源，返回 Source，变化明确抛错。"""
     body, challenge = client.ups(task["video_id"])
@@ -38,15 +64,7 @@ def resolve(client, task: dict, expected: Source | None = None) -> Source:
             break
     else:
         raise PlaybackError("配置的音轨语言均无匹配的正片画质来源")
-    order = profile["quality_order"]
-    if any(s["stream_type"] not in order for s in streams):
-        raise PlaybackError("返回了尚未校验排名的画质，拒绝猜测最高档：" + ",".join(sorted({s["stream_type"] for s in streams if s["stream_type"] not in order})))
-    streams.sort(key=lambda s:(int(s["width"])*int(s["height"]), -order.index(s["stream_type"])), reverse=True)
-    if len({s["stream_type"] for s in streams}) != len(streams):
-        raise PlaybackError("目标语言的画质来源不唯一")
-    if len(streams) < task["quality"]:
-        raise PlaybackError("请求画质排名不可用，不降档")
-    stream = streams[task["quality"] - 1]
+    stream = select_stream(streams, task["quality"])
     adapter = profile["supported_streams"].get(stream["stream_type"])
     if adapter is None:
         raise PlaybackError("所选画质尚未通过媒体适配验证，不降档")

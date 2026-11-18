@@ -47,25 +47,33 @@ def normalize_url(value: str) -> tuple[str, str]:
     return cid, vid
 
 
+def public_page_url(series_id: str, video_id: str) -> str:
+    """根据腾讯节目编号 series_id 与视频编号 video_id 生成公开页面 URL；两者不能同时为空，非法编号时报错。"""
+    if not series_id and not video_id or any(value and re.fullmatch(r"[A-Za-z0-9]+", value) is None for value in (series_id, video_id)):
+        raise PlaybackError("页面链接的 cid/vid 缺失或非法")
+    return (f"https://v.qq.com/x/cover/{series_id}" + (f"/{video_id}" if video_id else "") + ".html"
+            if series_id else f"https://v.qq.com/x/page/{video_id}.html")
+
+
 def requests(config: dict, *, require_single_video: bool = True) -> list[Request]:
     """读取 config 指定清单并返回保序请求；require_single_video 默认校验单集模式须有 vid，研究取样可关闭此项。"""
     root = yaml.safe_load(config["default_list"].read_text(encoding="utf-8-sig"))
     if not isinstance(root, dict) or not isinstance(root.get("download_list"), list) or not root["download_list"]:
         raise PlaybackError("download_list 必须是非空列表")
     result = []
-    for item in root["download_list"]:
-        if not isinstance(item, dict) or not isinstance(item.get("url"), str):
-            raise PlaybackError("每个清单项必须包含字符串 url")
-        quality = item.get("quality", root.get("quality", config["download"]["quality"]))
-        whole = item.get("all-parts", root.get("all-parts", config["download"]["all_parts"]))
+    for number, item in enumerate(root["download_list"]):
+        if not isinstance(item, str) or not item.strip() or item != item.strip():
+            raise PlaybackError(f"清单第 {number} 项必须是非空链接字符串，且首尾不能有空白")
+        quality = root.get("quality", config["download"]["quality"])
+        whole = root.get("all-parts", config["download"]["all_parts"])
         if type(quality) is not int or quality <= 0 or type(whole) is not bool:
             raise PlaybackError("quality 必须是正整数，all-parts 必须是布尔值")
-        if "merge-parts" in root or "merge-parts" in item:
+        if "merge-parts" in root:
             raise PlaybackError("腾讯工具不支持 merge-parts")
-        cid, vid = normalize_url(item["url"])
+        cid, vid = normalize_url(item)
         if require_single_video and not whole and not vid:
             raise PlaybackError("仅下载单集时，链接须包含 vid")
-        result.append(Request(cid, vid, quality, whole, str(item.get("title", ""))))
+        result.append(Request(cid, vid, quality, whole, ""))
     return result
 
 
@@ -161,7 +169,8 @@ def catalog(client: NativeClient, request: Request) -> list[dict]:
                 raise PlaybackError("选集条目的 cid/vid 不一致")
             task = {"series_id": cid, "video_id": params["vid"], "series": series,
                     "title": params["play_title"], "index": int(index), "quality": request.quality,
-                    "note": request.note, "source_type": "url", "release_date": release_date}
+                    "note": request.note, "source_type": "url", "release_date": release_date,
+                    "page_url": public_page_url(cid, params["vid"])}
             previous = result.get(task["video_id"])
             if previous is not None and previous != task:
                 raise PlaybackError("同一视频的选集元数据冲突")
@@ -196,9 +205,7 @@ class Discovery:
     def group(self, request: Request, index: int | None = None) -> dict:
         """将 request 转为安全 URL 分组；index 为清单位置，省略时取当前展开位置。"""
         # 仅重建公开播放 URL，避免把分享链接中的临时查询参数写入报告。
-        url = (f"https://v.qq.com/x/cover/{request.series_id}"
-               + (f"/{request.video_id}" if request.video_id else "") + ".html"
-               if request.series_id else f"https://v.qq.com/x/page/{request.video_id}.html")
+        url = public_page_url(request.series_id, request.video_id)
         return {"id":str(self.position if index is None else index), "title":request.note, "url":url}
 
     def failure(self, request: Request, detail: str, index: int | None = None) -> dict:
@@ -228,7 +235,7 @@ class Discovery:
                 raise PlaybackError("重复视频的 quality 冲突；已交接任务及成品保留")
         for task in episodes:
             key = task["series_id"], task["video_id"]
-            membership = {**group, "title":request.note or task["series"]}
+            membership = {**group, "title":task["series"]}
             if key in self.seen:
                 memberships.append((key, membership))
                 continue

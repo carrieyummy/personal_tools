@@ -2,18 +2,20 @@
 date: 2026年11月14日22:46:43
 commit: '' 
 
-# 全局设置；下面各 download_list 任务的同名配置优先覆盖这里。
+# 以下设置适用于清单中的全部链接。
 quality: 1 # 当前仅支持最高声明画质组；其他排名尚未完成精确选档适配。无完整授权时失败，不降档。
 # all-parts: false # 可选：仅下载链接指定一集；未填写时读取主配置 download.all_parts。
 
 # 保留列表与正片集序顺序，按集完成下载、验证和发布。
-# title 仅用于日志备注，保存目录和文件名继续使用原站标题；url 必填。
+# 每项填写一个链接；网页分组名称自动读取链接对应的官方专辑名。
 download_list:
-  - title: 
-    url: 
-  # - title: 
-  #   url: 
-  # - title: 
-  #   url:
-  # - title: 
-  #   url:
+  - https://qy.net/41IZCte-57
+  - https://qy.net/a1IXmIk-1b
+  - https://qy.net/acIXLNh-96
+  - https://qy.net/cfIWwPB-9f
+  - https://qy.net/f5IWmQk-1e
+  - https://qy.net/9fIXpEm-05
+  - https://qy.net/18JpW0Y-77
+  - https://qy.net/7aIZK9q-22
+  - https://qy.net/17IXJ4f-d0
+

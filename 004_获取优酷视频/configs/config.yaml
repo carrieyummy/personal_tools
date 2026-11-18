@@ -8,7 +8,7 @@ default_list: '../download_list/download_list.yaml'
 playback_profile: 'native_playback.yaml'
 # URL 下载参数；清单中的设置可覆盖画质和整剧选择。
 download:
-  # 每集单独排名，1 为最高；指定档位不可用时失败，不降档。
+  # 每集先按分辨率面积、再按声明的 size 从大到小排名，1 为最高；指定档位不可用时失败，不降档。
   quality: 1
   # true 下载链接对应整剧的已上线正片；false 仅下载链接指定的视频。
   all_parts: true

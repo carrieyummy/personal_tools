@@ -11,9 +11,9 @@ from local.playback.transport import safe_message
 
 
 def main() -> int:
-    """解析必填 --config，按来源执行并报告汇总；返回 0 成功、1 失败、130 用户中断。"""
+    """解析可选 --config，按来源执行并报告汇总；返回 0 成功、1 失败、130 用户中断。"""
     parser = argparse.ArgumentParser(description="按 YAML 选择腾讯 URL 高清下载或已完成缓存还原，并完整验证 MP4")
-    parser.add_argument("--config", type=Path, required=True, help="主 YAML 配置文件路径")
+    parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parent / "configs" / "config.yaml", help="主 YAML 配置文件路径；默认使用工具目录下的 configs/config.yaml")
     arguments = parser.parse_args()
     try:
         config = load_config(arguments.config)

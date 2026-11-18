@@ -154,7 +154,7 @@ class Journal:
                 item = {key: deepcopy(run[key]) for key in ("id", "started", "finished", "status", "summary", "elapsed_seconds", "authentication") if key in run}
                 item["entries"] = []
                 for entry_index, entry in enumerate(run["entries"]):
-                    row = {key: deepcopy(entry[key]) for key in ("video_id", "title", "groups", "status", "stage", "detail", "progress", "stages", "resources", "device", "output", "authentication") if key in entry}
+                    row = {key: deepcopy(entry[key]) for key in ("video_id", "title", "groups", "page_url", "status", "stage", "detail", "progress", "stages", "resources", "device", "output", "authentication", "downloaded_bytes", "total_bytes", "bytes_per_second") if key in entry}
                     if row.get("status") in ("completed", "reused") and row.get("output"):
                         row["file_url"] = f"/files/{run_index}/{entry_index}"
                     item["entries"].append(row)
@@ -192,6 +192,8 @@ class Journal:
                          "progress": None, "stages": {}, "resources": {}}
                 if "groups" in task:
                     entry["groups"] = deepcopy(task["groups"])
+                if "page_url" in task:
+                    entry["page_url"] = task["page_url"]
                 self.run["entries"].append(entry)
                 entries.append(entry)
             for entry, group in memberships or []:

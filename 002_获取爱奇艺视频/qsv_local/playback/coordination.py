@@ -1,6 +1,7 @@
 """链接批次的取消信号和独占阶段槽，不保存播放票据。"""
 
 from contextlib import contextmanager
+from copy import copy
 from threading import Event, Lock
 import time
 
@@ -49,6 +50,12 @@ class StageControls:
         self.devices = {name: Lock() for name in ("gpu", "cpu") if config["decode_verification"][name]}
         if not self.devices:
             raise ValueError("decode_verification.cpu/gpu 至少开启一个")
+
+    def for_task(self, stopped):
+        """共享当前独占槽并使用 stopped 单任务取消信号；返回独立控制视图。"""
+        result = copy(self)
+        result.cancel = stopped
+        return result
 
     @contextmanager
     def slot(self, name: str):

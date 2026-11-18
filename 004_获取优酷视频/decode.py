@@ -10,9 +10,10 @@ from local.errors import safe_message
 
 
 def main() -> int:
-    """解析必填 --config 并执行完整批次；返回 0 成功、1 失败或跳过、130 用户取消。"""
+    """解析可选 --config 并执行完整批次；默认使用入口旁 configs/config.yaml，返回 0 成功、1 失败或跳过、130 用户取消。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config",type=Path,required=True,help="主 YAML 配置文件路径")
+    parser.add_argument("--config",type=Path,default=Path(__file__).resolve().parent / "configs/config.yaml",
+                        help="主 YAML 配置文件路径；默认使用入口目录下的 configs/config.yaml")
     args = parser.parse_args()
     try:
         summary = run_url_batch(load_config(args.config))

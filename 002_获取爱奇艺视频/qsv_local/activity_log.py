@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from .storage import atomic_json, read_json, time_tag, timestamp
 
-TERMINAL = {"completed", "reused", "failed", "interrupted", "skipped"}
+TERMINAL = {"completed", "reused", "failed", "interrupted", "skipped", "cancelled"}
 VERIFY_STAGES = {"waiting_verification", "verifying", "checking", "publishing"}
 
 
@@ -29,6 +29,8 @@ class Journal:
         self.root = config["output_path"]
         self.path = self.root / config["logging"]["playback_state_file" if mode == "playback" else "state_file"]
         self.closed, self.storage_error = False, ""
+        self.cancellations, self.retry_request, self.stop_request = None, None, None
+        self.control_token = uuid4().hex
         self.final_ack, self.has_client = Event(), False
         self.snapshot_path = None
         self.last_write = float("-inf")
@@ -42,6 +44,7 @@ class Journal:
             if (not isinstance(run, dict) or not isinstance(run.get("entries"), list)
                     or not isinstance(run.get("id"), str)):
                 raise ValueError(f"运行历史格式无效：{self.path}")
+            run.pop("awaiting_stop", None)
             for entry in run["entries"]:
                 if (not isinstance(entry, dict) or not isinstance(entry.get("id"), str)
                         or not all(isinstance(entry.get(phase), dict) for phase in self.phases)):
@@ -80,6 +83,42 @@ class Journal:
             def log_message(self, format: str, *args) -> None:
                 """抑制默认访问日志；format/args 为 HTTP 内部消息，无返回值。"""
                 return
+
+            def do_POST(self) -> None:
+                """处理本机页面的取消、单集重试或停止服务请求；校验来源、令牌和请求大小。"""
+                if self.path not in ("/api/cancel", "/api/retry", "/api/stop") or journal.mode != "playback":
+                    self.send_error(404)
+                    return
+                origin = f"http://127.0.0.1:{journal.server.server_port}"
+                if (self.headers.get("Origin") != origin or self.headers.get("Host") != origin.removeprefix("http://")
+                        or self.headers.get("X-Control-Token") != journal.control_token
+                        or self.headers.get("Content-Type") != "application/json"):
+                    self.send_error(403)
+                    return
+                try:
+                    size = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < size <= 4096:
+                        raise ValueError("invalid size")
+                    payload = json.loads(self.rfile.read(size))
+                    if not isinstance(payload, dict) or not isinstance(payload.get("kind"), str) or not isinstance(payload.get("id"), str):
+                        raise ValueError("invalid payload")
+                except (ValueError, UnicodeDecodeError):
+                    self.send_error(400)
+                    return
+                with journal.lock:
+                    accepted = False
+                    if not journal.closed:
+                        if self.path == "/api/cancel" and journal.cancellations is not None:
+                            accepted = journal.cancellations.cancel(payload["kind"], payload["id"])
+                        elif self.path == "/api/retry" and payload["kind"] == "episode" and journal.retry_request is not None:
+                            accepted = journal.retry_request(payload["id"])
+                        elif self.path == "/api/stop" and payload["kind"] == "batch" and journal.stop_request is not None:
+                            accepted = journal.stop_request(payload["id"])
+                    if not accepted:
+                        self.send_error(409)
+                        return
+                    journal.write()
+                self._send(b"{}", "application/json")
 
             def do_GET(self) -> None:
                 """处理当前 GET 请求；路径越界返回 404，页面或快照数据不从日志磁盘读取。"""
@@ -189,13 +228,14 @@ class Journal:
             return entry
 
     def add_episode(self, video: dict, quality: int, audio_quality: int) -> dict:
-        """新增 video 单集进度；quality/audio_quality 为实际配置排名，返回线程安全更新所需条目。"""
+        """新增 video 单集进度及可选页面链接；quality/audio_quality 为实际配置排名，返回线程安全更新所需条目。"""
         with self.lock:
             if self.mode != "playback" or self.closed:
                 raise RuntimeError("当前日志不能新增链接剧集")
             entry = {"id": uuid4().hex, "directory": video["album_id"], "series_title": video["title"],
                      "release_date": video.get("release_date"),
                      "episode": video["episode"], "tvid": video["tvid"], "title": video["episode_title"],
+                     "play_url": video.get("play_url"),
                      "source_relative": f"{video['title']}/第{video['episode']}集", "status": "pending", "stage": "",
                      "detail": "", "progress": None, "started": "", "finished": "", "output": "", "work_dir": "",
                      "quality_rank": quality, "audio_quality_rank": audio_quality,
@@ -227,7 +267,7 @@ class Journal:
             elif stage:
                 entry["status"] = "running"
             if self.mode == "playback":
-                phase = "download" if entry["stage"] in {"", "pending", "waiting_source", "resolving_source", "authorizing", "checking_reuse", "downloading"} else "processing"
+                phase = "download" if entry["stage"] in {"", "pending", "resetting_download", "waiting_source", "resolving_source", "authorizing", "checking_reuse", "validating_manifest", "downloading"} else "processing"
             else:
                 phase = "verification" if entry["stage"] in VERIFY_STAGES else "conversion"
             entry[phase].update(status=entry["status"], stage=entry["stage"], progress=entry["progress"])
@@ -247,9 +287,20 @@ class Journal:
             if changed_stage or status or now - self.last_write >= self.config["logging"]["progress_interval_seconds"]:
                 self.write()
 
+    def reset_episode(self, entry: dict) -> None:
+        """在日志锁内将已排队重试的失败条目 entry 重置为待处理，保留剧集和选档资料；无返回值。"""
+        with self.lock:
+            entry.update(status="pending", stage="", detail="已排队重新下载", progress=None, started="", finished="",
+                         output="", work_dir="", download={"status": "pending"}, processing={"status": "pending"})
+            for field in ("error", "retry_queued", "media_label", "quality_label", "report_file"):
+                entry.pop(field, None)
+
     def write(self) -> None:
         """请求保存当前内存历史；启动时同步保存，运行时由写盘线程合并请求，无参数或返回值。"""
         with self.lock:
+            if self.cancellations is not None:
+                links, albums = self.cancellations.snapshot()
+                self.run.update(links=links, cancelled_albums=albums)
             self.last_write = time.monotonic()
             self.data["revision"] += 1
             if self.writer is None:
@@ -294,6 +345,12 @@ class Journal:
         with self.lock:
             data = deepcopy(self.data)
             data.update(closed=self.closed, storage_error=self.storage_error, captured_at=timestamp())
+            if self.cancellations is not None:
+                links, albums = self.cancellations.snapshot()
+                data["runs"][-1].update(links=links, cancelled_albums=albums)
+            if live and self.mode == "playback":
+                data["control_token"] = self.control_token
+                data["retry_enabled"] = not self.closed and self.retry_request is not None
         for run in data["runs"]:
             for entry in run["entries"]:
                 entry.update(file_url="", report_url="")

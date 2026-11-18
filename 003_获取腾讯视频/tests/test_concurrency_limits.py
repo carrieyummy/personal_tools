@@ -32,7 +32,7 @@ class ConcurrencyLimitsTests(unittest.TestCase):
                 calls.append("resolve")
                 return source
 
-            def transfer(transport, initial, work, config, progress, cancel):
+            def transfer(transport, initial, work, config, progress, cancel, telemetry=None):
                 """模拟 initial 媒体过期后继续下载至 work；其他参数遵循正式签名，返回清单及证据。"""
                 self.assertTrue(current_thread().name.startswith("tencent-download"))
                 calls.append("download")

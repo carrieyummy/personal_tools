@@ -82,23 +82,24 @@ request:
   - local_vid
   - skh
   - start_point_ms
-# 先比较实际像素面积；相同面积按此列表优先。未知类型拒绝猜测排名。
-quality_order:
-- hls5hd4_hbr_bit10
-- hls5hd4_hbr
-- mp5hd4
-- hls5hd3_hbr_bit10
-- hls5hd3_hbr
-- hd3
-- mp4hd3
-- mp5hd3
-- mp4hd2
-- mp5hd2
-- mp4hd
-- mp5hd
-- mp5sd
-- flvhd
-- 3gphd
+# 按像素面积降序排名；相同面积按服务端声明的 size 降序，目标档位同 size 或缺失时拒绝猜测。
+# 历史类型排序已停用；实际所选流仍须在 supported_streams 中通过适配验证。
+# quality_order:
+# - hls5hd4_hbr_bit10
+# - hls5hd4_hbr
+# - mp5hd4
+# - hls5hd3_hbr_bit10
+# - hls5hd3_hbr
+# - hd3
+# - mp4hd3
+# - mp5hd3
+# - mp4hd2
+# - mp5hd2
+# - mp4hd
+# - mp5hd
+# - mp5sd
+# - flvhd
+# - 3gphd
 # 只有以下画质通过当前原生适配；其他已选画质明确失败，不自动降档。
 supported_streams:
   hls5hd4_hbr_bit10:

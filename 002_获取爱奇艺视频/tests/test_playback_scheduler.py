@@ -129,6 +129,69 @@ class PlaybackSchedulerTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertTrue(all(statuses[i] == "done" for i in range(3)))
 
+    def test_downloads_keep_filling_while_processing_is_slow(self):
+        """后处理长期占用时仍持续准备并下载后续剧集，处理总数不超过配置；无返回值。"""
+        self.config["max_in_flight"] = 3
+        self.config["download"]["queue_capacity_gb"] = 100 / 1024**3
+        controls = StageControls(self.config)
+        release, processing_busy, downloaded = Event(), Event(), Event()
+        lock, active, peak, processing_count, started, statuses, errors = Lock(), [0], [0], [0], [], {}, []
+
+        def steps(index):
+            """模拟 index 的来源准备、媒体传输及阻塞后处理；返回完成状态。"""
+            with lock:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            with lock:
+                active[0] -= 1
+            yield "download", 0
+            if index >= 2 and not processing_busy.wait(5):
+                raise TimeoutError("后处理未开始")
+            with lock:
+                started.append(index)
+                if len(started) >= 10:
+                    downloaded.set()
+            yield "ready", 1
+            with lock:
+                active[0] += 1
+                processing_count[0] += 1
+                peak[0] = max(peak[0], active[0])
+                if processing_count[0] >= 2:
+                    processing_busy.set()
+            try:
+                if not release.wait(10):
+                    raise TimeoutError("后处理测试未释放")
+            finally:
+                with lock:
+                    active[0] -= 1
+                    processing_count[0] -= 1
+            return {"status": "completed"}
+
+        def update(item, status, value):
+            """记录 item 的 status；value 为调度结果或错误，无返回值。"""
+            with lock:
+                statuses[item] = status
+
+        def run():
+            """运行隔离调度并收集异常；无参数或返回值。"""
+            try:
+                schedule([(index, steps(index)) for index in range(12)], self.config, controls, update)
+            except BaseException as error:
+                errors.append(error)
+
+        thread = Thread(target=run)
+        thread.start()
+        try:
+            self.assertTrue(processing_busy.wait(5), "未形成持续的后处理负载")
+            self.assertTrue(downloaded.wait(5), "后处理占用时后续下载未继续")
+            self.assertLessEqual(peak[0], self.config["max_in_flight"])
+        finally:
+            release.set()
+            thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(errors)
+        self.assertEqual(sum(status == "done" for status in statuses.values()), 12)
+
     def test_oversized_episode_and_failure_do_not_block_following_jobs(self):
         """队列为空时允许单集超限；单项失败后其余任务仍可完成，无返回值。"""
         controls = StageControls(self.config)

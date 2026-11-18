@@ -13,7 +13,7 @@ import time
 from typing import Any
 
 from .activity import Activity
-from .client import NativeClient, check_cancel, normalize_url, safe_message
+from .client import NativeClient, check_cancel, episode_url, normalize_url, safe_message
 from .configuration import read_config
 from .errors import AuthenticationError, Cancelled, SourceChanged, ToolError
 from .hls import download_steps, playlists
@@ -57,7 +57,8 @@ class Pipeline:
     def stage(self, episode: Episode, name: str, progress: str = "", message: str = "") -> None:
         """记录 episode 的 name 阶段；progress/message 为脱敏进度和说明，附加清单备注；无返回值。"""
         note = f"（备注：{episode.note}）" if episode.note else ""
-        self.log.update(episode.key, f"{episode.series} · 第{episode.index}集", name, progress, message + note)
+        self.log.update(episode.key, f"{episode.series} · 第{episode.index}集 · {episode.title}", name, progress, message + note,
+                        group_id=episode.clip_id, series=episode.series, page_url=episode_url(episode.clip_id, episode.video_id))
 
     def failure(self, episode: Episode, error: Exception) -> str:
         """结算 episode 的 error；认证错误停止新下载，取消保留现场；返回已记录的终态字符串。"""
@@ -289,9 +290,10 @@ def run(args) -> int:
                                 continue
                             seen[episode.key] = episode.quality
                             if not episode.released:
-                                log.update(episode.key, episode.title, "待上线")
+                                pipeline.stage(episode, "待上线")
                                 counts["待上线"] = counts.get("待上线", 0) + 1
                                 continue
+                            pipeline.stage(episode, "等待")
                             yield episode
                     except Cancelled:
                         raise

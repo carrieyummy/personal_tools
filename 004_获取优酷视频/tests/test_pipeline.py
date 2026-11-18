@@ -13,6 +13,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from Crypto.Cipher import AES
+import yaml
 
 from local.batch import Batch
 from local.application import UrlBatch, verification_valid, cleanup_media
@@ -94,17 +95,24 @@ class PipelineTests(unittest.TestCase):
         self.root = Path(self.temp.name)
 
     def test_config_and_list_override(self):
-        """主配置相对路径正确，任务覆盖全局且不改变用户原清单。"""
+        """简单链接列表继承清单全局设置，且不改变用户原清单。"""
         self.assertTrue(self.config["work_dir"].is_absolute())
         path = self.root / "list.yaml"
-        path.write_text('quality: 2\nall-parts: true\ndownload_list:\n  - url: https://v.youku.com/video?vid=Xabc==\n    quality: 3\n    all-parts: false\n',encoding="utf-8")
+        quality = self.config["download"]["quality"] + 1
+        whole = not self.config["download"]["all_parts"]
+        path.write_text(yaml.safe_dump({"quality": quality, "all-parts": whole,
+                                       "download_list": ["https://v.youku.com/video?vid=Xabc=="]}), encoding="utf-8")
         config = dict(self.config,default_list=path)
         item = requests(config)[0]
-        self.assertEqual(item["quality"],3)
-        self.assertFalse(item["all_parts"])
+        self.assertEqual(item["quality"], quality)
+        self.assertEqual(item["all_parts"], whole)
         self.assertEqual(video_id("https://v.youku.com/v_show/id_Xabc==.html"),"Xabc==")
         with self.assertRaises(ValueError):
             video_id("https://evil.invalid/video?vid=Xabc==")
+        for invalid in ({"url": "https://v.youku.com/video?vid=Xabc=="}, "", " https://v.youku.com/video?vid=Xabc=="):
+            path.write_text(yaml.safe_dump({"download_list": [invalid]}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                requests(config)
 
     def test_atomic_record_retries_transient_windows_denial(self):
         """共享盘首次拒绝原子替换时等待后重试，成功前保持旧记录完整，不重写临时内容。"""

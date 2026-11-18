@@ -2,7 +2,7 @@
 # 相对路径以本 YAML 所在的 research/configs/ 目录为基准。
 config: '../../configs/config.yaml'
 report_dir: '../results'
-# 验证主配置指定清单中的全部链接；不按 title 备注筛选剧名。
+# 验证主配置指定清单中的全部链接。
 native_logs:
   # 只提取协议能力参数与响应结构，不从日志提取或复用账号票据。
   root: '~/AppData/Roaming/Tencent/QQLive/Log'

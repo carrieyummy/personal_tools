@@ -61,6 +61,8 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
     stopped = controls.cancel
     checkpoint = partial(atomic_json, retry_settings=config["logging"], cancel_event=stopped)
     check_cancel(stopped)
+    if notify:
+        notify({"stage": "validating_manifest", "detail": "核对音视频清单的时长与字节范围"})
     plan = selected_media_plan(body, source, profile)
     video_rows = [row for row in plan["segments"] if not row.get("audio_asset")]
     audio_rows = [row for row in plan["segments"] if row.get("audio_asset")]

@@ -20,7 +20,7 @@ def main() -> int:
     client = NativeClient(read_config(args.config))
     reports = []
     for item in read_yaml(args.list)["download_list"]:
-        _, clip_id, video_id = normalize_url(item["url"])
+        _, clip_id, video_id = normalize_url(item)
         initial = client.source(clip_id, video_id)
         data = client.source(clip_id, video_id, str(initial["videoSources"][0]["definition"]))
         selected = data["videoSources"][0]

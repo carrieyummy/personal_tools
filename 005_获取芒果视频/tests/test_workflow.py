@@ -46,23 +46,28 @@ class ManifestTests(BaseCase):
     """清单继承、原站目录、画质选择与 CLI 约束。"""
 
     def test_list_precedence(self):
-        """逐项覆盖全局，全局覆盖配置；CLI 覆盖整剧开关；无参数/返回值。"""
-        link = yaml.safe_load(self.config["default_list"].read_text(encoding="utf-8-sig"))["download_list"][0]["url"]
+        """简单链接共享清单设置，CLI 覆盖整剧开关；非法类型和旧对象格式被拒绝。"""
+        link = yaml.safe_load(self.config["default_list"].read_text(encoding="utf-8-sig"))["download_list"][0]
         config = self.config
         global_rank = config["download"]["quality"] + 1
-        item_rank = global_rank + 1
         document = {"quality": global_rank, "all-parts": not config["download"]["all_parts"],
-                    "download_list": [{"url": link}, {"url": link, "quality": item_rank, "all-parts": config["download"]["all_parts"]}]}
+                    "download_list": [link, link]}
         path = self.root / "list.yaml"
         path.write_text(yaml.safe_dump(document, allow_unicode=True), encoding="utf-8")
         tasks = requests([str(path)], config, None)
-        self.assertEqual([task.quality for task in tasks], [global_rank, item_rank])
-        self.assertEqual([task.all_parts for task in tasks], [document["all-parts"], config["download"]["all_parts"]])
+        self.assertEqual([task.quality for task in tasks], [global_rank, global_rank])
+        self.assertEqual([task.all_parts for task in tasks], [document["all-parts"], document["all-parts"]])
         self.assertTrue(all(task.all_parts for task in requests([str(path)], config, True)))
-        document["download_list"][0]["quality"] = True
+        document["quality"] = True
         path.write_text(yaml.safe_dump(document), encoding="utf-8")
         with self.assertRaises(ToolError):
             requests([str(path)], config, None)
+        document["quality"] = global_rank
+        for invalid in ({"url": link}, "", " " + link):
+            document["download_list"] = [invalid]
+            path.write_text(yaml.safe_dump(document), encoding="utf-8")
+            with self.assertRaises(ToolError):
+                requests([str(path)], config, None)
 
     def test_source_order_not_numeric_definition(self):
         """采用接口档位顺序；数字较大的 definition 不等于较高清晰度；无参数/返回值。"""

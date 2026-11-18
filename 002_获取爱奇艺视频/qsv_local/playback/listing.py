@@ -6,30 +6,25 @@ from urllib.request import Request
 import yaml
 
 from .metadata import public_duration
+from .links import read_link_listing
 from .network import open_network
 
 
 def task_options(profile: dict) -> list[dict]:
-    """读取 profile 引用的清单及主配置；返回逐任务 quality/all_parts 设置，拒绝缺失或非法值。"""
-    listing = yaml.safe_load(profile["download_list"].read_text(encoding="utf-8-sig"))
+    """读取 profile 引用的清单及主配置；返回每个链接的全局画质与全剧设置，拒绝非法值。"""
+    listing = read_link_listing(profile["download_list"])
     main = yaml.safe_load(profile["main_config"].read_text(encoding="utf-8-sig"))
-    items = listing.get("download_list") if isinstance(listing, dict) else None
-    if not isinstance(items, list) or not items:
-        raise ValueError("下载清单必须包含非空 download_list")
+    items = listing["download_list"]
     result = []
-    for index, item in enumerate(items):
-        if not isinstance(item, dict) or not isinstance(item.get("url"), str) or not item["url"]:
-            raise ValueError(f"清单第 {index} 项缺少链接")
-        quality = item.get("quality", listing.get("quality"))
-        if "all-parts" in item:
-            all_parts = item["all-parts"]
-        elif "all-parts" in listing:
+    for index, url in enumerate(items):
+        quality = listing.get("quality")
+        if "all-parts" in listing:
             all_parts = listing["all-parts"]
         else:
             all_parts = main["download"]["all_parts"]
         if type(quality) is not int or quality <= 0 or type(all_parts) is not bool:
             raise ValueError(f"清单第 {index} 项 quality 必须为正整数，all-parts 必须为布尔值")
-        result.append({"index": index, "quality": quality, "all_parts": all_parts, "note": item.get("title", "")})
+        result.append({"index": index, "url": url, "quality": quality, "all_parts": all_parts})
     return result
 
 

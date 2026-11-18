@@ -47,24 +47,29 @@ class PlaybackConfigTests(unittest.TestCase):
                 load_config(path)
 
     def test_list_inheritance_and_conflicting_types(self):
-        """清单与单项覆盖主配置，备注独立保存；布尔 quality 及缺少 vid 的单集请求被拒绝。"""
+        """简单链接列表共用全局设置；错误类型及旧对象格式被拒绝。"""
         config = current_config()
         with tempfile.TemporaryDirectory(prefix="tencent_list_") as folder:
             config["default_list"] = Path(folder) / "list.yaml"
             listing = {"date": "备注", "quality": config["download"]["quality"] + 1,
                        "all-parts": not config["download"]["all_parts"], "download_list": [
-                           {"url": "https://m.v.qq.com/x/m/play?cid=cover&vid=video", "title": "备注标题"},
-                           {"url": "https://v.qq.com/x/cover/cover/video.html", "quality": config["download"]["quality"], "all-parts": config["download"]["all_parts"]}]}
+                           "https://m.v.qq.com/x/m/play?cid=cover&vid=video",
+                           "https://v.qq.com/x/cover/cover/video.html"]}
             config["default_list"].write_text(yaml.safe_dump(listing), encoding="utf-8")
             values = requests(config)
             self.assertEqual(values[0].quality, listing["quality"])
             self.assertEqual(values[0].all_parts, listing["all-parts"])
-            self.assertEqual(values[1].quality, config["download"]["quality"])
-            self.assertEqual(values[0].note, listing["download_list"][0]["title"])
-            listing["download_list"][0]["quality"] = True
+            self.assertEqual(values[1].quality, listing["quality"])
+            listing["quality"] = True
             config["default_list"].write_text(yaml.safe_dump(listing), encoding="utf-8")
             with self.assertRaises(PlaybackError):
                 requests(config)
+            listing["quality"] = config["download"]["quality"]
+            for invalid in ({"url": "https://v.qq.com/x/page/video.html"}, "", " https://v.qq.com/x/page/video.html"):
+                listing["download_list"] = [invalid]
+                config["default_list"].write_text(yaml.safe_dump(listing), encoding="utf-8")
+                with self.assertRaises(PlaybackError):
+                    requests(config)
 
     def test_official_links_only(self):
         """移动链接、桌面正片和整剧地址均解析稳定编号；伪官方域名和路径穿越被拒绝。"""
@@ -114,7 +119,10 @@ class CatalogTests(unittest.TestCase):
         client = SimpleNamespace(profile=self.config["playback"], catalog_page=Mock(side_effect=[
             self.make_page([2, 1], first=True), self.make_page([3])]))
         request = Request("cover", "video2", self.config["download"]["quality"], True, "备注")
-        self.assertEqual([task["index"] for task in catalog(client, request)], [1, 2, 3])
+        tasks = catalog(client, request)
+        self.assertEqual([task["index"] for task in tasks], [1, 2, 3])
+        self.assertEqual([task["page_url"] for task in tasks],
+                         [f"https://v.qq.com/x/cover/cover/video{index}.html" for index in (1, 2, 3)])
         client.catalog_page = Mock(side_effect=[self.make_page([2, 1], first=True), self.make_page([3])])
         self.assertEqual([task["video_id"] for task in catalog(client, replace(request, all_parts=False))], ["video2"])
 

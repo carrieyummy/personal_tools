@@ -1,141 +1,261 @@
 # 链接下载与只读缓存专项配置；客户端只需打开任意正片并暂停一次。
 # 不启动或切换当前播放窗口，不调用 DownloadEx、下载派发或下载设置接口。
 # 所有相对路径以本文件为基准，安装目录和客户端路径复用主配置。
+# 主配置路径；相对本 YAML 所在目录，提供输出、工作目录及设备等设置。
 main_config: config.yaml
+# 链接清单路径；相对本 YAML 所在目录。
 download_list: ../download_list/download_list.yaml
+# 客户端播放缓存根目录，用于只读缓存研究。
 cache_root: 'E:\qycache\temp_cache'
+# 播放会话和缓存研究报告目录；相对本 YAML 所在目录。
 report_dir: ../research/results/playback_cache
+# 公开资料、链接跳转和媒体请求的网络设置。
 network:
+  # 是否使用进程环境中的代理设置；false 禁用环境代理。
   use_environment_proxy: false
+  # 单次网络请求超时，单位秒，须为大于零的有限数字。
   timeout_seconds: 20
+  # 公开资料及调度响应读取上限，单位字节，须为正整数。
   max_response_bytes: 8388608
+  # 查询公开资料及链接时使用的 User-Agent 请求头。
   user_agent: Mozilla/5.0
+  # 允许链接解析、跳转及相关来源引用的官方主机名列表。
   allowed_hosts: [qy.net, www.iqiyi.com, iqiyi.com]
   # 当前客户端 qysdk 的 decodeTvId / base36-XOR 规则；用于普通 /v_*.html 播放页，不依赖页面脚本执行。
+  # 当前客户端普通播放页编号解码规则；升级后需重新核验。
   play_url_id:
+    # 播放页 base36 编号解码时使用的异或掩码，须为正整数。
     xor_mask: 0x75706971676c
+    # 解码后判定旧编号规则的阈值，须为正整数。
     legacy_threshold: 900000
+    # 旧编号规则使用的偏移量，须为正整数。
     legacy_offset: 900000
+    # 旧编号规则使用的乘数，须为正整数。
     legacy_multiplier: 100
+  # 查询单集公开资料的 URL 模板；{tvid} 为视频编号。
   video_info_url: https://pcw-api.iqiyi.com/video/video/baseinfo/{tvid}
   # 整剧上映日期仅取专辑 publishTime；同一批次按 AlbumID 缓存，不使用单集或更新日期。
+  # 查询专辑公开资料的 URL 模板；{album_id} 为专辑编号。
   album_info_url: https://pcw-api.iqiyi.com/album/album/baseinfo/{album_id}
   # 日期展示的 UTC 偏移，单位分钟；北京时间为 UTC+08:00。
+  # 专辑上映日期展示时区偏移，单位分钟，绝对值须小于 1440。
   album_date_utc_offset_minutes: 480
+  # 查询专辑正片目录的 URL 模板，包含专辑编号、页码及每页数量。
   episode_list_url: 'https://pcw-api.iqiyi.com/albums/album/avlistinfo?aid={album_id}&page={page}&size={page_size}'
+  # 公开正片目录每页请求的数量，须为正整数。
   episode_page_size: 200
+  # 展开单部剧允许查询的最大页数，须为正整数；超限时报错。
   max_episode_pages: 100
+# 客户端只读播放缓存研究使用的进程、模块及内存读取边界。
 native:
+  # 只读缓存研究要附加的客户端进程名。
   process_name: QyKernel.exe
+  # 只读缓存研究所用客户端模块名。
   module: HCDNClientNet.dll
+  # 上述模块的 SHA-256 校验值；版本变化后须重新核验适配。
   sha256: ad87734759977fa1a4404589509b25626593a24c43fcb69d1d9c3d1cae25fa80
   # 当前版本 CPgfDBManager 的 RTTI、调用方及 SELECT 实测相互核对；升级后重新分析。
+  # 当前客户端数据库管理器虚函数表相对模块基址的偏移。
   manager_vtable_rva: 0xafcba8
+  # 数据库指针相对管理器对象的偏移，单位字节。
   database_pointer_offset: 0x10
+  # 客户端 SQLite 查询函数相对模块基址的偏移。
   sqlite_exec_rva: 0x599e00
+  # 内存扫描允许检查的单个区域最大字节数，须为正整数。
   scan_max_region_bytes: 67108864
+  # 单次内存扫描允许检查的总字节数，须为正整数。
   scan_max_total_bytes: 536870912
+  # 只读缓存查询最多读取的记录行数，须为正整数。
   max_rows: 512
+  # 只读缓存查询单个文本字段的最大字节数，须为正整数。
   max_text_bytes: 4096
+# 原生播放会话、选档、媒体下载及客户端接口适配设置。
 playback:
+  # 需要预先登录并初始化播放的客户端播放器进程名。
   process_name: QyPlayer.exe
+  # 等待捕获目标原生播放响应的最长时间，单位秒，须大于零。
   capture_seconds: 20
+  # 目标响应完成后继续收集关联响应的时间，单位秒，须大于零。
   followup_seconds: 0.1
+  # 等待原生预读任务清理完成的最长时间，单位秒，须大于零。
   cleanup_timeout_seconds: 2
+  # 检查原生预读任务是否清理完成的间隔，单位秒，须大于零。
   cleanup_poll_seconds: 0.05
+  # 最多保留的原生捕获请求记录数，须为正整数。
   max_requests: 128
+  # 读取单个原生文本字段的字节上限，须为正整数。
   max_text_bytes: 16384
+  # 每个捕获请求最多记录的请求头数量，须为正整数。
   max_headers: 64
+  # 单个捕获响应体及原生状态缓冲的字节上限，须为正整数且小于 2 GiB。
   max_body_bytes: 8388608
+  # 匹配原生播放请求的主机名列表。
   hosts: [cache.video.iqiyi.com, liveats-vod.video.iqiyi.com]
+  # 用于识别目标 DASH 播放请求的主机名。
   dash_host: cache.video.iqiyi.com
+  # 用于识别目标 DASH 播放请求的路径。
   dash_path: /dash
+  # 验证原生资源调度域名使用的主机名后缀。
   resource_host_suffix: .video.iqiyi.com
   # 原生调度实测的媒体 CDN；原生账号请求头不会转发到这些节点。
+  # 允许媒体请求和跳转的 CDN 域名后缀列表；须以点开头。
   cdn_host_suffixes: [.video.iqiyi.com, .video.qiyi.com, .71edge.com]
   # 请求由独立播放预读接口生成；不切换当前播放窗口，也不调用离线下载接口。
+  # 独立播放预读接口的原生请求参数；各枚举由当前客户端协议定义。
   request:
+    # 原生视频码流档位请求值，须为正整数；最终按实际响应选档。
     bitstream: 800
+    # 原生 HDR 类型请求枚举，整数且不小于 -1。
     hdr_type: 8
+    # 原生帧率请求枚举，须为非负整数。
     frame_rate: 0
+    # 原生节目类型请求枚举，须为非负整数。
     movie_type: 1
+    # 传给原生预读接口的 VRS 参数字符串。
     vrs_param: ''
+    # 原生播放请求附加参数，须为可编码为有限 JSON 的对象。
     extra: {}
+    # 原生视频码流扩展信息，须为可编码为有限 JSON 的对象。
     bitstream_extend_info: {}
+    # 原生音轨语言请求枚举，须为非负整数。
     audio_language: 0
+    # 原生音轨编码类型请求枚举，须为非负整数。
     audio_type: 0
+    # 原生音轨声道类型请求枚举，须为非负整数。
     audio_channel_type: 0
+    # 原生音轨扩展信息，须为可编码为有限 JSON 的对象。
     audio_extend_info: {}
+  # 视频画质排名、同档偏好和已验证格式的限制。
   selection:
     # 当前正式能力仅验收最高档；次高等排名的精确选档尚未适配，不开放为成功路径。
+    # 正式入口已验证的视频画质排名列表；须为不重复的正整数。
     supported_ranks: [1]
     # 最高组内保留原生当前选中编码；不同编码不会重复占用清晰度排名。
+    # 同画质组内是否优先保留客户端原生选中的编码。
     prefer_native_selected: true
     # 每集分别按声明分辨率档、增强档、码率档、帧率分组；1 表示最高组，不按编码体积排名。
+    # 视频画质分组字段及排序顺序；只接受 bid、enhanced、br、fr 且不重复。
     rank_fields: [bid, enhanced, br, fr]
     # 同档优先使用已验证的原生 HDR/编码；无法处理所选档时失败，不切换到更低档。
+    # 同档 HDR 类型的优先顺序；须为不重复的整数列表。
     hdr_preference: [8, 4, 2, -1, 0]
+    # 同档视频编码的优先顺序；须为不重复的整数列表。
     codec_preference: [1, 2, 5]
+    # 已适配的视频编码枚举；须为不重复的整数列表。
     supported_codecs: [1, 2, 5]
+    # 已适配的原生媒体格式名称列表；未适配的所选格式会失败。
     supported_formats: [ts, 265ts, dash]
+    # 请求 SDR 来源时使用的 HDR 类型枚举，须为非负整数。
     sdr_request_hdr: 0
+  # 音轨排名、原生编码枚举和输出编码校验设置。
   audio_selection:
     # 同一匹配语言内按原生音质档和声道类型排名，不使用媒体体积。
+    # 音轨排名字段及顺序；只接受不重复的原生 bid、ct。
     rank_fields: [bid, ct]
     # 当前SDK音频类型枚举与字符串转换函数核对；AAC已通过独立资源实测。
+    # 音频名称到原生编码类型正整数枚举的映射。
     codec_types: {dolby: 1, aac: 2, dts: 3}
+    # 各原生音频名称允许的成品编码列表；键须与 codec_types 一致。
     output_codecs: {dolby: [eac3, ac3], aac: [aac], dts: [dts, dca]}
     # 分段调度前缀读取每次原生响应的 data.dd（含 /videos 路径），不固定域名，不转发账号请求头。
+  # 客户端原生播放预读管理器及输入结构的版本相关适配。
   programs:
+    # 创建原生播放预读管理器的导出函数名。
     factory: CreateMctoProgramsManager
+    # 销毁原生播放预读管理器的导出函数名。
     destroy: DestoryMctoProgramsManager
+    # 提交预读任务的原生函数相对模块基址偏移。
     push_front_rva: 0x25a0e0
+    # 删除预读任务的原生函数相对模块基址偏移。
     delete_rva: 0x259500
+    # 读取预读状态的原生函数相对模块基址偏移。
     status_rva: 0x2599a0
     # 已以原生调用方、真实输入和跨电视剧请求核验；C 输入为当前版本的 packed 布局。
+    # 原生预读输入结构大小，单位字节，须为正整数。
     input_size: 0x51e
+    # 原生预读输入结构各字段的字节偏移；须与当前客户端布局一致。
     fields:
+      # 视频码流档位字段在输入结构中的字节偏移。
       bitstream: 0x0
+      # HDR 类型字段在输入结构中的字节偏移。
       hdr_type: 0x4
+      # 帧率字段在输入结构中的字节偏移。
       frame_rate: 0xc
+      # 视频码流扩展文本字段在输入结构中的字节偏移。
       bitstream_extend_info: 0x10
+      # 音轨语言字段在输入结构中的字节偏移。
       audio_language: 0x210
+      # 音轨编码类型字段在输入结构中的字节偏移。
       audio_type: 0x214
+      # 音轨声道类型字段在输入结构中的字节偏移。
       audio_channel_type: 0x218
       # 与原生输入日志调用方核对：三项音轨整数后紧接512字节扩展文本；0x41c为字幕语言。
+      # 音轨扩展文本字段在输入结构中的字节偏移。
       audio_extend_info: 0x21c
+      # 节目类型字段在输入结构中的字节偏移。
       movie_type: 0x420
+      # 视频 TVID 字符串字段在输入结构中的字节偏移。
       tvid: 0x424
+      # 视频 VID 字符串字段在输入结构中的字节偏移。
       vid: 0x464
+      # 付费标记字段在输入结构中的字节偏移。
       charge: 0x4f8
+      # VRS 参数指针字段在输入结构中的字节偏移。
       vrs_param: 0x4fe
+      # 附加参数指针字段在输入结构中的字节偏移。
       extra: 0x516
+    # 原生预读输入结构中固定长度文本字段的缓冲容量，单位字节。
     capacities:
+      # 视频码流扩展文本缓冲区容量，单位字节。
       bitstream_extend_info: 512
+      # 音轨扩展文本缓冲区容量，单位字节。
       audio_extend_info: 512
+      # TVID 字符串缓冲区容量，单位字节。
       tvid: 64
+      # VID 字符串缓冲区容量，单位字节。
       vid: 128
+  # 研究模式的短分段采样设置，不限制正式整集下载体积。
   media_probe:
     # 显式使用 --sample-media 时，按清单相对位置选取短分段，包含中后部以避免只验证明文片头。
+    # 短分段采样的相对位置列表；每项为 0 到 1 的有限数字。
     positions: [0.0, 0.5, 1.0]
+    # 研究模式单个采样分段的最大字节数，须为正整数。
     max_segment_bytes: 16777216
+  # 正式媒体下载、重试与处理边界。
   media_download:
+    # 每集同时下载的分片数，须为正整数；集数并发由主配置 download.threads 控制。
     workers: 4
+    # 每个分片发生网络错误时的总尝试次数，须为正整数。
     attempts: 3
+    # 分片网络错误重试前的等待时间，单位秒，须为大于零的有限数字。
     retry_seconds: 1
+    # 清单、公开正片及音轨时长核对的允许误差，单位秒，须大于零。
     duration_tolerance_seconds: 2
+    # 阶段进度输出及相关检查点的最小间隔，单位秒，须大于零。
     progress_seconds: 5
     # 单个MP4片段结构处理的内存上限；整集下载仍按主配置缓冲流式写盘。
+    # 单个 MP4 片段结构处理的字节上限，须为正整数；不限制整集文件大小。
     max_fragment_bytes: 67108864
+  # 原生 QTP 请求捕获适配；模块更新后需重新核验。
   qtp:
+    # 用于捕获原生网络请求的 QTP 模块文件名。
     module: libqtpclient.dll
+    # QTP 模块的 SHA-256 校验值。
     sha256: b1422e0bae4160e8b6759365a3f059551bdd4264c990c008ccfc2cf34761daa8
+    # QTP 设置 URL 的原生选项编号。
     url_option: 10017
+    # QTP 设置请求头的原生选项编号。
     header_option: 10022
+    # QTP 设置用户上下文的原生选项编号。
     user_option: 10002
+  # 播放器响应回调的模块及版本相关适配。
   player:
+    # 包含播放器响应回调的客户端模块文件名。
     module: mctoplayer.dll
+    # 播放器模块的 SHA-256 校验值。
     sha256: 47f669d197025b03ba77c782c35dc5eeed81434b33627719d12710da3f9d34df
     # 由 QTP 回调调用方及实测确认；升级必须重新核验，不能只替换摘要。
+    # 播放器响应数据回调相对模块基址的偏移。
     body_rva: 0xc9750
+    # 播放器请求完成回调相对模块基址的偏移。
     complete_rva: 0xc9890

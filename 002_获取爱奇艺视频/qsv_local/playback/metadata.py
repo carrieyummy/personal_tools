@@ -5,9 +5,8 @@ import json
 import re
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request
-import yaml
-
 from .network import open_network
+from .links import read_link_listing
 
 
 def decode_play_id(profile: dict, path: str) -> str | None:
@@ -47,19 +46,15 @@ def public_duration(value: str | int) -> int:
     return total
 
 
-def linked_videos(profile: dict, indexes: list[int] | None = None) -> list[dict]:
-    """解析 profile 的官方链接及公开资料；indexes 可指定原清单下标，None 为全部；返回节目元数据，不使用票据。"""
-    listing = yaml.safe_load(profile["download_list"].read_text(encoding="utf-8-sig"))
-    tasks = listing.get("download_list") if isinstance(listing, dict) else None
-    if not isinstance(tasks, list) or not tasks:
-        raise ValueError("download_list 必须为非空列表")
+def linked_videos(profile: dict, indexes: list[int] | None = None, *, urls: list[str] | None = None) -> list[dict]:
+    """解析 profile 的官方链接；indexes 指定下标，urls 为可选批次快照；返回包含页面链接的节目元数据。"""
+    tasks = urls if urls is not None else read_link_listing(profile["download_list"])["download_list"]
     if indexes is not None and any(type(value) is not int or value < 0 or value >= len(tasks) for value in indexes):
         raise ValueError("链接下标超出当前清单范围")
     network, result = profile["network"], []
-    for index, item in enumerate(tasks):
+    for index, url in enumerate(tasks):
         if indexes is not None and index not in indexes:
             continue
-        url = item["url"]
         parsed = urlsplit(url)
         if parsed.scheme not in ("http", "https") or parsed.hostname not in network["allowed_hosts"]:
             raise ValueError("只接受研究配置中列出的爱奇艺官方链接")
@@ -79,7 +74,9 @@ def linked_videos(profile: dict, indexes: list[int] | None = None) -> list[dict]
         if not values or len(set(values)) != 1 or not values[0].isascii() or not values[0].isdecimal() or int(values[0]) <= 0:
             raise ValueError("链接必须是可解析的官方短链接、分享页、正片播放页或含 tvid 的链接")
         tvid = values[0]
-        result.append(public_video(profile, tvid, index))
+        video = public_video(profile, tvid, index)
+        video["play_url"] = url
+        result.append(video)
     return result
 
 

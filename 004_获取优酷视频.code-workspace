@@ -45,8 +45,8 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    // 必填：下载任务、并发、CPU/GPU 与输出均读取主 YAML。
-                    "--config", "${workspaceFolder:004_获取优酷视频}/configs/config.yaml"
+                    // 可选：默认读取工具目录下的 configs/config.yaml；需要其他主配置时取消注释并修改路径。
+                    // "--config", "${workspaceFolder:004_获取优酷视频}/configs/config.yaml"
                 ]
             },
             {

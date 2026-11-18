@@ -41,7 +41,7 @@ class IncrementalDiscoveryTests(unittest.TestCase):
         def catalog(client, request):
             """用 client/request 接口签名推进受控目录；返回一个完整模拟正片任务。"""
             index = next(source)
-            return [{'series_id':'series','video_id':str(index),'index':index,'title':str(index),'quality':quality}]
+            return [{'series_id':'series','series':'fixture','video_id':str(index),'index':index,'title':str(index),'quality':quality}]
         with patch('local.playback.tasks.catalog', side_effect=catalog):
             batch.run([], Discovery(None, values, self.cancel))
 
@@ -158,7 +158,7 @@ class CatalogHandoffTests(unittest.TestCase):
         cancel = Event()
         quality = config['download']['quality']
         values = [Request('series','video',quality,True,str(i)) for i in range(3)]
-        task = {'series_id':'series','video_id':'video','title':'fixture','quality':quality}
+        task = {'series_id':'series','video_id':'video','title':'fixture','series':'fixture','quality':quality}
         batch = UrlBatch.__new__(UrlBatch)
         batch.config, batch.cancel, batch.auth_stop = config, cancel, Event()
         batch.journal, batch.interval = MemoryJournal(), config['runtime']['cancel_poll_interval_seconds']

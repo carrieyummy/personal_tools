@@ -24,22 +24,29 @@ def video_id(url: str) -> str:
     return value
 
 
+def page_url(vid: str) -> str:
+    """将合法优酷视频编号 vid 转成官方播放页地址；无效编号抛错，返回页面 URL。"""
+    if not isinstance(vid, str) or not re.fullmatch(r"[A-Za-z0-9]+={0,2}", vid):
+        raise PlaybackError("官方目录视频编号无效")
+    return "https://v.youku.com/video?vid=" + vid
+
+
 def requests(config: dict) -> list[dict]:
-    """读取 config 指定清单，按任务/全局/主配置继承设置；返回保序请求列表。"""
+    """读取 config 指定的 URL 列表，按清单全局/主配置读取设置；返回保序请求列表。"""
     root = read_yaml(config["default_list"])
     if not isinstance(root.get("download_list"), list) or not root["download_list"]:
         raise PlaybackError("download_list 必须为非空列表")
     result = []
     for number, item in enumerate(root["download_list"]):
-        if not isinstance(item, dict) or not isinstance(item.get("url"), str):
-            raise PlaybackError("每个清单项必须包含 url")
-        quality = item.get("quality", root.get("quality", config["download"]["quality"]))
-        whole = item.get("all-parts", root.get("all-parts", config["download"]["all_parts"]))
+        if not isinstance(item, str) or not item.strip() or item != item.strip():
+            raise PlaybackError(f"清单第 {number} 项必须是非空链接字符串，且首尾不能有空白")
+        quality = root.get("quality", config["download"]["quality"])
+        whole = root.get("all-parts", config["download"]["all_parts"])
         if type(quality) is not int or quality <= 0 or type(whole) is not bool:
             raise PlaybackError("清单 quality/all-parts 类型或取值无效")
-        vid = video_id(item["url"])
+        vid = video_id(item)
         result.append({"video_id":vid, "quality":quality, "all_parts":whole,
-                       "note":str(item.get("title", "")), "url":"https://v.youku.com/video?vid="+vid, "list_index":number})
+                       "url":page_url(vid), "list_index":number})
     return result
 
 
@@ -87,8 +94,8 @@ class Discovery:
     @staticmethod
     def failure(request: dict, detail: str) -> dict:
         """将请求 request 与脱敏原因 detail 转为清单级失败条目；未知集数不伪造成单集。"""
-        return {"video_id":request["video_id"], "title":request["note"], "series":request["note"],
-                "detail":detail, "groups":[{"id":str(request["list_index"]),"url":request["url"],"title":request["note"]}]}
+        return {"video_id":request["video_id"], "title":request["video_id"],
+                "detail":detail, "groups":[{"id":str(request["list_index"]),"url":request["url"],"title":"解析失败"}]}
 
     def advance(self) -> dict:
         """在共享处理池展开下一清单项；返回新增任务、分组补充及局部失败，取消直接传播。"""
@@ -159,10 +166,10 @@ class Discovery:
             stage = int(item["stage"])
             if stage <= 0:
                 raise PlaybackError("正片集序无效")
-            group = {"id":str(request["list_index"]), "url":request["url"], "title":request["note"] or title}
+            group = {"id":str(request["list_index"]), "url":request["url"], "title":title}
             task = {"video_id":item["vid"], "series_id":sid, "series":title, "title":item["title"],
                     "index":stage, "release_date":premiered, "duration":float(item["seconds"]),
-                    "quality":request["quality"], "groups":[group]}
+                    "quality":request["quality"], "groups":[group], "page_url":page_url(item["vid"])}
             if task["duration"] <= 0:
                 raise PlaybackError("官方正片目录缺少有效时长")
             tasks.append(task)

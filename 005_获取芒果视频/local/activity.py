@@ -20,18 +20,23 @@ def page(state: dict[str, Any], interval: float, live: bool) -> str:
     payload = json.dumps(state, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     refresh = f"setInterval(async()=>{{try{{render(await(await fetch('/state.json',{{cache:'no-store'}})).json())}}catch(e){{}}}},{interval * 1000});" if live else ""
     return '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>芒果下载记录</title>
-<style>body{font:15px system-ui;background:#10151d;color:#e5edf7;margin:30px}table{border-collapse:collapse;width:100%;margin:16px 0 32px}td,th{border-bottom:1px solid #344150;padding:10px;text-align:left;overflow-wrap:anywhere}small{color:#aab8cb}h2{color:#ffae65}</style>
+<style>body{font:15px system-ui;background:#10151d;color:#e5edf7;margin:30px}table{border-collapse:collapse;width:100%;margin:16px 0 32px}td,th{border-bottom:1px solid #344150;padding:10px;text-align:left;overflow-wrap:anywhere}small{color:#aab8cb}h2{color:#ffae65}summary{cursor:pointer}details.group{border:1px solid #344150;padding:12px;margin:12px 0}a{color:#92c5ff;overflow-wrap:anywhere}</style>
 <h1>芒果下载记录</h1><main id="root"></main><script>
+// 创建文本节点；tag 为标签名，text 为文本，返回 DOM 元素。
 function node(tag,text){let e=document.createElement(tag);e.textContent=text;return e}
+const expanded=new Map();
+// 创建详情区域；key 为稳定标识，initial 控制默认展开状态，返回 details。
+function fold(key,initial){let e=document.createElement('details');e.open=expanded.has(key)?expanded.get(key):initial;e.addEventListener('toggle',()=>{if(e.isConnected)expanded.set(key,e.open)});return e}
+// 将当前集 item 的公开页面链接加入 host；无有效 HTTP/S 地址时不显示。
+function addPage(host,item){if(typeof item.page_url!=='string')return;try{let url=new URL(item.page_url);if(!['http:','https:'].includes(url.protocol))return;let p=node('p','页面链接：'),a=node('a',item.page_url);a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';p.append(a);host.append(p)}catch(e){}}
+// 按官方专辑分组显示 run.items；state 为当前历史快照，无返回值。
 function render(state){let root=document.getElementById('root');root.replaceChildren();for(let run of [...state.runs].reverse()){
-root.append(node('h2',run.started+' · '+run.status));if(run.discovery){let d=run.discovery;root.append(node('p',({running:'目录展开中，任务总数待确定',completed:'目录展开完成',stopped:'目录展开已停止',interrupted:'目录展开已中断'}[d.status]||d.status)+' · 清单 '+d.processed_requests+'/'+d.total_requests+' · 已发现 '+d.discovered_tasks+' 集'))}let table=document.createElement('table');let head=document.createElement('tr');
-for(let name of ['视频','状态','进度','说明'])head.append(node('th',name));table.append(head);
-for(let item of Object.values(run.items)){let row=document.createElement('tr');for(let value of [item.title,item.stage,item.progress||'',item.message||''])row.append(node('td',value));table.append(row)}root.append(table)}}
+root.append(node('h2',run.started+' · '+run.status));if(run.discovery){let d=run.discovery;root.append(node('p',({running:'目录展开中，任务总数待确定',completed:'目录展开完成',stopped:'目录展开已停止',interrupted:'目录展开已中断'}[d.status]||d.status)+' · 清单 '+d.processed_requests+'/'+d.total_requests+' · 已发现 '+d.discovered_tasks+' 集'))}let groups=new Map();for(let [key,item] of Object.entries(run.items||{})){let group=item.group_id||'history';if(!groups.has(group))groups.set(group,{title:item.series||'历史及其他任务',items:[]});groups.get(group).items.push([key,item])}for(let [id,group] of groups){let section=fold(run.id+':group:'+id,true);section.className='group';section.append(node('summary',group.title));let table=document.createElement('table'),head=document.createElement('tr');for(let name of ['视频','状态','进度','说明'])head.append(node('th',name));table.append(head);for(let [key,item] of group.items){let row=document.createElement('tr'),cell=document.createElement('td'),detail=fold(run.id+':episode:'+key,false);detail.append(node('summary',item.title));addPage(detail,item);cell.append(detail);row.append(cell);for(let value of [item.stage,item.progress||'',item.message||''])row.append(node('td',value));table.append(row)}section.append(table);root.append(section)}}}
 render(''' + payload + ");" + refresh + "</script></html>"
 
 
 class Activity:
-    """单写入锁保护运行历史；config 控制根路径、节流和 HTTP；不在日志保存认证或网络地址。"""
+    """单写入锁保护运行历史；config 控制根路径、节流和 HTTP；只保存公开播放页，不保存认证或媒体地址。"""
 
     def __init__(self, config: dict[str, Any]):
         """读取 config 中日志与历史，创建本次运行；无返回值，尚未启动服务器。"""
@@ -49,14 +54,18 @@ class Activity:
         self.state["runs"].append(self.run)
         self.lock, self.sampled, self.server = Lock(), {}, None
 
-    def update(self, key: str, title: str, stage: str, progress: str = "", message: str = "") -> None:
-        """记录阶段；key/title 为任务编号和标题，stage 为阶段，progress/message 为脱敏显示内容；无返回值。"""
+    def update(self, key: str, title: str, stage: str, progress: str = "", message: str = "", *,
+               group_id: str = "", series: str = "", page_url: str = "") -> None:
+        """记录 key/title 的 stage 与脱敏 progress/message；可选 group_id、series 和 page_url 保存专辑及公开页面；无返回值。"""
         with self.lock:
             now = time.monotonic()
             previous = self.run["items"].get(key, {})
             if previous.get("stage") == stage and now - self.sampled.get(key, float("-inf")) < self.settings["progress_interval_seconds"]:
                 return
-            self.run["items"][key] = {"title": title, "stage": stage, "progress": progress, "message": message, "updated": datetime.now().isoformat(timespec="seconds")}
+            item = {**previous, "title": title, "stage": stage, "progress": progress, "message": message, "updated": datetime.now().isoformat(timespec="seconds")}
+            if group_id and series and page_url:
+                item.update(group_id=group_id, series=series, page_url=page_url)
+            self.run["items"][key] = item
             self.sampled[key] = now
             atomic_json(self.path, self.state, self.settings)
             if previous.get("stage") != stage:

@@ -229,6 +229,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([task["video_id"] for task in tasks],
                          [item["vid"] for name in ("A", "C") for item in self.client.shows[name]])
         self.assertTrue(all(len(task["groups"]) == 2 for task in tasks if task["series_id"] == "A"))
+        for task in tasks:
+            self.assertEqual(task["groups"][0]["title"], task["series"])
+            self.assertEqual(task["page_url"], "https://v.youku.com/video?vid=" + task["video_id"])
 
     def test_cancel_during_discovery_stops_new_requests_and_records_unknown_items(self):
         """慢目录收到取消后不请求后续链接；已发现任务及未展开清单均有终态、数量不虚构。"""
@@ -310,6 +313,8 @@ class DiscoveryTests(unittest.TestCase):
         group["title"] = "changed"
         snapshot = journal.snapshot()
         self.assertEqual(entries[0]["status"], "completed")
+        self.assertEqual(entries[0]["page_url"], event["tasks"][0]["page_url"])
+        self.assertEqual(snapshot["runs"][0]["entries"][0]["page_url"], event["tasks"][0]["page_url"])
         self.assertEqual(entries[0]["groups"][-1]["title"], "迟到分组")
         self.assertEqual(snapshot["runs"][0]["discovery"]["status"], "completed")
         event["progress"]["status"] = "changed"
@@ -331,6 +336,24 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(previous["status"], "interrupted")
             self.assertEqual(previous["discovery"]["status"], "interrupted")
             self.assertEqual(previous["discovery"]["remaining_requests"], len(self.requests()) - 1)
+
+    def test_episode_page_saved_in_history_and_offline_report(self):
+        """每集播放页写入历史及离线报告，旧记录缺少该字段时仍可展示；无返回值。"""
+        config = deepcopy(self.config)
+        event = Discovery(self.client, self.requests(("A",))).advance()
+        with tempfile.TemporaryDirectory() as temporary:
+            config["output_path"] = Path(temporary)
+            with patch("local.journal.ThreadingHTTPServer"), patch("local.journal.Thread"):
+                journal = Journal(config)
+                journal.add_many(event["tasks"])
+                journal.add({"video_id":"old", "title":"旧记录"})
+                saved = json.loads(journal.path.read_text(encoding="utf-8"))
+                self.assertEqual(saved["runs"][-1]["entries"][0]["page_url"], event["tasks"][0]["page_url"])
+                snapshot = journal.snapshot()
+                self.assertNotIn("page_url", snapshot["runs"][-1]["entries"][-1])
+                html = journal.render(snapshot, False)
+                self.assertIn(event["tasks"][0]["page_url"], html)
+                self.assertIn("页面链接：", html)
 
     def test_application_entry_uses_incremental_discovery_and_returns_all_counts(self):
         """正式批次入口通过生产调度器执行增量来源，返回失败和成功计数并关闭日志。"""

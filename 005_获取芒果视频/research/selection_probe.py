@@ -40,7 +40,7 @@ def main() -> int:
     config = read_config(args.config)
     reports = []
     for item in read_yaml(args.list)["download_list"]:
-        _, clip_id, video_id = normalize_url(item["url"])
+        _, clip_id, video_id = normalize_url(item)
         initial = NativeClient(config).source(clip_id, video_id)
         definition = str(initial["videoSources"][0]["definition"])
         report = {"clip_id": clip_id, "video_id": video_id, "variants": []}

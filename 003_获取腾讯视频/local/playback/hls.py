@@ -221,15 +221,31 @@ def download(transport: Transport, initial: list[Playlist], directory: Path, con
 
 
 def download_steps(transport: Transport, initial: list[Playlist], directory: Path, config: dict[str, Any],
-                   progress: Callable[[int, int], None], cancel: Event):
-    """用 transport/config 下载 initial 至 directory；progress 报进度，cancel 可取消；让出续签请求，send 接收同源清单，返回路径及证据。"""
+                   progress: Callable[[int, int], None], cancel: Event,
+                   telemetry: Callable[..., None] | None = None):
+    """下载 initial 到 directory；progress 报分片进度，telemetry 报字节和平均速度，cancel 可取消；让出续签请求并返回路径及证据。"""
     expected = [playlist.identity for playlist in initial]
     state_path = directory / "segments.json"
     state = read_json(state_path) if state_path.exists() else {"playlists": expected, "completed": {}}
     if state.get("playlists") != expected:
         raise SourceChanged("断点清单身份发生变化")
     total, completed, refreshed = sum(len(playlist.resources) for playlist in initial), 0, 0
+    lengths = [resource.expected_bytes for playlist in initial for resource in playlist.resources]
+    total_bytes = sum(lengths) if all(length is not None for length in lengths) else None
+    downloaded, transferred, transfer_seconds, last_telemetry = 0, 0, 0.0, 0.0
+
+    def report(partial: int = 0, active_seconds: float = 0.0, *, force: bool = False) -> None:
+        """按配置限频报告已校验及当前 partial 字节；active_seconds 是当前传输秒数，force 强制更新。"""
+        nonlocal last_telemetry
+        now = time.monotonic()
+        if telemetry is not None and (force or now - last_telemetry >= config["logging"]["progress_interval_seconds"]):
+            elapsed = transfer_seconds + active_seconds
+            telemetry(downloaded_bytes=downloaded + partial, total_bytes=total_bytes,
+                      bytes_per_second=transferred / elapsed if elapsed > 0 and transferred else None)
+            last_telemetry = now
+
     current = initial
+    report(force=True)
     for track, playlist in enumerate(initial):
         track_dir = directory / f"track_{track}"
         track_dir.mkdir(parents=True, exist_ok=True)
@@ -241,15 +257,20 @@ def download_steps(transport: Transport, initial: list[Playlist], directory: Pat
                     and (resource.expected_bytes is None or record["bytes"] == resource.expected_bytes)
                     and file_hash(path, config["copy_buffer_bytes"], cancel) == record["sha256"]):
                 completed += 1
+                downloaded += record["bytes"]
                 progress(completed, total)
+                if completed == total and total_bytes is None:
+                    total_bytes = downloaded
+                report(force=True)
                 continue
             failures = 0
             while True:
                 check_cancel(cancel)
                 resource = current[track].resources[index]
                 temporary = path.with_suffix(".part")
+                needs_refresh = False
                 try:
-                    started = time.monotonic()
+                    started = time.perf_counter()
                     headers = {}
                     if resource.byte_range:
                         offset, length = resource.byte_range
@@ -266,7 +287,7 @@ def download_steps(transport: Transport, initial: list[Playlist], directory: Pat
                         size = 0
                         while True:
                             check_cancel(cancel)
-                            if time.monotonic() - started > config["network"]["timeout_seconds"]:
+                            if time.perf_counter() - started > config["network"]["timeout_seconds"]:
                                 raise TimeoutError("单片传输超过网络配置的总超时")
                             # read1 只等待一次底层读取，避免大缓冲在慢速响应中持续等待整块填满。
                             block = response.read1(config["copy_buffer_bytes"])
@@ -276,20 +297,22 @@ def download_steps(transport: Transport, initial: list[Playlist], directory: Pat
                                 raise ToolError("服务器返回内容超过所选分片范围")
                             output.write(block)
                             size += len(block)
+                            transferred += len(block)
+                            report(size, time.perf_counter() - started)
                         if not size or (declared is not None and size != int(declared)) or (expected_size is not None and size != expected_size):
                             raise ToolError("分片传输长度不完整")
+                    transfer_seconds += time.perf_counter() - started
+                    started = None
                     temporary.replace(path)
                     state["completed"][key] = {"bytes": size, "sha256": file_hash(path, config["copy_buffer_bytes"], cancel)}
                     atomic_json(state_path, state)
+                    downloaded += size
                     break
                 except AddressExpired:
                     if refreshed >= config["download"]["refresh_attempts"]:
                         raise
                     refreshed += 1
-                    current = yield "refresh"
-                    check_cancel(cancel)
-                    if [item.identity for item in current] != expected:
-                        raise SourceChanged("续签后的媒体清单发生变化，旧现场已保留") from None
+                    needs_refresh = True
                 except AuthenticationError:
                     raise
                 except (ToolError, OSError, IncompleteRead) as error:
@@ -297,8 +320,19 @@ def download_steps(transport: Transport, initial: list[Playlist], directory: Pat
                         raise
                     failures += 1
                 finally:
+                    if started is not None:
+                        transfer_seconds += time.perf_counter() - started
                     temporary.unlink(missing_ok=True)
+                report(force=True)
+                if needs_refresh:
+                    current = yield "refresh"
+                    check_cancel(cancel)
+                    if [item.identity for item in current] != expected:
+                        raise SourceChanged("续签后的媒体清单发生变化，旧现场已保留") from None
             completed += 1
             progress(completed, total)
+            if completed == total and total_bytes is None:
+                total_bytes = downloaded
+            report(force=True)
     return [local_manifest(playlist, directory / f"track_{track}") for track, playlist in enumerate(initial)], {
         "playlist_hashes": expected, "resources": total, "durations": [item.duration for item in initial], "refreshed": refreshed}

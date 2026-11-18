@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from local.configuration import load_config, read_yaml
 from local.youku.client import Client, AuthenticationError, PlaybackError, SourceChanged, captured_groups
-from local.youku.source import resolve
+from local.youku.source import resolve, select_stream
 from local.youku.native import native_challenge, run_native
 from local.errors import ProtocolError, safe_message
 
@@ -255,7 +255,7 @@ setImmediate(()=>{assert.equal(loads,1);assert.equal(exits,1);const payload=JSON
         language=stream["audio_lang"]
         later=language+"-later"
         self.client.profile["audio_language"]=[language,later]
-        other=next(value for value in self.client.profile["quality_order"] if value!=stream["stream_type"])
+        other=stream["stream_type"]+"-other"
         with self.assertRaisesRegex(PlaybackError,"请求画质排名不可用"):
             self.resolve_fixture([stream,dict(stream,audio_lang=later),
                                   dict(stream,audio_lang=later,stream_type=other)],quality=2)
@@ -266,10 +266,40 @@ setImmediate(()=>{assert.equal(loads,1);assert.equal(exits,1);const payload=JSON
         language=stream["audio_lang"]
         later=language+"-later"
         self.client.profile["audio_language"]=[language,later]
-        unsupported=next(value for value in self.client.profile["quality_order"]
-                         if value not in self.client.profile["supported_streams"])
+        unsupported=stream["stream_type"]+"-unsupported"
         with self.assertRaisesRegex(PlaybackError,"尚未通过媒体适配验证"):
             self.resolve_fixture([dict(stream,stream_type=unsupported),dict(stream,audio_lang=later)])
+
+    def test_resolution_then_size_ranking_ignores_response_order_and_unknown_types(self):
+        """先按面积、再按大小排名；未知类型不阻塞，低分辨率再大也不超过高分辨率。"""
+        _,stream=self.source_fixture()
+        high=dict(stream,size=stream["size"]+1)
+        low=dict(stream,stream_type=stream["stream_type"]+"-unknown",width=1,height=1,size=high["size"]*100)
+        middle=dict(stream,stream_type=stream["stream_type"]+"-other")
+        self.assertEqual(self.resolve_fixture([low,middle,high]).description["size"],high["size"])
+        self.assertEqual(select_stream([low,middle,high],2),middle)
+        self.assertEqual(select_stream([low,middle,high],3),low)
+
+    def test_ranking_rejects_invalid_values_and_selected_ties(self):
+        """缺失或无效尺寸、目标面积内无效大小、目标大小并列时拒绝猜测。"""
+        _,stream=self.source_fixture()
+        for field,value,error in (("width",0,"分辨率"),("height",None,"分辨率"),
+                                  ("size",None,"size"),("size",0,"size"),("size",True,"size")):
+            with self.subTest(field=field,value=value), self.assertRaisesRegex(PlaybackError,error):
+                select_stream([dict(stream,**{field:value})],1)
+        with self.assertRaisesRegex(PlaybackError,"相同 size"):
+            select_stream([stream,dict(stream,stream_type=stream["stream_type"]+"-other")],1)
+        smaller=dict(stream,width=1,height=1,size=None)
+        self.assertEqual(select_stream([smaller,stream],1),stream)
+        with self.assertRaisesRegex(PlaybackError,"size"):
+            select_stream([smaller,stream],2)
+
+    def test_largest_unadapted_stream_does_not_fall_back(self):
+        """按新规则选中未适配流时明确失败，不回退到较小的已适配流。"""
+        _,stream=self.source_fixture()
+        unsupported=dict(stream,stream_type=stream["stream_type"]+"-unsupported",size=stream["size"]+1)
+        with self.assertRaisesRegex(PlaybackError,"尚未通过媒体适配验证"):
+            self.resolve_fixture([stream,unsupported])
 
     def test_config_rejects_invalid_language_priority(self):
         """语言配置必须是非空字符串列表，拒绝旧标量、空列表及非法元素，不写入用户配置。"""

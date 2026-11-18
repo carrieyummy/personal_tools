@@ -133,7 +133,8 @@ class UrlBatch(UrlScheduler, Batch):
                                                     "identity": source.identity})
                 yield "download", 0
                 segments = download_steps(self.client.transport, source.manifests, work, config,
-                    lambda done, total: self.journal.update(entry, progress=done * 100 / total), cancel)
+                    lambda done, total: self.journal.update(entry, progress=done * 100 / total), cancel,
+                    telemetry=lambda **values: self.journal.update(entry, **values))
                 refreshed = None
                 try:
                     while True:

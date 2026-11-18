@@ -103,10 +103,13 @@ def load_config(path: Path) -> dict[str, Any]:
         raise ValueError("cache.stream_fields 只能选择公开流元数据，禁止 URL、会话和密钥字段")
     config["cache"]["roots"] = [resolve_path(p, path.parent) for p in config["cache"]["roots"]]
     tasks = yaml.safe_load(config["download_list"].read_text(encoding="utf-8"))
-    samples = [t for t in tasks["download_list"] if t.get("title") == config["sample_title"]]
-    if len(samples) != 1:
-        raise ValueError("sample_title 必须在下载清单中唯一匹配一个任务")
-    config["sample"] = {k: samples[0][k] for k in ("title", "url")}
+    items = tasks.get("download_list") if isinstance(tasks, dict) else None
+    index = config["sample_index"]
+    if not isinstance(items, list) or type(index) is not int or not 0 <= index < len(items):
+        raise ValueError("sample_index 必须是下载清单的有效下标")
+    if not isinstance(items[index], str) or not items[index].strip() or items[index] != items[index].strip():
+        raise ValueError("研究样本必须是非空链接字符串")
+    config["sample"] = {"url": items[index]}
     return config
 
 

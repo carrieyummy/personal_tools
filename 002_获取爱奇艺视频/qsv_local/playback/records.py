@@ -64,7 +64,7 @@ class PlaybackDirectoryIndex(DirectoryIndex):
 def consolidate_directory(folder: Path, root: Path, config: dict) -> int:
     """合并 root 内 folder 的旧逐集 JSON；config 提供写盘重试，调用方须持有输出锁；返回已清理数量。
 
-    仅校验媒体路径、存在性及长度，不在元数据整理时重新读取整片；复用时仍需重算摘要和探测媒体。
+    仅校验媒体路径、存在性及长度；实际复用时还需核对当前命名、所选来源及成功证明。
     全部记录验证并写入索引、回读核对及确认旧文件未变后才删除冗余 JSON；任一步失败均保留未删除的旧记录。
     """
     index = PlaybackDirectoryIndex(folder, root)

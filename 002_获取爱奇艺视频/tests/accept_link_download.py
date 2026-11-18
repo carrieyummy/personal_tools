@@ -39,6 +39,8 @@ def invoke_entry(root: Path, config: Path) -> dict:
     try:
         for line in process.stdout:
             print(line, end="", flush=True)
+            if line.startswith("实时下载与解析进度："):
+                print("本轮任务处理完毕后，请在实时网页点击“停止服务”以完成验收。", flush=True)
             if line.startswith("批次报告："):
                 report = Path(line.split("：", 1)[1].strip())
         code = process.wait()
@@ -77,8 +79,8 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="iqiyi_accept_") as directory:
             temporary = Path(directory)
             listing = temporary / "links.yaml"
-            listing.write_text(yaml.safe_dump({"quality": options["quality"], "download_list": [
-                {"url": video["play_url"], "all-parts": False}]}, allow_unicode=True), encoding="utf-8")
+            listing.write_text(yaml.safe_dump({"quality": options["quality"], "all-parts": False,
+                                              "download_list": [video["play_url"]]}, allow_unicode=True), encoding="utf-8")
             raw["download_list"] = str(listing)
             path = temporary / "playback.yaml"
             path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")

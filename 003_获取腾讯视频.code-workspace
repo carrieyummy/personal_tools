@@ -46,8 +46,8 @@
                 "console": "integratedTerminal",
                 "env": { "PYTHONUTF8": "1" },
                 "args": [
-                    // 必填：source 选择 URL 清单下载或缓存还原；画质、音质、目录和并发读取主 YAML。
-                    "--config", "${workspaceFolder:003_获取腾讯视频}/configs/config.yaml"
+                    // 可选：省略时使用工具目录下的 configs/config.yaml；可指定其他主 YAML。
+                    // "--config", "${workspaceFolder:003_获取腾讯视频}/configs/config.yaml"
                 ]
             },
             {

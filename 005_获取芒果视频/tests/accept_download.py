@@ -33,8 +33,11 @@ def main() -> int:
     args.report_dir.mkdir(parents=True, exist_ok=True)
     path = args.report_dir / "acceptance_config.yaml"
     path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
-    item = read_yaml(args.list)["download_list"][args.item]
-    options = argparse.Namespace(config=path, url=[item["url"]], all_parts=False, login_only=False, list_formats=False)
+    listing = read_yaml(args.list)
+    item = listing["download_list"][args.item]
+    selected = args.report_dir / "acceptance_list.yaml"
+    selected.write_text(yaml.safe_dump({**listing, "download_list": [item]}, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    options = argparse.Namespace(config=path, url=[str(selected)], all_parts=False, login_only=False, list_formats=False)
     codes = []
     for _ in range(2):
         code = run(options)

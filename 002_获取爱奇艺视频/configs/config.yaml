@@ -26,12 +26,14 @@ download_guard:
 
 # 输出根目录：剧集目录和视频文件名由下方 naming 模板与客户端下载记录决定。
 # 每个视频目录独立保存 video_info.json；内容变化时保留旧成品，新成品追加本地时间戳。
-# 自动跳过按大小、纳秒修改时间缓存 SHA-256；两者都未变化的外部内容改写无法被缓存检查发现。
+# 本地 QSV 转换按大小、纳秒修改时间缓存 SHA-256；两者都未变化的外部内容改写无法被缓存检查发现。
+# 链接下载复用已登记的同源成品时，按预期文件名和登记字节数校验；无法发现同尺寸内容改写。
 output_path: 'Z:\003_电视剧'
 
-# 链接下载模式：任务中的 all-parts 优先于下载清单的全局值，再读取这里。
+# 链接下载模式：下载清单的全局 all-parts 优先于这里。
 # true 展开链接专辑的可用正片；false 仅处理链接指定的一集。
 download:
+  # 是否展开链接所在专辑的全部可用正片；清单全局 all-parts 可覆盖。
   all_parts: true
   # 仅限制同时下载媒体的剧集数；解析、复用检查不占名额，每集仍按专项配置并发下载分片。
   threads: 5
@@ -40,11 +42,13 @@ download:
 
 # 链接模式逐集独立选择音轨；1 表示原生声明的最高可用音质，不按文件大小排名。
 audio:
+  # 音轨排名，1 表示同一匹配语言中最高的原生声明档位；须为正整数。
   quality: 1
 
 # 非下载处理总并发上限：目录发现、解析、复用检查及后处理共用；本地缓存转换使用同一上限，须为正整数。
+# 链接模式在有待解析任务且队列未背压时，处理上限大于 1 会保留一个处理位置供目录发现和下载准备；不会增加总上限。
 # 正式链接下载逐清单项校验完整目录后交接，后续目录发现与已有媒体下载重叠；公开计划模式仍收集完整列表。
-max_in_flight: 5
+max_in_flight: 6
 
 # title 为客户端下载记录中的专辑名，series_id 为专辑 ID；index 为记录中的集序。
 # 视频模板中的 title 为原 QSV 文件名（不含扩展名）；非法字符和空白替换为下划线。
@@ -52,7 +56,9 @@ naming:
   # 仅新启动的链接下载使用整剧上映日期前缀；不改本地 QSV 命名或运行中旧脚本的原有模板。
   # release_date 为专辑 publishTime 对应的日期，支持 Python 日期格式；此配置只影响文件夹。
   playback_date_prefix: '{release_date:%Y-%m-%d}_'
+  # 电视剧目录名称模板；必须包含 title 和 series_id。
   series_template: '{title}_iqiyi_{series_id}'
+  # 单集文件名模板；必须包含 index 和 title，不含扩展名。
   episode_template: '{index:03d}_{title}'
 
 # 批次工作根目录：每次运行、每个视频使用独立子目录，保存中间媒体、日志及报告。
@@ -73,7 +79,9 @@ ffmpeg_path: 'C:\ProgramData\miniconda3\envs\test_regression_py3.12\Lib\site-pac
 # 不同视频的这些阶段可重叠；解码槽在 FFmpeg 结束后即可处理下一视频。
 # 在途文件上限由 max_in_flight 控制，达到上限暂停准备，避免中间文件持续堆积。
 decode_verification:
+  # 是否启用 CPU 完整解码验证；至少启用 CPU 或 GPU 之一。
   cpu: true
+  # 是否启用 NVIDIA CUDA 完整解码验证；不可用时明确失败。
   gpu: true
 
 # 文件复制缓冲区大小，单位为字节，必须为正整数；用于提取音视频及复制验证后的 MP4。
@@ -97,10 +105,11 @@ logging:
   lock_file: '.iqiyi_conversion.lock'
   # 链接下载的历史和离线报告独立保存；相对 output_path，不与 QSV 转换历史混用。
   playback_state_file: 'iqiyi_download_log.json'
+  # 链接下载离线 HTML 报告的基础文件名，相对 output_path。
   playback_html_file: 'iqiyi_download_log.html'
   # 链接批次启动后自动打开本机进度网页；失败时仍在终端打印地址。
   open_browser: true
-  # 批次结束时等待网页确认最终版本的最长秒数，无网页连接时立即结束。
+  # 点击停止服务后等待网页确认最终版本的最长秒数，无网页连接时立即结束。
   final_state_timeout_seconds: 10
   # 历次运行的 JSON 文件名；与各视频目录的 video_info.json 独立保存。
   state_file: 'iqiyi_conversion_log.json'

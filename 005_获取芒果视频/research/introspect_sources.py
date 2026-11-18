@@ -36,7 +36,7 @@ def main() -> int:
     client = NativeClient(read_config(args.config))
     result = []
     for entry in read_yaml(args.list)["download_list"]:
-        _, clip, video = normalize_url(entry["url"])
+        _, clip, video = normalize_url(entry)
         source, status = client.raw_source(clip, video)
         catalog = client.catalog_page(clip, 1)
         result.append({"clip_id": clip, "video_id": video, "status": status, "source": clean(source), "catalog": clean(catalog)})

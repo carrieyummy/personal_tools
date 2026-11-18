@@ -46,24 +46,24 @@ def requests(values: list[str], config: dict[str, Any], all_parts: bool | None) 
     result = []
     for value in values:
         if value.lower().startswith(("https://", "http://")):
-            root, items = {}, [{"url": value}]
+            root, items = {}, [value]
         else:
             root = read_yaml(Path(value).expanduser().resolve())
             items = root.get("download_list")
             if not isinstance(items, list) or not items:
                 raise ToolError("download_list 必须为非空任务列表")
         for item in items:
-            if not isinstance(item, dict) or not isinstance(item.get("url"), str):
-                raise ToolError("每个任务必须包含字符串 url")
-            quality = item.get("quality", root.get("quality", config["download"]["quality"]))
-            whole = all_parts if all_parts is not None else item.get("all-parts", root.get("all-parts", config["download"]["all_parts"]))
+            if not isinstance(item, str) or not item.strip() or item != item.strip():
+                raise ToolError("每个任务必须是非空链接字符串，且首尾不能有空白")
+            quality = root.get("quality", config["download"]["quality"])
+            whole = all_parts if all_parts is not None else root.get("all-parts", config["download"]["all_parts"])
             positive(quality, "quality", integer=True)
             if type(whole) is not bool:
                 raise ToolError("all-parts 必须为布尔值")
-            if "merge-parts" in root or "merge-parts" in item:
+            if "merge-parts" in root:
                 raise ToolError("芒果工具不支持 merge-parts，请删除该字段")
-            url, _, _ = normalize_url(item["url"])
-            result.append(Request(url, quality, whole, str(item.get("title", ""))))
+            url, _, _ = normalize_url(item)
+            result.append(Request(url, quality, whole))
     return result
 
 

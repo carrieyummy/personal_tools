@@ -33,7 +33,7 @@ def main() -> int:
     entries = read_yaml(args.list)["download_list"]
     samples = []
     for position, selected in enumerate(args.items):
-        _, clip_id, video_id = normalize_url(entries[selected]["url"])
+        _, clip_id, video_id = normalize_url(entries[selected])
         record = index[f"{clip_id}/{video_id}"][-1]
         path = config["output_path"] / record["path"]
         if file_hash(path, config["download"]["buffer_bytes"], cancel) != record["sha256"]:

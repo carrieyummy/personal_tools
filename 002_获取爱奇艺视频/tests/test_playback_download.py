@@ -245,23 +245,23 @@ class PlaybackDownloadTests(unittest.TestCase):
             self.assertEqual(next(event["device"] for event in events if "device" in event), result.exception.value["verification"]["device"])
             self.assertEqual(Path(result.exception.value["output"]).read_bytes(), b"verified media")
 
-    def test_task_overrides_global_and_main_options(self):
-        """逐任务设置优先于清单全局和主配置；无返回值。"""
+    def test_listing_overrides_main_options(self):
+        """简单链接列表共享清单设置，清单全剧设置优先于主配置；无返回值。"""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             main_value, global_quality = True, 3
             listing = {"quality": global_quality, "all-parts": not main_value,
-                       "download_list": [{"url": "https://synthetic.invalid", "quality": global_quality + 1, "all-parts": main_value}]}
+                       "download_list": ["https://synthetic.invalid"]}
             main, path = root / "main.yaml", root / "links.yaml"
             main.write_text(yaml.safe_dump({"download": {"all_parts": main_value}}), encoding="utf-8")
             path.write_text(yaml.safe_dump(listing), encoding="utf-8")
             profile = {"main_config": main, "download_list": path}
             values = task_options(profile)[0]
-            self.assertEqual(values["quality"], listing["download_list"][0]["quality"])
-            self.assertEqual(values["all_parts"], listing["download_list"][0]["all-parts"])
-            del listing["download_list"][0]["all-parts"]
+            self.assertEqual(values["quality"], listing["quality"])
+            self.assertEqual(values["all_parts"], listing["all-parts"])
+            del listing["all-parts"]
             path.write_text(yaml.safe_dump(listing), encoding="utf-8")
-            self.assertEqual(task_options(profile)[0]["all_parts"], listing["all-parts"])
+            self.assertEqual(task_options(profile)[0]["all_parts"], main_value)
 
     def test_hls_uses_independent_selected_audio_in_final_mux(self):
         """HLS 视频与独立 AMP4 资源共同计量，最终只映射精确选定音轨；无返回值。"""
@@ -341,8 +341,8 @@ class PlaybackDownloadTests(unittest.TestCase):
         self.assertEqual(len(jobs), 1)
         self.assertFalse(errors)
 
-    def test_reuse_requires_matching_content_and_preserves_modified_file(self):
-        """只有来源和内容摘要都匹配才复用，改写后的同名文件不覆盖；无返回值。"""
+    def test_reuse_checks_registered_filename_and_size_without_reading_media(self):
+        """来源、预期命名和登记长度匹配才复用，同尺寸改写不会触发摘要或探测；无返回值。"""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             main = yaml.safe_load((self.root / "configs/config.yaml").read_text(encoding="utf-8"))
@@ -359,11 +359,20 @@ class PlaybackDownloadTests(unittest.TestCase):
                     "media_verified": True, "output": str(target), "media": {"width": 16, "height": 16}}
             index = PlaybackDirectoryIndex(target.parent, Path(main["output_path"]).resolve())
             index.add(target.name, data)
+            wrong_name = target.with_name("不同文件名.mp4")
+            wrong_name.write_bytes(original)
+            index.add(wrong_name.name, {**data, "output": str(wrong_name)})
             index.save()
-            media = {"width": 16, "height": 16, "duration_seconds": self.video["duration_seconds"], "errors": []}
-            with patch("qsv_local.playback.outputs.require_same_metadata"), patch("qsv_local.playback.outputs.probe_media", return_value=media):
-                self.assertIsNotNone(reusable_output(profile, main, self.video, self.source, identity, selection))
-                changed = b"changed_existing_media"
+            with (patch("qsv_local.playback.outputs.require_same_metadata"),
+                  patch("hashlib.sha256", side_effect=AssertionError("复用时不应重算摘要")),
+                  patch("qsv_local.process.run_process", side_effect=AssertionError("复用时不应探测媒体"))):
+                target.write_bytes(b"x" * len(original))
+                result = reusable_output(profile, main, self.video, self.source, identity, selection)
+                self.assertEqual((result["status"], result["output"]), ("reused", str(target)))
+                self.assertEqual(result["reuse_check"], "filename_and_size")
+                self.assertEqual(result["output_fingerprint"], data["output_fingerprint"])
+                self.assertEqual(result["media"], data["media"])
+                changed = original[:-1]
                 target.write_bytes(changed)
                 self.assertIsNone(reusable_output(profile, main, self.video, self.source, identity, selection))
                 self.assertEqual(target.read_bytes(), changed)

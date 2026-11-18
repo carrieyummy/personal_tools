@@ -38,6 +38,13 @@ def load_user(path: Path) -> dict[str, Any]:
     return user
 
 
+def episode_url(clip_id: str, video_id: str) -> str:
+    """将数字字符串 clip_id 和 video_id 转为芒果官方播放页 URL；编号非法时抛错。"""
+    if not all(isinstance(value, str) and value.isascii() and value.isdecimal() for value in (clip_id, video_id)):
+        raise ToolError("芒果剧集或视频编号无效")
+    return f"https://www.mgtv.com/b/{clip_id}/{video_id}.html"
+
+
 def normalize_url(value: str) -> tuple[str, str, str]:
     """解析官方视频链接；value 为 HTTP/S 分享地址；返回规范链接、clipId、videoId，其他输入报错。"""
     parsed = urlsplit(value.strip())
@@ -47,7 +54,7 @@ def normalize_url(value: str) -> tuple[str, str, str]:
     if not match:
         raise ToolError("当前入口需要包含剧集及视频编号的 /b/…/….html 链接")
     clip_id, video_id = match.groups()
-    return f"https://www.mgtv.com/b/{clip_id}/{video_id}.html", clip_id, video_id
+    return episode_url(clip_id, video_id), clip_id, video_id
 
 
 class Transport:

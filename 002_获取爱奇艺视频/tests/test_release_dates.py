@@ -113,13 +113,14 @@ class ReleaseDateTests(unittest.TestCase):
         self.assertEqual(manifest_identity(self.profile, old_video, self.source, rows), manifest_identity(self.profile, self.video, self.source, rows))
 
     def test_legacy_output_is_reused_in_place_without_creating_date_folder(self):
-        """已登记旧成品仍需核对摘要且留在原位，日期前缀不导致复制、移动或重复下载；无返回值。"""
+        """无日期旧目录中带时间戳的已登记成品按文件名和大小原位复用；无返回值。"""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = deepcopy(self.config)
             config.update(output_path=str(root / "output"), work_dir=str(root / "work"))
             profile = {**self.profile, "main_config": root / "main.yaml"}
             old = target_path(config, profile["main_config"], self.video, self.source, with_date=False)
+            old = old.with_stem(old.stem + "_20000102_000000_000001")
             desired = target_path(config, profile["main_config"], self.video, self.source)
             old.parent.mkdir(parents=True)
             old.write_bytes(b"registered verified media")
@@ -132,8 +133,7 @@ class ReleaseDateTests(unittest.TestCase):
             index.save()
             record = index.path
             before = (old.stat().st_mtime_ns, record.read_bytes())
-            media = {"width": 16, "height": 16, "duration_seconds": 20, "errors": []}
-            with patch("qsv_local.playback.outputs.probe_media", return_value=media), patch("qsv_local.playback.outputs.require_same_metadata"):
+            with patch("qsv_local.playback.outputs.require_same_metadata"):
                 result = reusable_output(profile, config, self.video, self.source, identity, {"rank": 1, "native_selection_verified": True})
             self.assertEqual(result["status"], "reused")
             self.assertEqual(Path(result["output"]), old)
