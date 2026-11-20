@@ -1,9 +1,16 @@
-"""在共用目录名上追加链接模式的上映日期前缀，视频文件名继续使用原模板。"""
+"""为链接下载生成上映日期目录前缀及统一的画质标签。"""
 
 from datetime import date
 from string import Formatter
 
-from ..naming import validate_component
+from ..naming import safe_component, validate_component
+
+
+def quality_label(source: dict) -> str:
+    """按已选原生视频 source 的帧绮标记和 HDR 类型返回网页及文件名共用的画质标签。"""
+    if source.get("zqyh") == 1:
+        return "帧绮映画"
+    return "增强画质" if source["dr"] > 0 else "标准画质"
 
 
 def validate_date_prefix(naming: dict) -> None:
@@ -18,6 +25,27 @@ def validate_date_prefix(naming: dict) -> None:
         validate_component(template.format(release_date=date(2000, 1, 2)) + "标题")
     except (ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
         raise ValueError("naming.playback_date_prefix 不能生成有效日期目录") from error
+
+
+def movie_name(naming: dict, video: dict, media: str) -> str:
+    """根据 naming 的电影模板、video 资料和 media 描述生成安全电影文件名，不含扩展名。"""
+    template = naming.get("movie_template")
+    try:
+        if not isinstance(template, str) or not template:
+            raise ValueError("缺少电影模板")
+        fields = {field for _, field, _, _ in Formatter().parse(template) if field is not None}
+        if fields != {"release_date", "title", "series_id", "media"}:
+            raise ValueError("电影模板字段无效")
+        day = date.fromisoformat(video["release_date"])
+        if day.isoformat() != video["release_date"]:
+            raise ValueError("电影日期格式无效")
+        series_id = video["album_id"]
+        if not isinstance(series_id, str) or not series_id.isascii() or not series_id.isdecimal() or int(series_id) <= 0:
+            raise ValueError("电影编号无效")
+        return validate_component(template.format(release_date=day, title=safe_component(video["title"]),
+                                                  series_id=series_id, media=safe_component(media)))
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
+        raise ValueError("naming.movie_template 或电影上映日期无效") from error
 
 
 def dated_folder(naming: dict, folder: str, release_date: str) -> str:

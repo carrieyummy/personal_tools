@@ -1,6 +1,7 @@
 """解析腾讯清单及官方分页选集；仅展开可识别集序的已上线正片，不混入速通版或花絮。"""
 
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, replace
 from datetime import date
 import json
 from pathlib import Path
@@ -16,13 +17,14 @@ from .errors import PlaybackError
 
 @dataclass(frozen=True)
 class Request:
-    """清单请求；series_id/video_id 为官方编号，quality 为逐集排名，all_parts 控制整剧，note 为备注。"""
+    """清单请求；series_id/video_id 为官方编号，quality 为逐集排名，note 为备注，两种范围开关分别控制整剧和系列。"""
 
     series_id: str
     video_id: str
     quality: int
     all_parts: bool
     note: str
+    all_related_parts: bool = False
 
 
 def normalize_url(value: str) -> tuple[str, str]:
@@ -56,24 +58,25 @@ def public_page_url(series_id: str, video_id: str) -> str:
 
 
 def requests(config: dict, *, require_single_video: bool = True) -> list[Request]:
-    """读取 config 指定清单并返回保序请求；require_single_video 默认校验单集模式须有 vid，研究取样可关闭此项。"""
+    """读取 config 指定清单并返回保序请求；require_single_video 控制单集模式的 vid 校验，系列模式允许整剧链接。"""
     root = yaml.safe_load(config["default_list"].read_text(encoding="utf-8-sig"))
     if not isinstance(root, dict) or not isinstance(root.get("download_list"), list) or not root["download_list"]:
         raise PlaybackError("download_list 必须是非空列表")
+    quality = root.get("quality", config["download"]["quality"])
+    whole = root.get("all-parts", config["download"]["all_parts"])
+    related = root.get("all-related-parts", config["download"]["all_related_parts"])
+    if type(quality) is not int or quality <= 0 or type(whole) is not bool or type(related) is not bool:
+        raise PlaybackError("quality 必须是正整数，all-parts 和 all-related-parts 必须是布尔值")
+    if "merge-parts" in root:
+        raise PlaybackError("腾讯工具不支持 merge-parts")
     result = []
     for number, item in enumerate(root["download_list"]):
         if not isinstance(item, str) or not item.strip() or item != item.strip():
             raise PlaybackError(f"清单第 {number} 项必须是非空链接字符串，且首尾不能有空白")
-        quality = root.get("quality", config["download"]["quality"])
-        whole = root.get("all-parts", config["download"]["all_parts"])
-        if type(quality) is not int or quality <= 0 or type(whole) is not bool:
-            raise PlaybackError("quality 必须是正整数，all-parts 必须是布尔值")
-        if "merge-parts" in root:
-            raise PlaybackError("腾讯工具不支持 merge-parts")
         cid, vid = normalize_url(item)
-        if require_single_video and not whole and not vid:
+        if require_single_video and not (whole or related) and not vid:
             raise PlaybackError("仅下载单集时，链接须包含 vid")
-        result.append(Request(cid, vid, quality, whole, ""))
+        result.append(Request(cid, vid, quality, whole, "", related))
     return result
 
 
@@ -112,25 +115,67 @@ def premiere_date(page: dict, settings: dict, series_id: str, series: str) -> st
     return value
 
 
-def catalog(client: NativeClient, request: Request) -> list[dict]:
-    """展开 client 中 request 的全部选集分组和分页；返回按集序排列的正片任务，重复页或矛盾记录报错。"""
+def catalog_start(client: NativeClient, request: Request) -> tuple[str, dict]:
+    """按 request 的官方节目或视频编号查询 client；返回核定的 cid 与选集首页。"""
     cid, vid = request.series_id, request.video_id
     if not cid:
         native = video_info(client.source("", vid))
         cid = str(native.get("cid", ""))
         if re.fullmatch(r"[A-Za-z0-9]+", cid) is None:
             raise PlaybackError("无法唯一确定整剧编号，请提供含 cid 的链接")
+    return cid, client.catalog_page(cid, vid)
+
+
+def episode_module(page: dict, settings: dict) -> dict:
+    """从 page 取得 settings 指定的唯一选集模块，缺少或重复时报错。"""
+    modules = cards(page, settings["episode_card"])
+    if len(modules) != 1:
+        raise PlaybackError("需要唯一的正片选集模块")
+    return modules[0]
+
+
+def related_requests(client: NativeClient, request: Request, start: tuple[str, dict]) -> list[Request]:
+    """从 start 的官方同组选集标签提取其他节目；client 提供模块配置，request 提供画质，返回保序去重的整剧请求。"""
+    cid, page = start
+    module = episode_module(page, client.profile["catalog"])
+    page_id = module["params"]["page_id"]
+    known = {cid}
+    result = []
+    for row in children(module):
+        params = row["params"]
+        # 腾讯的跨剧标签没有 vid，目标 cid 同时出现在游标及其 tab_data_key 中。
+        if (params.get("vid") or params.get("page_type") != "detail_operation"
+                or params.get("page_id") != page_id):
+            continue
+        raw_context = params.get("page_context")
+        if not isinstance(raw_context, str) or not raw_context:
+            raise PlaybackError("同系列标签缺少选集游标")
+        context = parse_qs(raw_context)
+        keys = context.get("tab_data_key", [])
+        target = parse_qs(keys[0]).get("cid", []) if len(keys) == 1 else []
+        if not target:
+            continue
+        if target != context.get("cid") or len(target) != 1 or not re.fullmatch(r"[A-Za-z0-9]+", target[0]):
+            raise PlaybackError("同系列标签的节目编号不一致")
+        sibling = target[0]
+        if sibling not in known:
+            known.add(sibling)
+            result.append(Request(sibling, "", request.quality, True, params["title"]))
+    return result
+
+
+def catalog(client: NativeClient, request: Request, *, start: tuple[str, dict] | None = None,
+            series_scope: bool = False, cancel=None) -> list[dict]:
+    """展开 client 中 request 的选集；可复用首页 start，series_scope 允许结果为空，cancel 控制中断；返回正片任务。"""
+    cid, page = start if start is not None else catalog_start(client, request)
+    vid = request.video_id
     settings = client.profile["catalog"]
-    page = client.catalog_page(cid, vid)
     introductions = cards(page, settings["introduction_card"])
     if not introductions or not introductions[0]["params"].get("mod_title"):
         raise PlaybackError("选集接口缺少源站剧名")
     series = introductions[0]["params"]["mod_title"]
     release_date = premiere_date(page, settings, cid, series)
-    modules = cards(page, settings["episode_card"])
-    if len(modules) != 1:
-        raise PlaybackError("需要唯一的正片选集模块")
-    initial = modules[0]
+    initial = episode_module(page, settings)
     pending = [(initial, None)]
     contexts, page_sets, result = set(), set(), {}
     # 腾讯无分组页面会返回空字符串；分页仍由每页的 has_next 独立控制。
@@ -143,6 +188,7 @@ def catalog(client: NativeClient, request: Request) -> list[dict]:
             pending.append((None, tab["page_context"]))
     count = 0
     while pending:
+        check_cancel(cancel)
         module, context = pending.pop(0)
         count += 1
         if count > settings["max_pages"]:
@@ -183,21 +229,22 @@ def catalog(client: NativeClient, request: Request) -> list[dict]:
     tasks = sorted(result.values(), key=lambda task: (task["index"], task["video_id"]))
     if not request.all_parts:
         tasks = [task for task in tasks if task["video_id"] == vid]
-    if not tasks:
+    if not tasks and not series_scope:
         raise PlaybackError("链接没有对应的已上线正片")
     return tasks
 
 
 class Discovery:
-    """逐清单项交接完整目录；在共享处理池查询，主调度线程补充日志归属。"""
+    """按剧交接完整目录，同系列跟随所属清单项；在共享处理池查询，主调度线程补充日志归属。"""
 
     def __init__(self, client: NativeClient, values: list[Request], cancel=None):
-        """保存 client、请求 values 及可选取消事件 cancel；初始化去重身份及发现进度。"""
+        """保存 client、请求 values 及可选取消事件 cancel；初始化同系列待查队列、去重身份及进度。"""
         self.client, self.items, self.cancel = client, values, cancel
         self.position, self.discovered, self.seen = 0, 0, {}
+        self.related = deque()
 
     def progress(self, status: str | None = None) -> dict:
-        """返回实际展开进度；status 可指定中断状态，未知剧集数量不估算。"""
+        """返回实际展开进度；系列全部查完才计入清单项，status 可指定中断状态。"""
         return {"status":status or ("completed" if self.position == len(self.items) else "running"),
                 "processed_requests":self.position, "total_requests":len(self.items),
                 "discovered_tasks":self.discovered}
@@ -214,18 +261,32 @@ class Discovery:
                 "detail":detail, "groups":[self.group(request, index)]}
 
     def advance(self) -> dict:
-        """查询下一清单项并完整校验后返回新增任务、失败及分组事件；取消和画质冲突终止批次。"""
+        """查询当前清单项所属的一部剧；返回新增任务、失败、分组及进度，取消和画质冲突终止批次。"""
         from .transport import safe_message
         check_cancel(self.cancel)
-        request = self.items[self.position]
-        group = {**self.group(request), "id":str(self.position)}
+        root = self.items[self.position]
+        sibling = bool(self.related)
+        request = self.related[0] if sibling else root
+        group = self.group(request)
+        if sibling:
+            group["id"] = f"{self.position}:{request.series_id}"
         tasks, failures, memberships = [], [], []
+        related = []
         try:
-            episodes = catalog(self.client, request)
+            if root.all_related_parts:
+                start = catalog_start(self.client, request)
+                check_cancel(self.cancel)
+                if not sibling:
+                    related = related_requests(self.client, request, start)
+                episodes = catalog(self.client, replace(request, all_parts=True), start=start,
+                                   series_scope=sibling or bool(related), cancel=self.cancel)
+            else:
+                episodes = catalog(self.client, request)
             check_cancel(self.cancel)
         except TaskCancelled:
             raise
         except (PlaybackError, KeyError, TypeError, ValueError) as error:
+            check_cancel(self.cancel)
             failures.append({**self.failure(request, safe_message(error)), "groups":[group]})
             episodes = []
         # 整项先检查重复配置；发生冲突时不交接该项的一部分任务。
@@ -242,7 +303,11 @@ class Discovery:
             task = {**task, "groups":[membership]}
             self.seen[key] = task["quality"]
             tasks.append(task)
-        self.position += 1
+        if sibling:
+            self.related.popleft()
+        self.related.extend(related)
+        if not self.related:
+            self.position += 1
         self.discovered += len(tasks)
         return {"tasks":tasks, "failures":failures, "memberships":memberships, "progress":self.progress()}
 

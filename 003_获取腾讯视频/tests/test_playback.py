@@ -4,9 +4,11 @@ from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 import tempfile
+from threading import Event
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+from urllib.parse import urlencode
 
 import yaml
 
@@ -16,7 +18,8 @@ from local.playback.client import formats
 from local.playback.errors import PlaybackError, SourceChanged
 from local.playback.hls import parse_media, playlists
 from local.playback.source import resolve, stable_media
-from local.playback.tasks import Request, catalog, normalize_url, requests
+from local.playback.tasks import Discovery, Request, catalog, normalize_url, requests
+from local.runtime import TaskCancelled
 
 
 def current_config() -> dict:
@@ -81,6 +84,45 @@ class PlaybackConfigTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(PlaybackError):
                 normalize_url(value)
 
+    def test_related_switch_accepts_cover_and_requires_boolean(self):
+        """系列开关可使用整剧地址；省略或关闭时仍执行单集的 vid 校验。"""
+        config = current_config()
+        config["download"]["all_related_parts"] = False
+        with tempfile.TemporaryDirectory(prefix="tencent_related_") as folder:
+            path = config["default_list"] = Path(folder) / "list.yaml"
+            listing = {"all-parts": False, "download_list": ["https://v.qq.com/x/cover/cover.html"]}
+            path.write_text(yaml.safe_dump(listing), encoding="utf-8")
+            with self.assertRaisesRegex(PlaybackError, "vid"):
+                requests(config)
+            for value, expected in ((True, None), (False, "vid"), ("true", "all-related-parts")):
+                listing["all-related-parts"] = value
+                path.write_text(yaml.safe_dump(listing), encoding="utf-8")
+                if expected:
+                    with self.assertRaisesRegex(PlaybackError, expected):
+                        requests(config)
+                else:
+                    self.assertTrue(requests(config)[0].all_related_parts)
+
+    def test_related_switch_inherits_and_list_overrides_both_values(self):
+        """系列开关继承主配置，清单中的真或假均能覆盖主配置，并校验主配置类型。"""
+        config = current_config()
+        with tempfile.TemporaryDirectory(prefix="tencent_related_") as folder:
+            path = config["default_list"] = Path(folder) / "list.yaml"
+            listing = {"download_list": ["https://v.qq.com/x/cover/cover/video.html"]}
+            for value in (False, True):
+                config["download"]["all_related_parts"] = value
+                path.write_text(yaml.safe_dump(listing), encoding="utf-8")
+                self.assertEqual(requests(config)[0].all_related_parts, value)
+                listing["all-related-parts"] = not value
+                path.write_text(yaml.safe_dump(listing), encoding="utf-8")
+                self.assertEqual(requests(config)[0].all_related_parts, not value)
+                del listing["all-related-parts"]
+        for invalid in (None, 1, "true"):
+            config = current_config()
+            config["download"]["all_related_parts"] = invalid
+            with self.subTest(value=invalid), self.assertRaisesRegex(ValueError, "download.all_related_parts"):
+                load_playback_config(config, config["config_path"].parent)
+
     def test_audio_quality_requires_positive_integer(self):
         """音质排名必须是正整数；错误类型和缺失配置在启动校验时被拒绝，不使用代码默认值。"""
         for value in (0, -1, True, 1.5, "1", None):
@@ -93,11 +135,11 @@ class PlaybackConfigTests(unittest.TestCase):
 class CatalogTests(unittest.TestCase):
     """用当前专项配置的模块类型构造分页，检查完整性和正片筛选。"""
 
-    def make_page(self, numbers: list[int], *, first: bool = False) -> dict:
-        """以 numbers 集序构造源站页面；first 决定是否包含简介和后续分组，返回原生页面结构。"""
+    def make_page(self, numbers: list[int], *, first: bool = False, cid: str = "cover") -> dict:
+        """以 numbers 集序和节目 cid 构造源站页面；first 控制简介和后续分组，返回原生页面结构。"""
         import json
         settings = self.config["playback"]["catalog"]
-        rows = [{"params": {"title": str(number), "is_trailer": "0", "cid": "cover",
+        rows = [{"params": {"title": str(number), "is_trailer": "0", "cid": cid,
                              "vid": f"video{number}", "play_title": f"正片{number}"}} for number in numbers]
         rows.append({"params": {"title": "速通版", "is_trailer": "0"}})
         rows.append({"params": {"title": "99", "is_trailer": "1"}})
@@ -107,8 +149,18 @@ class CatalogTests(unittest.TestCase):
         cards = [module]
         if first:
             cards.append({"type": settings["introduction_card"], "params": {"mod_title": "源站剧名"},
-                          "children_list": {"0": {"cards": [{"params": {"title": "源站剧名", "report.cid": "cover", "broadcast_time": "2020-02-03"}}]}}})
+                          "children_list": {"0": {"cards": [{"params": {"title": "源站剧名", "report.cid": cid, "broadcast_time": "2020-02-03"}}]}}})
         return {"CardList": cards}
+
+    def add_related_tabs(self, page: dict, *cids: str) -> None:
+        """在 page 的选集模块中写入 cids 对应的同组标签，保留官方双层游标格式。"""
+        module = page["CardList"][0]
+        module["params"]["tabs"] = ""
+        for cid in cids:
+            context = urlencode({"cid": cid, "tab_data_key": urlencode({"cid": cid})})
+            module["children_list"]["0"]["cards"].append({"params": {
+                "title": cid, "page_type": "detail_operation",
+                "page_id": module["params"]["page_id"], "page_context": context}})
 
     def setUp(self):
         """加载当前配置，无账号和网络访问；无参数或返回值。"""
@@ -152,6 +204,54 @@ class CatalogTests(unittest.TestCase):
             client = SimpleNamespace(profile=self.config["playback"], catalog_page=Mock(return_value=first))
             with self.subTest(value=value), self.assertRaises(ValueError):
                 catalog(client, Request("cover", "video1", self.config["download"]["quality"], True, ""))
+
+    def test_related_discovers_one_title_at_a_time_and_deduplicates_episodes(self):
+        """系列模式覆盖单集范围，保序按部交接，跳过非编号内容和重复视频。"""
+        base = self.make_page([1, 2], first=True)
+        extra = self.make_page([], first=True, cid="extra")
+        sequel = self.make_page([1], first=True, cid="sequel")
+        self.add_related_tabs(base, "cover", "extra", "sequel", "sequel")
+        self.add_related_tabs(extra, "cover", "extra", "sequel")
+        self.add_related_tabs(sequel, "unrelated")
+        client = SimpleNamespace(profile=self.config["playback"],
+                                 catalog_page=Mock(side_effect=[base, extra, sequel, sequel]))
+        quality = self.config["download"]["quality"]
+        request = Request("cover", "video2", quality, False, "", True)
+        discovery = Discovery(client, [request, Request("sequel", "", quality, True, "")])
+        first = discovery.advance()
+        self.assertEqual([task["index"] for task in first["tasks"]], [1, 2])
+        self.assertEqual(first["progress"]["processed_requests"], 0)
+        client.catalog_page.assert_called_once_with("cover", "video2")
+        skipped = discovery.advance()
+        self.assertEqual((skipped["tasks"], skipped["failures"]), ([], []))
+        next_title = discovery.advance()
+        self.assertEqual(next_title["progress"]["processed_requests"], 1)
+        self.assertEqual(next_title["tasks"][0]["groups"][0]["id"], "0:sequel")
+        duplicate = discovery.advance()
+        self.assertEqual(duplicate["tasks"], [])
+        self.assertEqual(duplicate["memberships"][0][0], ("sequel", "video1"))
+        self.assertEqual(duplicate["progress"]["status"], "completed")
+        self.assertEqual([call.args for call in client.catalog_page.call_args_list],
+                         [("cover", "video2"), ("extra", ""), ("sequel", ""), ("sequel", "")])
+
+    def test_related_title_failure_stays_local_and_cancellation_stops_further_queries(self):
+        """关联目录出错后仍交接下一部剧；取消发生后不会再访问待查目录。"""
+        base = self.make_page([1], first=True)
+        self.add_related_tabs(base, "broken", "sequel", "later")
+        sequel = self.make_page([1], first=True, cid="sequel")
+        self.add_related_tabs(sequel)
+        client = SimpleNamespace(profile=self.config["playback"],
+                                 catalog_page=Mock(side_effect=[base, PlaybackError("目录不可用"), sequel]))
+        request = Request("cover", "video1", self.config["download"]["quality"], False, "", True)
+        cancel = Event()
+        discovery = Discovery(client, [request], cancel)
+        self.assertEqual(len(discovery.advance()["tasks"]), 1)
+        self.assertEqual(discovery.advance()["failures"][0]["video_id"], "broken")
+        self.assertEqual(discovery.advance()["tasks"][0]["series_id"], "sequel")
+        cancel.set()
+        with self.assertRaises(TaskCancelled):
+            discovery.advance()
+        self.assertEqual(client.catalog_page.call_count, 3)
 
 
 class AudioTests(unittest.TestCase):

@@ -62,6 +62,8 @@ def read_config(path: Path) -> dict:
     naming = config.get("naming")
     if not isinstance(naming, dict):
         raise ValueError("naming 必须为 YAML 对象")
+    from .playback.naming import movie_name
+    movie_name(naming, {"release_date": "2000-01-02", "title": "影片", "album_id": "123"}, "画质")
     for key, expected in (("series_template", {"title", "series_id"}), ("episode_template", {"index", "title"})):
         template = naming.get(key)
         if not isinstance(template, str) or not template:

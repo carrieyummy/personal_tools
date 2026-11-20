@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+import re
 from uuid import uuid4
 
 from ..configuration import resolve_path
@@ -74,17 +75,27 @@ def publish_validated(profile: dict, config: dict, video: dict, source: dict, wo
                     target.unlink()
                 raise
         if not config["keep_intermediates"]:
-            paths = [candidate, work / "outer.ts", work / "clear.ts", work / "highest_audio.m4a", *work.glob("clear_*.mp4"), *work.glob("segment_*.ts")]
+            # 重试可能将旧媒体改名为 retired，分段中断也可能留下独立的 partial 文件。
+            # 只清理本任务目录中由下载器生成的媒体名称，保留报告和其他文件。
+            media_name = re.compile(
+                r"(?:validated\.partial\.mp4|outer\.ts|clear\.ts|highest_audio\.m4a|"
+                r"clear_[^/\\]+\.mp4|segment_\d+\.ts)"
+                r"(?:\.retired_\d{8}_\d{6}_\d{6}|\.[0-9a-f]{32}\.partial)?"
+            )
             warnings = []
+            try:
+                paths = [path for path in work.iterdir() if media_name.fullmatch(path.name)]
+            except OSError as error:
+                paths = []
+                warnings.append(f"中间媒体目录读取失败：{type(error).__name__}")
             for path in paths:
-                if path.exists():
-                    if not path.resolve().is_relative_to(work.resolve()) or not path.is_file():
+                try:
+                    if path.is_symlink() or not path.resolve().is_relative_to(work.resolve()) or not path.is_file():
                         warnings.append("中间媒体路径无效，保留：" + path.name)
                         continue
-                    try:
-                        path.unlink()
-                    except OSError as error:
-                        warnings.append(f"中间媒体清理失败：{path.name}，{type(error).__name__}")
+                    path.unlink()
+                except OSError as error:
+                    warnings.append(f"中间媒体清理失败：{path.name}，{type(error).__name__}")
             if warnings:
                 report["cleanup_warnings"] = warnings
         return report

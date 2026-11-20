@@ -1,6 +1,26 @@
 # 链接下载及 4K 缓存调研
 
-调研日期：2026-11-16 至 2026-11-17。本文件是当前机器的观察记录，不作为运行配置。
+本文件记录当前机器的调研观察，日期见各章节。运行设置从 YAML 读取。
+
+## 电影分享链接与院线上映日（2026-11-21）
+
+- 《四渡》分享页的 `shareId` 是 249 秒的首映礼素材，`positiveId` 是 7,290 秒的电影正片。素材公开资料的 `featureVideoId` 与 `positiveId` 一致。两个编号对应的专辑资料和剧集目录都返回 `A00001`，但电影正片的节目资料可用。
+- 电影正片以节目编号、有效状态、电影频道、正片类型及独立单节目结构共同核验。该样本的 `publishDate` 为院线上映日 2026-06-26，`formatIssueTime` 为爱奇艺上线日 2026-11-20。目录前缀取前者。
+- 研究入口默认只读公开资料，报告写入播放专项配置的 `report_dir`。从工具根目录运行，把 `$linkIndex` 设为当前电影链接在清单里的下标，从 0 开始。
+
+  ```powershell
+  python ".\research\probe_movie.py" --config ".\configs\playback.yaml" --index $linkIndex
+  ```
+
+- 全片验证使用已初始化并具备正片权限的客户端会话。验证后的候选和报告留在研究目录。
+
+  ```powershell
+  python ".\research\probe_movie.py" --config ".\configs\playback.yaml" --index $linkIndex --full-media
+  ```
+
+- 《四渡》分享短链接和官方直接播放页均解析为 TVID `4879274042147200`，目录预览为 `2026-06-26_四渡_iqiyi_4879274042147200`。隔离检查确认关联编号冲突及无效日期均被拒绝。
+- 当前清单配置的最高视频和最高音轨通过全片验收。候选实测 7,290.71 秒，3840×1608、HEVC Main 10、24 fps、AAC 立体声。GPU 完整解码 174,977 帧，与视频 PES 数一致。候选 3,587,114,664 字节，SHA-256 为 `6ffbc5dc776ba9be96d538efe8cc0fd4dfda62df04b019a1f53cf9a307974ede`。本轮报告为 `results/playback_cache/movie_20261121_021123_417960.json`，同名工作目录保留候选 `validated.partial.mp4`。
+- 正式入口接入后，`--plan` 从实际清单解析到《四渡》和《空枪》各一部电影。用隔离配置从研究候选验证《四渡》正式续发、成品摘要和 `video_info.json` 登记，再次运行复用同一文件。两轮报告位于 `results/playback_cache/formal_movie_20261121_030036_088388/work/playback_downloads/`。
 
 ## 专辑上映日期与目录命名（2026-11-17）
 

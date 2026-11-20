@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .download_state import DownloadStatus, path_key
-from .naming import output_name
+from .local_titles.movie import movie_target
+from .local_titles.television import television_target
 
 
 @dataclass(frozen=True)
@@ -51,8 +52,12 @@ def discover(config: dict, *, pending: list | None = None) -> list[Task]:
     for source in sorted(sources.values(), key=lambda item: item.relative_to(root).as_posix().casefold()):
         relative = source.relative_to(root)
         metadata = status.metadata[path_key(source)]
-        folder, name = output_name(config["naming"], metadata, source.stem)
-        target = (output / folder / (name + ".mp4")).resolve()
+        if len(metadata) == 6:
+            target = movie_target(config["naming"], metadata, source, output)
+            if target.parent != output:
+                raise ValueError(f"电影成品链接超出输出根目录：{target}")
+        else:
+            target = television_target(config["naming"], metadata, source, output)
         if not target.is_relative_to(output):
             raise ValueError(f"输出链接超出 output_path：{target}")
         identity = str(target).casefold()

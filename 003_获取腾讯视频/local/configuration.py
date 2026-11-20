@@ -180,8 +180,8 @@ def load_playback_config(config: dict, base: Path) -> None:
             raise ValueError(f"{section}.{key} 必须是非负整数")
     if type(config["naming"]["max_title_length"]) is not int or config["naming"]["max_title_length"] <= 0:
         raise ValueError("naming.max_title_length 必须为正整数")
-    for section, key in (("download", "all_parts"),):
-        if type(config[section][key]) is not bool:
+    for section, key in (("download", "all_parts"), ("download", "all_related_parts")):
+        if type(config[section].get(key)) is not bool:
             raise ValueError(f"{section}.{key} 必须是布尔值")
     if not isinstance(config["network"]["proxy"], str) or not isinstance(config["network"]["headers"], dict):
         raise ValueError("network.proxy/headers 类型错误")

@@ -129,7 +129,8 @@ class Journal:
                         self._send(journal.render(live=True).encode("utf-8"), "text/html; charset=utf-8")
                     elif route == "/api/state":
                         journal.has_client = True
-                        self._send(json.dumps(journal.snapshot(live=True), ensure_ascii=False).encode("utf-8"),
+                        current_only = parse_qs(urlsplit(self.path).query).get("current") == ["1"]
+                        self._send(json.dumps(journal.snapshot(live=True, current_only=current_only), ensure_ascii=False).encode("utf-8"),
                                    "application/json; charset=utf-8")
                     elif route == "/api/ack":
                         revision = parse_qs(urlsplit(self.path).query).get("revision")
@@ -146,11 +147,30 @@ class Journal:
                             self.send_error(503, "Unable to save report")
                         else:
                             self._send(path.read_bytes(), "text/html; charset=utf-8", path.name)
-                    elif route.startswith(("/files/", "/logs/")):
-                        is_media = route.startswith("/files/")
-                        root = journal.root if is_media else journal.config["work_dir"]
-                        relative = route[len("/files/") if is_media else len("/logs/"):]
-                        target = (root / relative).resolve()
+                    elif route.startswith(("/entry/", "/files/", "/logs/")):
+                        if route.startswith("/entry/"):
+                            parts = route.split("/")
+                            if len(parts) != 5 or parts[4] not in ("file", "report"):
+                                self.send_error(404)
+                                return
+                            with journal.lock:
+                                entry = next((entry for run in journal.data["runs"] if run["id"] == parts[2]
+                                              for entry in run["entries"] if entry["id"] == parts[3]), None)
+                                entry = dict(entry) if entry else None
+                            field = "output" if parts[4] == "file" else "work_dir"
+                            if not entry or not entry.get(field):
+                                self.send_error(404)
+                                return
+                            root = journal.root if field == "output" else journal.config["work_dir"]
+                            target = Path(entry[field])
+                            if field == "work_dir":
+                                target /= entry.get("report_file", "full_report.json" if journal.mode == "playback" else "report.json")
+                        else:
+                            is_media = route.startswith("/files/")
+                            root = journal.root if is_media else journal.config["work_dir"]
+                            relative = route[len("/files/") if is_media else len("/logs/"):]
+                            target = root / relative
+                        target = target.resolve()
                         if not target.is_relative_to(root) or not target.is_file():
                             self.send_error(404)
                             return
@@ -290,7 +310,7 @@ class Journal:
     def reset_episode(self, entry: dict) -> None:
         """在日志锁内将已排队重试的失败条目 entry 重置为待处理，保留剧集和选档资料；无返回值。"""
         with self.lock:
-            entry.update(status="pending", stage="", detail="已排队重新下载", progress=None, started="", finished="",
+            entry.update(status="pending", stage="", detail="重试已优先排队", progress=None, started="", finished="",
                          output="", work_dir="", download={"status": "pending"}, processing={"status": "pending"})
             for field in ("error", "retry_queued", "media_label", "quality_label", "report_file"):
                 entry.pop(field, None)
@@ -340,10 +360,11 @@ class Journal:
                         print(f"运行日志暂时无法保存，转换继续：{error}", file=sys.stderr, flush=True)
                     self.storage_error = str(error)
 
-    def snapshot(self, *, live: bool) -> dict:
-        """返回当前内存数据的独立快照；live 控制成品与报告使用 HTTP 链接还是离线文件链接。"""
+    def snapshot(self, *, live: bool, current_only: bool = False) -> dict:
+        """复制内存状态；live 控制链接类型，current_only 为真时只复制当前批次，返回快照。"""
         with self.lock:
-            data = deepcopy(self.data)
+            source = {**self.data, "runs": self.data["runs"][-1:]} if current_only else self.data
+            data = deepcopy(source)
             data.update(closed=self.closed, storage_error=self.storage_error, captured_at=timestamp())
             if self.cancellations is not None:
                 links, albums = self.cancellations.snapshot()
@@ -354,6 +375,13 @@ class Journal:
         for run in data["runs"]:
             for entry in run["entries"]:
                 entry.update(file_url="", report_url="")
+                if live:
+                    base = "/entry/" + quote(run["id"], safe="") + "/" + quote(entry["id"], safe="")
+                    if entry.get("output"):
+                        entry["file_url"] = base + "/file"
+                    if entry.get("work_dir"):
+                        entry["report_url"] = base + "/report"
+                    continue
                 for field, url_field, root, prefix in (
                     ("output", "file_url", self.root, "/files/"),
                     ("work_dir", "report_url", self.config["work_dir"], "/logs/"),

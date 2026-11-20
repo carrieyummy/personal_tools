@@ -9,6 +9,7 @@ import yaml
 
 from qsv_local.playback.audio import audio_groups, audio_segments
 from qsv_local.playback.manifests import selected_media_plan
+from qsv_local.playback.outputs import output_names
 
 
 class AudioTests(unittest.TestCase):
@@ -55,6 +56,17 @@ class AudioTests(unittest.TestCase):
             result = selected_media_plan(b"", source, self.profile)
         self.assertEqual(result["tracks"], [{"kind": "video"}])
         self.assertEqual(result["segments"], [{"track": 0}, audio])
+
+    def test_movie_filename_includes_selected_language(self):
+        """实际选定的语言名称加入文件名，未提供名称时保留原文件名。"""
+        main = yaml.safe_load((Path(__file__).resolve().parents[1] / "configs/config.yaml").read_text(encoding="utf-8"))
+        video = {"album_id": "123", "title": "合成影片", "episode": 1, "episode_title": "合成影片"}
+        source = {"scrsz": "1920x1080", "dr": 0, "_audio_language": "英语"}
+        folder, name = output_names(main["naming"], video, source)
+        _, old = output_names(main["naming"], video, source, with_language=False)
+        self.assertEqual(folder, output_names(main["naming"], video, source, with_language=False)[0])
+        self.assertIn("英语音轨", name)
+        self.assertNotIn("英语音轨", old)
 
 
 if __name__ == "__main__":

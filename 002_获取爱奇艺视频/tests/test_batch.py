@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from contextlib import redirect_stdout
+from datetime import datetime
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -58,6 +59,47 @@ class DiscoveryTests(ProjectCase):
                 with self.assertRaises(ValueError):
                     read_config(self.config_path)
         self.assertFalse(self.output.exists())
+
+    def test_movie_and_television_use_separate_naming(self):
+        """电影按客户端上映日期映射到根目录，电视剧继续按目录及集序映射。"""
+        movie = self.source("电影/示例电影-4K-英语.qsv")
+        show = self.source("电视剧/第一集.qsv")
+        self.metadata[movie].update(AlbumID="7654301", AlbumName="示例电影", vedioorder="0",
+                                    Channelid="1", ContentType="1", publish_date="20010102")
+        self.write_downloads()
+        tasks = {task.source: task for task in discover(self.config)}
+        expected = self.raw["naming"]["movie_template"].format(
+            release_date=datetime.strptime("20010102", "%Y%m%d").date(), title="示例电影",
+            series_id="7654301", media="4K-英语")
+        self.assertEqual(tasks[movie].target, self.output / (expected + ".mp4"))
+        self.assertEqual(tasks[show].target, self.target("电视剧/第一集.qsv"))
+        self.assertEqual(tasks[movie].metadata[3:], ("1", "1", "20010102"))
+
+    def test_movie_requires_valid_official_metadata(self):
+        """电影缺少正片类型、集序或有效上映日期时拒绝映射。"""
+        source = self.source("电影/示例电影.qsv")
+        self.metadata[source].update(AlbumName="示例电影", vedioorder="0", Channelid="1",
+                                     ContentType="1", publish_date="20010102")
+        original = deepcopy(self.metadata[source])
+        for field, value in (("ContentType", "3"), ("vedioorder", "-1"), ("publish_date", "20010230")):
+            with self.subTest(field=field):
+                self.metadata[source] = {**original, field: value}
+                self.write_downloads()
+                with self.assertRaises(ValueError):
+                    discover(self.config)
+
+    def test_movie_metadata_change_is_detected_before_processing(self):
+        """客户端电影日期变更后，已发现任务不能沿用旧映射。"""
+        from qsv_local.download_state import DownloadNotReady, require_completed
+        source = self.source("电影/示例电影-4K.qsv")
+        self.metadata[source].update(AlbumName="示例电影", vedioorder="0", Channelid="1",
+                                     ContentType="1", publish_date="20010102")
+        self.write_downloads()
+        task = discover(self.config)[0]
+        self.metadata[source]["publish_date"] = "20010103"
+        self.write_downloads()
+        with self.assertRaises(DownloadNotReady):
+            require_completed(self.config, source, expected=task.metadata)
 
     def test_invalid_numbers_and_reserved_log_name_are_rejected(self):
         """严格检查布尔整数混用、无限时间与保留索引名；无参数或返回值。"""

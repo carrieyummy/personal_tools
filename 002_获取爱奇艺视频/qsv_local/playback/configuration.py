@@ -10,6 +10,7 @@ import yaml
 from ..configuration import resolve_path
 from ..storage import valid_digest
 from .albums import AlbumMetadataCache
+from .naming import movie_name
 
 
 def read_profile(path: Path) -> dict:
@@ -24,6 +25,7 @@ def read_profile(path: Path) -> dict:
     # 命名设置随本次运行固定；运行中编辑配置不能将同一批次的剧集拆到不同日期目录。
     if "naming" in main:
         profile["_naming_snapshot"] = deepcopy(main["naming"])
+        movie_name(profile["_naming_snapshot"], {"release_date": "2000-01-02", "title": "影片", "album_id": "123"}, "画质")
     profile["_album_cache"] = AlbumMetadataCache()
     native_path = resolve_path(main["native_profile"], profile["main_config"].parent)
     client = yaml.safe_load(native_path.read_text(encoding="utf-8-sig"))

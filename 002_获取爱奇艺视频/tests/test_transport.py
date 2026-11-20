@@ -4,7 +4,18 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from qsv_local.transport import TransportDecoder, payload_offset, service_descriptor
+from qsv_local.transport import PTS_CLOCK_RATE, PTS_WRAP, TransportDecoder, payload_offset, service_descriptor, verify_video_pts_join
+
+
+def video_ts_fixture(*pes_rows: bytes) -> bytes:
+    """用 pes_rows 的合成视频 PES 构建单节目 TS；返回 PAT、PMT 和视频数据。"""
+    def packet(pid: int, payload: bytes) -> bytes:
+        """将 pid 和短 payload 封装为带 PUSI 的完整 TS 包；返回 188 字节。"""
+        return bytes([0x47, 0x40 | (pid >> 8), pid & 255, 0x10]) + payload.ljust(184, b"\xff")
+
+    pat = b"\0" + bytes.fromhex("00b00d0001c100000001e10000000000")
+    pmt = b"\0" + bytes.fromhex("02b0120001c10000e101f00024e101f00000000000")
+    return packet(0, pat) + packet(0x100, pmt) + b"".join(packet(0x101, pes) for pes in pes_rows)
 
 
 class StubSdk:
@@ -68,23 +79,38 @@ class TransportTests(unittest.TestCase):
 
     def test_clear_ts_is_processed_without_calling_decrypt(self):
         """合法明文 TS 按原内容处理并记录 clear 模式，仍须由正式工作流做完整解码；无参数或返回值。"""
-        def packet(pid: int, payload: bytes) -> bytes:
-            """将 pid 和短 payload 封装为带 PUSI 的完整 TS 包；返回填充后的 188 字节。"""
-            return bytes([0x47, 0x40 | (pid >> 8), pid & 255, 0x10]) + payload.ljust(184, b"\xff")
-
-        pat = b"\0" + bytes.fromhex("00b00d0001c100000001e10000000000")
-        pmt = b"\0" + bytes.fromhex("02b0120001c10000e101f00024e101f00000000000")
         pes = bytes.fromhex("000001e000008000000000010201") + b"clear-video"
         sdk = StubSdk(b"")
         with tempfile.TemporaryDirectory() as directory:
             source, target = Path(directory) / "plain.ts", Path(directory) / "result.ts"
-            source.write_bytes(packet(0, pat) + packet(0x100, pmt) + packet(0x101, pes))
+            source.write_bytes(video_ts_fixture(pes))
             stats = TransportDecoder(sdk, source.stat().st_size).convert(source, target)
             self.assertEqual(stats["protection"], "clear")
             self.assertEqual(stats["plain_pes"], 1)
             self.assertEqual(stats["video_pes"], 1)
             self.assertEqual(sdk.inputs, [])
             self.assertTrue(target.exists())
+
+    def test_video_pts_join_uses_display_order_and_rejects_actual_gaps(self):
+        """按显示顺序验证跨 TS 分段边界，覆盖回绕、重复帧及缺帧；无返回值。"""
+        def pes(pts: int) -> bytes:
+            """用 pts 的 33 位值构建带 PTS 的合成视频 PES，返回头和测试负载。"""
+            pts %= PTS_WRAP
+            stamp = bytes([0x21 | ((pts >> 29) & 14), (pts >> 22) & 255, ((pts >> 14) & 254) | 1,
+                           (pts >> 7) & 255, ((pts << 1) & 254) | 1])
+            return bytes.fromhex("000001e00000808005") + stamp + b"video"
+
+        frame_rate = 25
+        step = PTS_CLOCK_RATE // frame_rate
+        with tempfile.TemporaryDirectory() as directory:
+            before, after = (Path(directory) / f"{name}.ts" for name in ("before", "after"))
+            before.write_bytes(video_ts_fixture(pes(-step), pes(-2 * step)))
+            after.write_bytes(video_ts_fixture(pes(step), pes(0)))
+            self.assertEqual(verify_video_pts_join(before, after, frame_rate), step)
+            for start in (-step, step):
+                with self.subTest(start=start), self.assertRaisesRegex(ValueError, "未按一帧衔接"):
+                    after.write_bytes(video_ts_fixture(pes(start)))
+                    verify_video_pts_join(before, after, frame_rate)
 
     def test_transport_scrambling_is_explicitly_rejected(self):
         """未知 TS 包级加密不能被当作明文成功处理；无参数或返回值。"""

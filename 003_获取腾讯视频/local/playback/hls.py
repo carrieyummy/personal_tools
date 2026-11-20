@@ -23,6 +23,18 @@ def file_hash(path: Path, buffer_bytes: int, cancel: Event) -> str:
     return fingerprint(path, buffer_bytes, force=True, cancel_event=cancel)["sha256"]
 
 
+def check_ts_start(path: Path) -> None:
+    """抽查腾讯虚拟 TS 首个媒体分片 path 的同步字节；通过时无返回值，否则报告格式无法识别。"""
+    with path.open("rb") as stream:
+        sample = stream.read(64 * 1024)
+    # 保留 FFmpeg 支持的 188、192 和 204 字节包间距，允许同步字节之前存在容器前缀。
+    for spacing in (188, 192, 204):
+        for offset in range(len(sample) - 4 * spacing):
+            if sample[offset] == 0x47 and all(sample[offset + packet * spacing] == 0x47 for packet in range(1, 5)):
+                return
+    raise ToolError("腾讯虚拟 TS 首分片无法识别为 MPEG-TS，所选来源可能受保护或使用了当前未支持的格式")
+
+
 def attributes(text: str) -> dict[str, str]:
     """解析 HLS 属性；text 为冒号后内容；返回键值映射，支持引号内逗号。"""
     return {match[1]: match[2] if match[2] is not None else match[3] for match in re.finditer(r'(?:^|,)([A-Z0-9-]+)=(?:"([^"]*)"|([^,]*))', text)}
@@ -252,10 +264,13 @@ def download_steps(transport: Transport, initial: list[Playlist], directory: Pat
         for index, resource in enumerate(playlist.resources):
             check_cancel(cancel)
             path, key = track_dir / f"{index:06d}.bin", f"{track}/{index}"
+            check_container = index == 0 and not resource.initial and resource.stable_path is not None
             record = state["completed"].get(key)
             if (record and path.is_file() and path.stat().st_size == record["bytes"]
                     and (resource.expected_bytes is None or record["bytes"] == resource.expected_bytes)
                     and file_hash(path, config["copy_buffer_bytes"], cancel) == record["sha256"]):
+                if check_container:
+                    check_ts_start(path)
                 completed += 1
                 downloaded += record["bytes"]
                 progress(completed, total)
@@ -329,6 +344,8 @@ def download_steps(transport: Transport, initial: list[Playlist], directory: Pat
                     check_cancel(cancel)
                     if [item.identity for item in current] != expected:
                         raise SourceChanged("续签后的媒体清单发生变化，旧现场已保留") from None
+            if check_container:
+                check_ts_start(path)
             completed += 1
             progress(completed, total)
             if completed == total and total_bytes is None:

@@ -211,6 +211,123 @@ class PlaybackSchedulerTests(unittest.TestCase):
         schedule([(index, steps(index)) for index in range(3)], self.config, controls, update)
         self.assertEqual(statuses, {0: "done", 1: "failed", 2: "done"})
 
+    def test_retry_prepares_ahead_and_takes_next_download_slot_in_submission_order(self):
+        """普通预解析已满时仍准备重试，并为尚未解析完的重试留出下一下载名额；无返回值。"""
+        self.config["download"]["threads"] = 1
+        controls = StageControls(self.config)
+        ordinary_prepared, retry_parsing, release_source, release_download = (Event() for _ in range(4))
+        download_started, download_released, dispatch_seen = Event(), Event(), Event()
+        downloaded, statuses = [], {}
+        sent, polls = False, 0
+
+        def steps(item):
+            """模拟 item 的来源解析和下载，使用事件控制不同任务释放名额；返回模拟结果。"""
+            if item == "retry1":
+                retry_parsing.set()
+                if not release_source.wait(5):
+                    raise TimeoutError("未释放重试来源解析")
+            yield "download", 0
+            downloaded.append(item)
+            if item == "running":
+                download_started.set()
+                if not release_download.wait(5):
+                    raise TimeoutError("未释放原下载")
+            yield "ready", 1
+            return {"status": "completed"}
+
+        def update(item, status, value):
+            """记录 item 的 status/value，并在旧预解析和下载释放时发出事件；无返回值。"""
+            statuses[item] = status
+            if item == "prepared" and status == "waiting_download":
+                ordinary_prepared.set()
+            if item == "running" and status == "waiting_queue":
+                download_released.set()
+
+        def retries(idle):
+            """观察 idle 所在的调度轮次，在普通队列填满后返回两次连续重试；其余轮次返回空列表。"""
+            nonlocal sent, polls
+            if download_released.is_set():
+                polls += 1
+                if polls == 2:
+                    dispatch_seen.set()
+            if ordinary_prepared.is_set() and not sent:
+                sent = True
+                return [(item, steps(item)) for item in ("retry1", "retry2")]
+            return []
+
+        jobs = [(item, steps(item)) for item in ("running", "prepared", "later")]
+        thread = Thread(target=schedule, args=(jobs, self.config, controls, update), kwargs={"retries": retries})
+        thread.start()
+        try:
+            self.assertTrue(download_started.wait(5))
+            self.assertTrue(retry_parsing.wait(5))
+            self.assertEqual(downloaded, ["running"])
+            release_download.set()
+            self.assertTrue(dispatch_seen.wait(5))
+            self.assertEqual(downloaded, ["running"])
+        finally:
+            release_source.set()
+            release_download.set()
+            thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(downloaded, ["running", "retry1", "retry2", "prepared", "later"])
+        self.assertEqual(len(statuses), len(downloaded))
+        self.assertTrue(all(status == "done" for status in statuses.values()))
+
+    def test_downloaded_retry_overtakes_ordinary_ready_items_without_interrupting_processing(self):
+        """更早进入后处理等待队列的普通项让重试先执行，已运行的后处理不被打断；无返回值。"""
+        controls = StageControls(self.config)
+        normal_prepared, blocker_processing, normal_ready, retry_ready = (Event() for _ in range(4))
+        release_retry, release_blocker = Event(), Event()
+        processed, statuses = [], {}
+        sent = False
+
+        def steps(item):
+            """模拟 item 在下载及后处理阶段等待受控事件；返回模拟完成结果。"""
+            yield "download", 0
+            download_gate = {"blocker": normal_prepared, "normal": blocker_processing, "retry": release_retry}[item]
+            if not download_gate.wait(5):
+                raise TimeoutError("未释放测试下载")
+            yield "ready", 1
+            processed.append(item)
+            if item == "blocker":
+                blocker_processing.set()
+                if not release_blocker.wait(5):
+                    raise TimeoutError("未释放旧后处理")
+            return {"status": "completed"}
+
+        def update(item, status, value):
+            """记录 item 的 status/value 并通知预解析和等待入队阶段；无返回值。"""
+            statuses[item] = status
+            if item == "normal" and status == "waiting_download":
+                normal_prepared.set()
+            if status == "waiting_processing" and item in ("normal", "retry"):
+                (normal_ready if item == "normal" else retry_ready).set()
+
+        def retries(idle):
+            """只在首次调度轮次返回一个手动重试任务；其余轮次返回空列表。"""
+            nonlocal sent
+            if sent:
+                return []
+            sent = True
+            return [("retry", steps("retry"))]
+
+        jobs = [(item, steps(item)) for item in ("blocker", "normal")]
+        thread = Thread(target=schedule, args=(jobs, self.config, controls, update), kwargs={"retries": retries})
+        thread.start()
+        try:
+            self.assertTrue(normal_ready.wait(5))
+            release_retry.set()
+            self.assertTrue(retry_ready.wait(5))
+            self.assertEqual(processed, ["blocker"])
+        finally:
+            release_retry.set()
+            release_blocker.set()
+            thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(processed, ["blocker", "retry", "normal"])
+        self.assertEqual(statuses, {item: "done" for item in processed})
+
     def test_interrupt_closes_waiting_generators(self):
         """调度中断时设置取消信号并关闭已下载的生成器；无返回值。"""
         controls = StageControls(self.config)

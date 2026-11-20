@@ -20,6 +20,7 @@ from .download import download_steps, manifest_identity
 from .listing import expand_episodes, task_options
 from .media import media_config
 from .manifests import selected_media_plan
+from .naming import quality_label
 from .outputs import reusable_output
 from .source import select_av_source
 from .scheduler import schedule
@@ -111,7 +112,7 @@ def job_steps(profile: dict, config: dict, work_root: Path, job: dict, controls:
     source, selection = result.selected, result.report["selection"]
     if progress:
         codec = {1: "HEVC", 2: "AVC", 5: "AV1"}[source["code"]]
-        quality = "帧绮映画" if source.get("zqyh") == 1 else "增强画质" if source["dr"] > 0 else "标准画质"
+        quality = quality_label(source)
         progress({"stage": "authorizing", "detail": "视频与独立音轨均已精确选档", "quality_label": quality,
                   "media_label": f"{source['scrsz']} · {quality} · {codec} · {source['_audio_selection']['codec'].upper()} 音轨排名 {config['audio']['quality']}"})
     plan = selected_media_plan(result.manifest, source, profile)
@@ -157,7 +158,8 @@ def run_downloads(path: Path, indexes: list[int] | None = None, plan_only: bool 
         print(f"清单共 {len(jobs)} 个去重后的正片任务。", flush=True)
         for job in jobs:
             video = job["video"]
-            print(f"{video['title']} 第 {video['episode']} 集，上映 {video['release_date']}，quality={job['quality']}", flush=True)
+            label = "电影正片" if video.get("is_movie") else f"第 {video['episode']} 集"
+            print(f"{video['title']} {label}，上映 {video['release_date']}，quality={job['quality']}", flush=True)
         return report, output
     try:
         config = media_config(profile)

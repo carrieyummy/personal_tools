@@ -32,7 +32,7 @@ class PlaybackRecordsTests(unittest.TestCase):
         self.profile = {"main_config": self.root / "main.yaml"}
         self.video = {"album_id": "123", "title": "合成剧", "episode": 1,
                       "episode_title": "合成剧第1集", "release_date": "2000-01-02"}
-        self.source = {"scrsz": "16x16"}
+        self.source = {"scrsz": "16x16", "dr": 0}
         self.controls = StageControls(self.config)
         self.folder = target_path(self.config, self.profile["main_config"], self.video, self.source).parent
 
@@ -73,6 +73,28 @@ class PlaybackRecordsTests(unittest.TestCase):
         self.assertEqual(set(index.records()), {Path(report["output"]).name for report in results})
         self.assertEqual(list(self.folder.glob("*.json")), [index.path])
         self.assertEqual(len(list(self.folder.glob("*.mp4"))), len(jobs))
+
+    def test_concurrent_movies_share_root_index(self) -> None:
+        """多个电影直接发布至输出根目录时共享索引且完整保留全部记录。"""
+        jobs = []
+        for order in (1, 2):
+            video = {**self.video, "is_movie": True, "album_id": str(order), "title": f"影片{order}"}
+            work = self.root / "work" / str(order)
+            work.mkdir(parents=True)
+            candidate = work / "validated.partial.mp4"
+            candidate.write_bytes(f"movie {order}".encode())
+            report = {"schema_version": 1, "record_type": "playback_download", "status": "validated",
+                      "source_identity": {"tvid": str(order)}, "video": video, "media_verified": True,
+                      "verification": {"decode_exit_code": 0, "frames": 1},
+                      "validated_fingerprint": fingerprint(candidate, self.config["copy_buffer_bytes"])}
+            jobs.append((work, report))
+        with patch("qsv_local.playback.publication.require_same_metadata"), ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+            futures = [pool.submit(publish_validated, self.profile, self.config, report["video"], self.source,
+                                   work, report, self.controls) for work, report in jobs]
+            results = [future.result() for future in futures]
+        index = PlaybackDirectoryIndex(self.output, self.output)
+        self.assertEqual(set(index.records()), {Path(report["output"]).name for report in results})
+        self.assertTrue(all(Path(report["output"]).parent == self.output for report in results))
 
     def test_merge_preserves_qsv_records_and_media_and_is_idempotent(self) -> None:
         """旧 JSON 全量合并并清理，QSV 分区和视频内容、时间戳保持原样，重复整理无变化；无参数及返回值。"""

@@ -16,6 +16,12 @@ playback_session_probe:
   config: ../configs/playback.yaml
   purpose: 从已初始化的播放 SDK 按任务 quality 请求清单指定集，不切换可见播放器；可验证短段或完整获取该集。
   status: 已验证一次暂停后三个电视剧的资源解析；内嵌MPD的AV1/CENC、旧HLS与独立最高AAC音轨均已整集解码、发布和重复复用验收，客户端下载记录保持不变。正式入口支持逐剧逐集网页、全剧目录、流式获取、分段断点及验证候选续发，最高视频与音轨分开选档；证据与适配边界见 link_download_findings.md。
+movie_probe:
+  script: probe_movie.py
+  config: ../configs/playback.yaml
+  purpose: 核对分享页与电影正片的官方编号关联、时长和院线上映日；可选完整下载并验证音视频，候选留在 report_dir 下。
+  status: 《四渡》的短链接、电影直链、院线上映日期及完整授权媒体已完成验证。
+  findings: link_download_findings.md
 license_probe:
   script: ../tests/probe_native_v5.py
   arguments:

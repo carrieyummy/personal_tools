@@ -3,6 +3,9 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
+import re
+import shutil
+import subprocess
 from queue import Queue
 import tempfile
 from threading import Event
@@ -55,6 +58,17 @@ class PlaybackJournalTests(unittest.TestCase):
             self.assertIn("解析与保存进度", page)
             self.assertNotIn("__DATA__", page)
             self.assertFalse((self.config["output_path"] / self.config["logging"]["state_file"]).exists())
+
+    def test_rendered_javascript_has_valid_syntax(self):
+        """通过 Node 检查实时页面脚本语法；未安装 Node 时跳过。"""
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("未安装 Node")
+        with Journal(self.config, mode="playback") as journal:
+            html = journal.render(live=True)
+        script = re.search(r"<script>(.*?)</script>", html, re.S)[1]
+        result = subprocess.run([node, "--check"], input=script, capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_verification_device_is_retained_in_live_and_offline_state(self):
         """实际验证设备在阶段切换及完成后保留，未验证的历史条目不显示设备；无返回值。"""

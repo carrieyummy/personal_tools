@@ -74,6 +74,9 @@ class DownloadStatus:
                 destination.add(key)
                 if destination is completed:
                     values = (item.get("AlbumID"), item.get("AlbumName"), item.get("vedioorder"))
+                    if item.get("Channelid") == "1":
+                        # 电影频道记录的类型和上映日期参与前后复核，避免处理期间映射到其他节目。
+                        values += (item.get("Channelid"), item.get("ContentType"), item.get("publish_date"))
                     if key in metadata and metadata[key] != values:
                         raise ValueError(f"同一下载路径存在冲突的命名元数据：{name}")
                     metadata[key] = values

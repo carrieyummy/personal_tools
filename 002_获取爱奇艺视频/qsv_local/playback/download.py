@@ -12,11 +12,12 @@ from urllib.parse import parse_qs, urlsplit
 
 from ..process import probe_media, read_progress, run_process
 from ..storage import atomic_json, fingerprint, read_json, valid_digest
+from ..transport import verify_video_pts_join
 from ..verification import decode_command, validate_progress
 from ..runtime import check_cancel
 from .coordination import SegmentCancellation, StageControls
-from .media import MediaNetworkError, media_config, save_segment, signed_segment
-from .manifests import selected_media_plan
+from .media import MediaNetworkError, has_inline_hls_signatures, media_config, save_segment, signed_segment
+from .manifests import inline_hls_segment_lengths, selected_media_plan
 from .processing import process_audio_assets, process_dash, process_hls
 from .publication import publish_validated, resume_validated
 
@@ -68,8 +69,13 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
     audio_rows = [row for row in plan["segments"] if row.get("audio_asset")]
     if abs(plan["duration"] - float(video["duration_seconds"])) > settings["duration_tolerance_seconds"]:
         raise ValueError("播放清单时长与目标正片公开时长不一致")
+    inline_hls = plan["format"] == "hls" and has_inline_hls_signatures(source)
+    timeline_boundaries = []
     if plan["format"] == "hls":
-        sizes = segment_ranges(video_rows, int(source["vsize"]))
+        if inline_hls:
+            sizes, timeline_boundaries = inline_hls_segment_lengths(video_rows, int(source["vsize"]), source["fr"])
+        else:
+            sizes = segment_ranges(video_rows, int(source["vsize"]))
         urls = [signed_segment(row, source) for row in video_rows]
     else:
         sizes = []
@@ -81,6 +87,7 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
             row["start"], row["end"] = start, end
             sizes.append(end - start)
         urls = [row["url"] for row in video_rows]
+    video_bytes = sum(sizes)
     sizes.extend(row["end"] - row["start"] for row in audio_rows)
     urls.extend(row["url"] for row in audio_rows)
     ticket = source.get("drm", {}).get("ticket")
@@ -137,6 +144,11 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
               "highest_quality_verified": False, "highest_audio_verified": False, "media_verified": False, "work_dir": str(work), "source_identity": identity,
               "selection": selection, "audio_selection": source.get("_audio_selection"), "reused_segments": len(records)}
     report["source"].update({key: source[key] for key in ("br", "fr", "ff", "zqyh", "tsi") if key in source})
+    if inline_hls:
+        report["hls_range_validation"] = {"mode": "inline_timeline", "video_bytes": video_bytes,
+                                          "source_declared_bytes": int(source["vsize"])}
+        if timeline_boundaries:
+            report["hls_range_validation"]["boundaries_to_verify"] = [index + 1 for index in timeline_boundaries]
     segment_stop, last_update = SegmentCancellation(stopped, controls.interval), [0.0]
     metrics_lock = Lock()
     current_bytes = {index: value["size_bytes"] for index, value in records.items()}
@@ -180,6 +192,8 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
                 transfer_progress(index, 0)
                 row = plan["segments"][index]
                 options = {"progress": lambda done: transfer_progress(index, done)}
+                if inline_hls and index < len(video_rows):
+                    options["require_content_range"] = True
                 if "range_style" in row:
                     options["range_style"] = row["range_style"]
                 return index, save_segment(profile, urls[index], row.get("headers", headers), path, sizes[index], config["copy_buffer_bytes"], segment_stop, **options)
@@ -235,6 +249,15 @@ def download_steps(profile: dict, video: dict, source: dict, body: bytes, work: 
             advance("处理授权", f"{done * 100 / total:.1f}%")
 
         media_paths, audio_paths = paths[:len(video_rows)], paths[len(video_rows):]
+        if timeline_boundaries:
+            verified = []
+            for index in timeline_boundaries:
+                try:
+                    delta = verify_video_pts_join(media_paths[index - 1], media_paths[index], source["fr"], stopped)
+                except ValueError as error:
+                    raise ValueError(f"内嵌 HLS 第 {index + 1} 段实际边界校验失败：{error}") from error
+                verified.append({"segment": index + 1, "join_ticks": delta})
+            report["hls_range_validation"]["verified_boundaries"] = verified
         if plan["format"] == "hls":
             inputs, report["conversion"] = process_hls(config, source, video_rows, media_paths, work, controls, conversion_progress)
         else:

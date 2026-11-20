@@ -1,10 +1,13 @@
 """识别真实清单内容，将 HLS 或 DASH SegmentList 统一为有序媒体范围；临时地址仅在内存使用。"""
 
 from collections import Counter
+from decimal import Decimal
 import math
 import re
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 import xml.etree.ElementTree as ET
+
+from ..transport import PACKET_SIZE
 
 
 def duration_seconds(text: str) -> float:
@@ -112,3 +115,50 @@ def selected_media_plan(body: bytes, source: dict, profile: dict) -> dict:
         plan["tracks"] = [track for track in plan["tracks"] if track["kind"] == "video"]
     plan["segments"].extend(audio)
     return plan
+
+
+def inline_hls_segment_lengths(segments: list[dict], declared_size: int, frame_rate: int) -> tuple[list[int], list[int]]:
+    """校验内嵌 HLS 的 segments 和原生 declared_size，返回清单段长度及待核对 PTS 的边界下标（从 0 开始）。
+
+    frame_rate 为原生正整数帧率。只在显式分组切换时接受前段声明少计一帧，须在处理下载数据时验证真实边界。
+    """
+    if type(frame_rate) is not int or frame_rate <= 0:
+        raise ValueError("内嵌 HLS 缺少有效帧率")
+    frame_ms, fractional = divmod(1000, frame_rate)
+    lengths, boundaries, groups, positions = [], [], set(), {}
+    expected_ms, previous_path, group, switched = Decimal(0), None, None, False
+    for number, row in enumerate(segments, 1):
+        parsed = urlsplit(row["url"])
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        numbers = ("start", "end", "contentlength", "sd")
+        fields = (*numbers, "qd_idx")
+        if (not all(len(query.get(field, [])) == 1 and query[field][0] for field in fields)
+                or not all(re.fullmatch(r"[0-9]+", query[field][0]) for field in numbers)):
+            raise ValueError(f"内嵌 HLS 第 {number} 段缺少唯一的范围或时间声明")
+        start, end, length, timestamp = (int(query[field][0]) for field in numbers)
+        if end <= start or (start % PACKET_SIZE or end % PACKET_SIZE) or length != end - start:
+            raise ValueError(f"内嵌 HLS 第 {number} 段范围、长度或 TS 包边界不一致")
+        delta_ms = timestamp - expected_ms
+        if delta_ms:
+            if not (group is not None and row.get("discontinuity") and frame_ms <= delta_ms <= frame_ms + bool(fractional)):
+                raise ValueError(f"内嵌 HLS 第 {number} 段时间线不连续：预期 {expected_ms} ms，实际 {timestamp} ms")
+            boundaries.append(number - 1)
+        declared_group = query["qd_idx"][0]
+        if group is None or row.get("discontinuity"):
+            if declared_group in groups or start != 0:
+                raise ValueError(f"内嵌 HLS 第 {number} 段分组标记或起始范围无效")
+            groups.add(declared_group)
+            group, previous_path = declared_group, None
+        elif declared_group != group:
+            raise ValueError(f"内嵌 HLS 第 {number} 段切换分组但缺少不连续标记")
+        key = (parsed.hostname, parsed.path)
+        expected = positions.get(key, 0)
+        if start < expected or (key == previous_path and start != expected):
+            raise ValueError(f"内嵌 HLS 第 {number} 段在同一媒体路径上的范围重叠或不连续")
+        switched |= previous_path is not None and key != previous_path
+        positions[key], previous_path = end, key
+        lengths.append(length)
+        expected_ms = timestamp + Decimal(str(row["duration"])) * 1000
+    if not lengths or declared_size <= 0 or not switched and sum(lengths) != declared_size:
+        raise ValueError("内嵌 HLS 清单字节数与播放源声明不一致")
+    return lengths, boundaries

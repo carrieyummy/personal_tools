@@ -29,10 +29,10 @@ def task_options(profile: dict) -> list[dict]:
 
 
 def expand_episodes(profile: dict, link: dict, all_parts: bool, cancel=None) -> list[dict]:
-    """按 profile 展开 link 的可用正片；all_parts 控制整剧，cancel 可取消分页；返回完整有序元数据。"""
+    """按 profile 展开 link 的可用正片；all_parts 控制整剧，电影始终只有一项，cancel 可取消分页。"""
     from ..runtime import check_cancel
     check_cancel(cancel)
-    if not all_parts:
+    if link.get("is_movie") is True or not all_parts:
         return [link]
     network, result, ids, orders = profile["network"], [], set(), set()
     for page in range(1, network["max_episode_pages"] + 1):

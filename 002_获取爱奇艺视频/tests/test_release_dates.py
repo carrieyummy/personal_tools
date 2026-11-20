@@ -15,7 +15,7 @@ import yaml
 from qsv_local.playback.albums import AlbumMetadataCache
 from qsv_local.playback.configuration import read_profile
 from qsv_local.playback.download import manifest_identity
-from qsv_local.playback.naming import validate_date_prefix
+from qsv_local.playback.naming import movie_name, validate_date_prefix
 from qsv_local.playback.outputs import reusable_output, target_path
 from qsv_local.playback.records import PlaybackDirectoryIndex
 from qsv_local.storage import fingerprint
@@ -38,7 +38,7 @@ class ReleaseDateTests(unittest.TestCase):
                                                     "period": "2002-03-04", "issueTime": self.stamp + 86400000}}
         self.video = {"album_id": "123", "title": "合成剧", "episode": 1, "episode_title": "合成剧第1集",
                       "tvid": "456", "vid": "synthetic", "duration_seconds": 20, "release_date": self.day.isoformat()}
-        self.source = {"vid": "synthetic_source", "scrsz": "16x16", "vsize": 20}
+        self.source = {"vid": "synthetic_source", "scrsz": "16x16", "vsize": 20, "dr": 8, "zqyh": 1}
 
     def response(self, *args, **kwargs):
         """为 args/kwargs 指定的合成请求返回独立字节流；只包含本测试的公开专辑资料。"""
@@ -95,6 +95,8 @@ class ReleaseDateTests(unittest.TestCase):
             prefix = config["naming"]["playback_date_prefix"].format(release_date=self.day)
             self.assertEqual(current.parent.name, prefix + old.parent.name)
             self.assertEqual(current.name, old.name)
+            title = f"{self.video['episode_title']}_帧绮映画_{self.source['scrsz']}"
+            self.assertEqual(current.stem, config["naming"]["episode_template"].format(index=self.video["episode"], title=title))
             with self.assertRaisesRegex(ValueError, "上映日期"):
                 target_path(config, Path(directory) / "main.yaml", {**self.video, "release_date": "2000-02-30"}, self.source)
 
@@ -112,14 +114,59 @@ class ReleaseDateTests(unittest.TestCase):
         old_video = {key: value for key, value in self.video.items() if key != "release_date"}
         self.assertEqual(manifest_identity(self.profile, old_video, self.source, rows), manifest_identity(self.profile, self.video, self.source, rows))
 
+    def test_movie_target_uses_configured_template_in_output_root(self):
+        """电影直接写入输出根目录，模板包含上映日期、编号和媒体资料，无集序前缀。"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            config = deepcopy(self.config)
+            config["output_path"] = str(root)
+            video = {**self.video, "is_movie": True}
+            source = {**self.source, "_audio_language": "英语"}
+            target = target_path(config, root / "config.yaml", video, source)
+            expected = config["naming"]["movie_template"].format(
+                release_date=self.day, title=video["title"], series_id=video["album_id"],
+                media=f"帧绮映画_{source['scrsz']}_英语音轨")
+            self.assertEqual(target, root / (expected + ".mp4"))
+            self.assertFalse(target.name.startswith("001_"))
+            for template in ("../{title}_{series_id}_{media}_{release_date}", "{title}_{series_id}_{media}"):
+                with self.subTest(template=template):
+                    with self.assertRaises(ValueError):
+                        movie_name({**config["naming"], "movie_template": template}, video, "媒体")
+
+    def test_old_movie_directory_remains_reusable(self):
+        """旧版带日期电影目录内的已登记成品可原位复用。"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            config = deepcopy(self.config)
+            config.update(output_path=str(root / "output"), work_dir=str(root / "work"))
+            profile = {**self.profile, "main_config": root / "main.yaml"}
+            video = {**self.video, "is_movie": True}
+            from qsv_local.playback.outputs import output_names
+            from qsv_local.playback.naming import dated_folder
+            folder, stem = output_names(config["naming"], video, self.source)
+            old = Path(config["output_path"]) / dated_folder(config["naming"], folder, video["release_date"]) / (stem + ".mp4")
+            old.parent.mkdir(parents=True)
+            old.write_bytes(b"registered verified movie")
+            identity = {"sha256": "synthetic identity"}
+            proof = {"record_type": "playback_download", "schema_version": 1, "status": "completed", "source_identity": identity,
+                     "media_verified": True, "verification": {"decode_exit_code": 0, "frames": 1}, "output": str(old),
+                     "output_fingerprint": fingerprint(old, config["copy_buffer_bytes"]), "video": video}
+            index = PlaybackDirectoryIndex(old.parent, Path(config["output_path"]))
+            index.add(old.name, proof)
+            index.save()
+            with patch("qsv_local.playback.outputs.require_same_metadata"):
+                result = reusable_output(profile, config, video, self.source, identity, {"rank": 1, "native_selection_verified": True})
+            self.assertEqual(Path(result["output"]), old)
+            self.assertTrue(result["legacy_directory"])
+
     def test_legacy_output_is_reused_in_place_without_creating_date_folder(self):
-        """无日期旧目录中带时间戳的已登记成品按文件名和大小原位复用；无返回值。"""
+        """无日期旧目录中带时间戳但无画质标签的已登记成品可原位复用；无返回值。"""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = deepcopy(self.config)
             config.update(output_path=str(root / "output"), work_dir=str(root / "work"))
             profile = {**self.profile, "main_config": root / "main.yaml"}
-            old = target_path(config, profile["main_config"], self.video, self.source, with_date=False)
+            old = target_path(config, profile["main_config"], self.video, self.source, with_date=False, with_quality=False)
             old = old.with_stem(old.stem + "_20000102_000000_000001")
             desired = target_path(config, profile["main_config"], self.video, self.source)
             old.parent.mkdir(parents=True)

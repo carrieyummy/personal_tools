@@ -4,10 +4,10 @@ commit: ''
 
 # 以下设置适用于清单中的全部链接。
 quality: 1 # 当前仅支持最高声明画质组；其他排名尚未完成精确选档适配。无完整授权时失败，不降档。
-# all-parts: false # 可选：只下载链接指定集；未填写读取主配置 download.all_parts。
+# all-parts: false # 可选：只下载链接指定集；未填写读取主配置 download.all_parts。独立电影始终下载一部正片。
 
 # 保留列表与正片集序顺序，按集完成下载、验证和发布。
-# 每项填写一个官方链接；网页分组名称自动读取链接对应的官方专辑名。
+# 每项填写一个官方电视剧或电影链接；网页分组名称来自官方节目资料。
 download_list:
   - https://www.iqiyi.com/v_example.html
   # - https://www.iqiyi.com/v_another.html

@@ -19,17 +19,33 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
     可选 discovery 为逐链接目录迭代器，在同一处理池推进；admit 在主线程接收目录批次或完成 None，
     返回新增的 (条目, 阶段生成器) 列表。is_cancelled 可判断单项取消；目录最多一个在途请求。
     retries 可接收当前是否空闲并返回待重试条目与生成器；可在空闲时等待网页操作，返回空列表后结束调度。
+    手动重试在各等待队列优先派发，已执行项不被抢占；普通下载预解析已满时，最多额外准备一个重试项。
     有待解析任务且未发生队列背压时，处理池至少两个位置会为解析保留一个位置；总处理上限不变。
     """
     pending = deque(jobs)
     prepared, waiting, ready = deque(), deque(), deque()
     active_downloads, active_processing = {}, {}
+    retry_steps = set()
     source = iter(discovery) if discovery is not None else None
     catalog_open, discovering = source is not None, False
     capacity = int(config["download"]["queue_capacity_gb"] * 1024**3)
+    download_limit, processing_limit = config["download"]["threads"], config["max_in_flight"]
     queued = 0
-    downloads = ThreadPoolExecutor(max_workers=config["download"]["threads"], thread_name_prefix="iqiyi-download")
-    processing = ThreadPoolExecutor(max_workers=config["max_in_flight"], thread_name_prefix="iqiyi-process")
+    downloads = ThreadPoolExecutor(max_workers=download_limit, thread_name_prefix="iqiyi-download")
+    processing = ThreadPoolExecutor(max_workers=processing_limit, thread_name_prefix="iqiyi-process")
+
+    def enqueue(queue, record):
+        """将 record 加入 queue；重试排在普通项之前，同类项按进入该队列的顺序排列，无返回值。"""
+        if record[1] in retry_steps:
+            for position, existing in enumerate(queue):
+                if existing[1] not in retry_steps:
+                    queue.insert(position, record)
+                    return
+        queue.append(record)
+
+    def has_retry(queue) -> bool:
+        """返回当前按优先级排列的 queue 是否含有待重试项。"""
+        return bool(queue and queue[0][1] in retry_steps)
 
     def submit(pool, active, item, steps, phase):
         """向 pool 提交 item 的 steps，记录 phase 并登记到 active；无返回值。"""
@@ -45,6 +61,7 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
             item, steps = record[:2]
             if is_cancelled is not None and is_cancelled(item):
                 steps.close()
+                retry_steps.discard(steps)
                 update(item, "cancelled", None)
                 if sized:
                     released += record[2]
@@ -57,7 +74,9 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
             check_cancel(controls.cancel)
             idle = not (pending or prepared or waiting or ready or active_downloads or active_processing or catalog_open)
             if retries is not None:
-                pending.extend(retries(idle))
+                for record in retries(idle):
+                    retry_steps.add(record[1])
+                    enqueue(pending, record)
             if idle and not pending:
                 break
             remove_cancelled(pending)
@@ -66,19 +85,25 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
             queued -= remove_cancelled(ready, sized=True)
             while waiting and (queued + waiting[0][2] <= capacity or not ready):
                 item, steps, size = waiting.popleft()
-                ready.append((item, steps, size))
+                enqueue(ready, (item, steps, size))
                 queued += size
                 update(item, "waiting_processing", None)
-            while len(active_processing) < config["max_in_flight"]:
-                preparing = sum(future.phase == "initial" for future in active_processing)
+            while len(active_processing) < processing_limit:
+                preparing = [steps for future, (_, steps) in active_processing.items() if future.phase == "initial"]
+                retry_pending, retry_ready = has_retry(pending), has_retry(ready)
+                # 普通预解析队列满时，也允许准备一个重试，仍使用同一个处理池。
+                extra = retry_pending and not has_retry(prepared) and not any(steps in retry_steps for steps in preparing)
+                prepare_room = len(prepared) + len(preparing) < download_limit + int(extra)
                 can_prepare = not waiting and queued < capacity
-                reserve = (can_prepare and config["max_in_flight"] > 1 and (pending or catalog_open))
-                if (can_prepare and pending and len(prepared) + preparing < config["download"]["threads"]
-                        and (not ready or config["max_in_flight"] > 1 and not preparing)):
+                reserve = can_prepare and processing_limit > 1 and (pending or catalog_open)
+                prepare_first = not ready or (processing_limit > 1 and not preparing)
+                if retry_pending != retry_ready:
+                    prepare_first = retry_pending
+                if can_prepare and pending and prepare_room and prepare_first:
                     item, steps = pending.popleft()
                     phase = "initial"
-                elif (can_prepare and catalog_open and not discovering and not pending
-                      and (not ready or config["max_in_flight"] > 1)):
+                elif (can_prepare and catalog_open and not discovering and not pending and not retry_ready
+                      and (not ready or processing_limit > 1)):
                     future = processing.submit(next, source, None)
                     future.phase = "discovery"
                     active_processing[future] = (None, source)
@@ -86,7 +111,8 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
                     continue
                 elif ready:
                     # 已准备的任务有限且下载尚在进行时，为后续解析保留一个共享处理位置。
-                    if reserve and not preparing and not discovering and len(active_processing) >= config["max_in_flight"] - 1:
+                    if (reserve and (not retry_ready or retry_pending) and not preparing and not discovering
+                            and len(active_processing) >= processing_limit - 1):
                         break
                     item, steps, size = ready.popleft()
                     queued -= size
@@ -95,7 +121,12 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
                 else:
                     break
                 submit(processing, active_processing, item, steps, phase)
-            while prepared and not waiting and len(active_downloads) < config["download"]["threads"]:
+            retry_preparing = any(future.phase == "initial" and steps in retry_steps
+                                  for future, (_, steps) in active_processing.items())
+            while prepared and not waiting and len(active_downloads) < download_limit:
+                # 给正在等来源的重试留一个下载位置，其他空位仍可派发已准备的普通项。
+                if (retry_preparing or has_retry(pending)) and not has_retry(prepared) and len(active_downloads) == download_limit - 1:
+                    break
                 item, steps = prepared.popleft()
                 submit(downloads, active_downloads, item, steps, "download")
             futures = set(active_downloads) | set(active_processing)
@@ -115,22 +146,25 @@ def schedule(jobs: list, config: dict, controls, update, *, discovery=None, admi
                     kind, result = future.result()
                     if kind != "done" and is_cancelled is not None and is_cancelled(item):
                         steps.close()
+                        retry_steps.discard(steps)
                         update(item, "cancelled", None)
                         continue
                     if kind == "download":
-                        prepared.append((item, steps))
+                        enqueue(prepared, (item, steps))
                         update(item, "waiting_download", None)
                     elif kind == "ready":
                         if type(result) is not int or result <= 0:
                             raise ValueError("下载完成的分片字节数必须为正整数")
-                        waiting.append((item, steps, result))
+                        enqueue(waiting, (item, steps, result))
                         update(item, "waiting_queue", None)
                     elif kind == "done":
+                        retry_steps.discard(steps)
                         update(item, "done", result)
                     else:
                         raise RuntimeError("链接任务产生未知阶段")
                 except Exception as error:
                     steps.close()
+                    retry_steps.discard(steps)
                     update(item, "cancelled" if is_cancelled is not None and is_cancelled(item) else "failed", error)
     except BaseException:
         controls.cancel.set()

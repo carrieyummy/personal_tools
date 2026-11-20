@@ -3,12 +3,16 @@
 from collections import Counter
 from pathlib import Path
 import re
+from threading import Event
 from typing import Callable
 
 from .native import NativeV5
+from .runtime import check_cancel
 
 START_CODE = re.compile(rb"\x00\x00\x00?\x01")
 PACKET_SIZE = 188
+PTS_CLOCK_RATE = 90_000
+PTS_WRAP = 1 << 33
 
 
 def payload_offset(packet: bytes) -> int:
@@ -70,22 +74,14 @@ def service_descriptor(packet: bytes) -> bytes | None:
     return None
 
 
-class TransportDecoder:
-    """按原始时间戳和分段描述处理 TS 视频；不输出、提取或保存内容密钥。"""
+class _VideoProgram:
+    """从单节目 TS 的 PAT/PMT 持续跟踪 AVC 或 HEVC 视频轨。"""
 
-    def __init__(self, sdk: NativeV5, max_pes_bytes: int):
-        """创建转换器；sdk 为已接受授权的上下文，max_pes_bytes 是单个 PES 缓冲上限。"""
-        self.sdk = sdk
-        self.max_pes_bytes = max_pes_bytes
+    def __init__(self):
+        """初始化空轨道信息；无参数，无返回值。"""
         self.pmt_pid = None
         self.video_pid = None
         self.stream_type = None
-        self.encrypted = False
-        self.pending = []
-        self.pending_size = 0
-        self.continuity = 15
-        self.stats = Counter()
-        self.descriptor_styles = Counter()
 
     def _tables(self, packet: bytes, pid: int) -> None:
         """处理 PAT/PMT；packet 为完整 TS 包，pid 为其 PID；记录唯一视频轨信息。"""
@@ -111,6 +107,68 @@ class TransportDecoder:
             if self.video_pid is not None and videos[0] != (self.video_pid, self.stream_type):
                 raise ValueError("视频轨在文件中发生变化")
             self.video_pid, self.stream_type = videos[0]
+
+
+def _video_pts_bounds(path: Path, cancel_event: Event | None) -> tuple[int, int]:
+    """读取 TS 文件 path 的视频 PES 头，返回首末显示时间戳；cancel_event 可取消，结果处理 33 位回绕。"""
+    program = _VideoProgram()
+    origin = earliest = latest = None
+    with path.open("rb") as stream:
+        while packet := stream.read(PACKET_SIZE):
+            check_cancel(cancel_event)
+            offset = payload_offset(packet)
+            pid = ((packet[1] & 31) << 8) + packet[2]
+            program._tables(packet, pid)
+            if pid != program.video_pid or not packet[1] & 0x40 or offset == PACKET_SIZE:
+                continue
+            header = packet[offset:offset + 14]
+            if (len(header) < 14 or header[:3] != b"\0\0\1" or header[6] & 0xc0 != 0x80
+                    or not header[7] & 0x80 or header[8] < 5):
+                raise ValueError("内嵌 HLS 边界分段的视频 PES 缺少 PTS")
+            a, b, c, d, e = header[9:14]
+            if a >> 4 not in (2, 3) or not (a & c & e & 1):
+                raise ValueError("内嵌 HLS 边界分段的视频 PTS 格式无效")
+            stamp = ((a & 14) << 29) | (b << 22) | ((c & 254) << 14) | (d << 7) | (e >> 1)
+            if origin is None:
+                origin = earliest = latest = stamp
+            else:
+                unwrapped = origin + (stamp - origin + PTS_WRAP // 2) % PTS_WRAP - PTS_WRAP // 2
+                earliest, latest = min(earliest, unwrapped), max(latest, unwrapped)
+    if origin is None:
+        raise ValueError("内嵌 HLS 边界分段未找到视频 PTS")
+    return earliest, latest
+
+
+def verify_video_pts_join(before: Path, after: Path, frame_rate: int, cancel_event: Event | None = None) -> int:
+    """验证 before/after 两段 TS 串接处恰好相隔一帧；frame_rate 为原生正整数帧率，cancel_event 可取消。
+
+    返回实际间隔的 90 kHz 时钟刻度；重复、缺帧或实际时钟间隔异常时抛错。
+    """
+    if type(frame_rate) is not int or frame_rate <= 0:
+        raise ValueError("内嵌 HLS 边界缺少有效帧率")
+    _, last = _video_pts_bounds(before, cancel_event)
+    first, _ = _video_pts_bounds(after, cancel_event)
+    delta = (first - last) % PTS_WRAP
+    whole, remainder = divmod(PTS_CLOCK_RATE, frame_rate)
+    if delta <= 0 or not whole <= delta <= whole + bool(remainder):
+        raise ValueError(f"实际视频 PTS 未按一帧衔接：间隔 {delta} 个时钟刻度，帧率 {frame_rate}")
+    return delta
+
+
+class TransportDecoder(_VideoProgram):
+    """按原始时间戳和分段描述处理 TS 视频；不输出、提取或保存内容密钥。"""
+
+    def __init__(self, sdk: NativeV5, max_pes_bytes: int):
+        """创建转换器；sdk 为已接受授权的上下文，max_pes_bytes 是单个 PES 缓冲上限。"""
+        super().__init__()
+        self.sdk = sdk
+        self.max_pes_bytes = max_pes_bytes
+        self.encrypted = False
+        self.pending = []
+        self.pending_size = 0
+        self.continuity = 15
+        self.stats = Counter()
+        self.descriptor_styles = Counter()
 
     def _decrypt_pes(self, pes: bytes) -> bytes:
         """解密一个完整视频 PES；pes 含头和 NAL；返回时间戳不变的 PES。"""

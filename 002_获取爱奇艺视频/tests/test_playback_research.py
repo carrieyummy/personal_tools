@@ -13,8 +13,10 @@ from qsv_local.playback.cache import cache_snapshot, coverage
 from qsv_local.playback.configuration import read_profile
 from qsv_local.playback.metadata import public_duration
 from qsv_local.playback.download import segment_ranges
+from qsv_local.playback.manifests import inline_hls_segment_lengths
 from qsv_local.playback.media import parse_manifest, signed_segment
 from qsv_local.playback.session import is_target_dash, replay, response_summary
+from qsv_local.transport import PACKET_SIZE
 
 
 class PlaybackCacheResearchTests(unittest.TestCase):
@@ -173,6 +175,52 @@ class PlaybackSessionResearchTests(unittest.TestCase):
         for start in (9, 11):
             with self.assertRaisesRegex(ValueError, "不连续"):
                 segment_ranges([values[0], {"url": base + f"?start={start}&end=20"}], 20)
+
+    def test_inline_hls_checks_timeline_across_interleaved_signed_paths(self):
+        """内嵌 HLS 按播放时间验证两条路径，拒绝缺口、错误长度、重复范围和错位分组；无返回值。"""
+        def segment(path, start_packet, count, milliseconds, group):
+            """生成 path 的合成 TS 地址；start_packet/count 为包范围，milliseconds/group 为原生时间和分组，返回地址。"""
+            start, length = start_packet * PACKET_SIZE, count * PACKET_SIZE
+            return (f"https://{self.host}/{path}.ts?start={start}&end={start + length}"
+                    f"&contentlength={length}&sd={milliseconds}&qd_idx={group}"
+                    "&qd_rt=1&qd_tc=fixture&qd_etd=2&qd_tvid=3&qd_tvid=3&qd_sc=fixture")
+
+        first = segment("a", 0, 2, 0, "first")
+        second = segment("b", 3, 2, 1250, "first")
+        third = segment("a", 4, 3, 2500, "first")
+        fourth = segment("c", 0, 2, 3750, "next")
+        body = (f"#EXTM3U\n#EXTINF:1.25,\n{first}\n#EXTINF:1.25,\n{second}\n#EXTINF:1.25,\n{third}"
+                f"\n#EXT-X-DISCONTINUITY\n#EXTINF:1.25,\n{fourth}\n#EXT-X-ENDLIST")
+        rows = parse_manifest(body.encode(), "", self.settings["resource_host_suffix"])["segments"]
+        declared = PACKET_SIZE * 10
+        frame_rate = 25
+        lengths = [PACKET_SIZE * n for n in (2, 2, 3, 2)]
+        self.assertTrue(rows[3]["discontinuity"])
+        self.assertEqual(inline_hls_segment_lengths(rows, declared, frame_rate), (lengths, []))
+        frame_ms = 1000 // frame_rate
+        corrected = [*rows[:3], {**rows[3], "url": segment("c", 0, 2, 3750 + frame_ms, "next")}]
+        corrected.append({"duration": 1.25, "url": segment("c", 2, 2, 5000 + frame_ms, "next")})
+        self.assertEqual(inline_hls_segment_lengths(corrected, declared + 2 * PACKET_SIZE, frame_rate),
+                         ([*lengths, 2 * PACKET_SIZE], [3]))
+        self.assertEqual(signed_segment(rows[1], {"m3u8": body}), second)
+        for replacement in (second + "&qd_sc=", second + "&qd_tvid=4"):
+            with self.subTest(address=replacement), self.assertRaisesRegex(ValueError, "原生签名"):
+                signed_segment({"url": replacement}, {"m3u8": body})
+
+        for index, url, expected in (
+            (1, segment("b", 3, 2, 2500, "first"), "时间线不连续"),
+            (1, segment("b", 3, 2, 1250 + frame_ms, "first"), "时间线不连续"),
+            (1, second.replace(f"contentlength={2 * PACKET_SIZE}", "contentlength=1"), "长度"),
+            (2, segment("a", 1, 3, 2500, "first"), "范围重叠"),
+            (2, segment("a", 4, 3, 2500, "other"), "缺少不连续标记"),
+            (3, segment("c", 1, 2, 3750, "next"), "起始范围"),
+            (3, segment("c", 0, 2, 3750 + 2 * frame_ms, "next"), "时间线不连续"),
+        ):
+            with self.subTest(index=index, expected=expected):
+                changed = list(rows)
+                changed[index] = {**rows[index], "url": url}
+                with self.assertRaisesRegex(ValueError, expected):
+                    inline_hls_segment_lengths(changed, declared, frame_rate)
 
     def test_public_clock_duration_is_validated(self):
         """公开资料时钟格式与秒数均可识别，非法分钟/秒值不进入全片时长验证；无返回值。"""

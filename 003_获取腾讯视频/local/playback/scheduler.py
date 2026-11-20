@@ -18,7 +18,7 @@ class UrlScheduler:
     def run(self, tasks: list[dict], discovery=None) -> dict:
         """调度已知 tasks 及可选 Discovery 来源 discovery，返回包含已登记总数的终态计数。
 
-        目录每次仅展开一个清单项，与逐集解析、续签及后处理共享处理池；完整目录按剧交接，
+        目录每次仅展开一部剧，与逐集解析、续签及后处理共享处理池；完整目录按剧交接，
         主循环不执行目录网络请求。任务元数据可继续补全，媒体预解析及下载后队列保持有界。
         """
         pending = deque()
@@ -52,7 +52,7 @@ class UrlScheduler:
                     entries_by_identity[(task["series_id"], task["video_id"])] = entry
 
         def close_discovery(status: str, detail: str) -> None:
-            """以 status 结束目录发现；detail 说明停止原因，未展开链接按清单项记录而不虚构集数。"""
+            """以 status 结束目录发现；detail 说明停止原因，未完成的清单项包含尚未查完的系列。"""
             nonlocal discovery_closed, catalog_open
             catalog_open = False
             if discovery is None or discovery_closed:
@@ -79,7 +79,7 @@ class UrlScheduler:
                 discovery_closed = not catalog_open
                 progress = result["progress"]
                 print(f"目录展开：{progress['processed_requests']}/{progress['total_requests']} 个清单项，"
-                      f"已发现 {progress['discovered_tasks']} 集" + ("，目录已完成" if not catalog_open else "，继续补全"), flush=True)
+                      f"已发现 {progress['discovered_tasks']} 集" + ("，目录已完成" if not catalog_open else "，继续展开正片目录"), flush=True)
                 return
             try:
                 kind, value = future.result()

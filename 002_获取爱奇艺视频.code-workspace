@@ -16,6 +16,12 @@
         },
         {
             "path": "Z:/003_电视剧"
+        },
+        {
+            "path": "Z:/004_电影_中文"
+        },
+        {
+            "path": "Z:/005_电影_外国"
         }
     ],
     "settings": {
@@ -57,6 +63,20 @@
                     // "--plan"
                 ]
             },// python download_iqiyi.py --config configs/playback.yaml
+            {
+                "name": "爱奇艺：恢复下载进度页面",
+                "type": "debugpy",
+                "request": "launch",
+                "python": "${config:python.defaultInterpreterPath}",
+                "program": "${workspaceFolder:002_获取爱奇艺视频}/reopen_progress.py",
+                "cwd": "${workspaceFolder:002_获取爱奇艺视频}",
+                "console": "integratedTerminal",
+                "env": { "PYTHONUTF8": "1" },
+                "args": [
+                    // 可选：省略时读取工具目录下的 configs/config.yaml。
+                    // "--config", "${workspaceFolder:002_获取爱奇艺视频}/configs/config.yaml"
+                ]
+            },
             {
                 "name": "爱奇艺：研究链接播放会话",
                 "type": "debugpy",

@@ -6,10 +6,11 @@ from pathlib import Path
 import tempfile
 from threading import Event
 import unittest
+from unittest.mock import Mock
 
 import yaml
 
-from local.playback.errors import AddressExpired
+from local.playback.errors import AddressExpired, PlaybackError
 from local.playback.hls import Playlist, Resource, download_steps
 
 
@@ -29,6 +30,39 @@ class Response(BytesIO):
 
 class DownloadTelemetryTests(unittest.TestCase):
     """在临时目录验证真实读取与断点统计。"""
+
+    def test_virtual_ts_checks_first_segment_on_download_and_resume(self):
+        """长度正确的非 TS 首片应中止后续下载，重跑复核断点时应得到相同错误；无返回值。"""
+        config = yaml.safe_load(Path('configs/config.yaml').read_text(encoding='utf-8'))
+        names = ('00_sample.f1.1.ts', '01_sample.f1.1.ts')
+        playlist = Playlist([Resource(f'https://example.invalid/{name}', None, 1, stable_path=name)
+                             for name in names], 0, 1)
+        invalid = bytes(188 * 5)
+        transport = Mock()
+        transport.open.return_value = Response(invalid)
+        with tempfile.TemporaryDirectory(prefix='tencent_telemetry_') as root:
+            directory = Path(root)
+            for expected_requests in (1, 1):
+                steps = download_steps(transport, [playlist], directory, config, Mock(), Event())
+                with self.assertRaisesRegex(PlaybackError, '首分片无法识别为 MPEG-TS'):
+                    next(steps)
+                self.assertEqual(transport.open.call_count, expected_requests)
+                self.assertEqual((directory / 'track_0' / '000000.bin').read_bytes(), invalid)
+                self.assertFalse((directory / 'track_0' / 'local.m3u8').exists())
+
+    def test_virtual_ts_accepts_transport_stream(self):
+        """腾讯虚拟 TS 首片含连续同步字节时，下载后仍应生成封装清单；无返回值。"""
+        config = yaml.safe_load(Path('configs/config.yaml').read_text(encoding='utf-8'))
+        name = '00_sample.f1.1.ts'
+        playlist = Playlist([Resource(f'https://example.invalid/{name}', None, 1, stable_path=name)], 0, 1)
+        transport = Mock()
+        transport.open.return_value = Response((b'\x47' + bytes(187)) * 5)
+        with tempfile.TemporaryDirectory(prefix='tencent_telemetry_') as root:
+            steps = download_steps(transport, [playlist], Path(root), config, Mock(), Event())
+            with self.assertRaises(StopIteration) as result:
+                next(steps)
+            manifests, _ = result.exception.value
+            self.assertIn('000000.bin', manifests[0].read_text(encoding='utf-8'))
 
     def test_known_total_and_retry(self):
         """精确字节范围给出总量；失败分片重试时撤销未完成字节；无返回值。"""

@@ -138,10 +138,14 @@ def select_av_source(profile: dict, video: dict, video_rank: int, audio_rank: in
     try:
         audio = select_native_audio(profile, video, result, audio_rank)
         result.report["audio_selection"] = audio.report
+        # 语言名称来自最初视频响应中与实际选定 AID 一致的音轨，避免重新请求时的展示字段缺失。
+        audio_rows = result.payload.get("data", {}).get("program", {}).get("audio", [])
+        language = next((row.get("name") for row in audio_rows
+                         if row.get("aid") == audio.report["source_aid"] and row.get("lid") == result.selected.get("lid")), None)
         dispatch = audio.payload["data"].get("dd")
         if not isinstance(dispatch, str) or not dispatch:
             raise RuntimeError("原生音轨响应缺少调度前缀")
-        result.selected = {**result.selected, "_audio_selection": audio.report,
+        result.selected = {**result.selected, "_audio_selection": audio.report, "_audio_language": language,
                            "_audio_segments": audio_segments(profile, audio.selected, video["duration_seconds"], dispatch)}
         return result
     except Exception as error:

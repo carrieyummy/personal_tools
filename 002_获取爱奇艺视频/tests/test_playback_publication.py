@@ -79,6 +79,47 @@ class PublicationTests(unittest.TestCase):
             recovered = resume_validated(self.work, self.identity, self.video, self.config, self.controls)
         self.assertTrue(recovered["resumed_validation"])
 
+    def test_publication_cleans_retired_and_partial_media_only_after_index_commit(self):
+        """验证成功发布后清理旧媒体，配置保留中间文件时保留，报告及其他文件始终保留。"""
+        for keep in (False, True):
+            with self.subTest(keep_intermediates=keep):
+                self.config["keep_intermediates"] = keep
+                self.candidate.write_bytes(b"synthetic fully verified media")
+                names = ["outer.ts", "clear_00_video.mp4.retired_20261119_011020_123456",
+                         "validated.partial.mp4.retired_20261119_011020_123456",
+                         "segment_00001.ts.retired_20261119_011020_123456",
+                         "segment_00002.ts." + "a" * 32 + ".partial"]
+                for name in names:
+                    (self.work / name).write_bytes(b"old media")
+                preserved = ["full_report.json.retired_20261119_011020_123456", "segment_notes.ts", "unrelated.mp4"]
+                for name in preserved:
+                    (self.work / name).write_bytes(b"preserve")
+                target = (self.root / "output" / ("kept.mp4" if keep else "cleaned.mp4")).resolve()
+                target.parent.mkdir(exist_ok=True)
+                with patch("qsv_local.playback.publication.require_same_metadata"), patch("qsv_local.playback.publication.target_path", return_value=target):
+                    result = publish_validated({"main_config": self.root / "main.yaml"}, self.config, self.video, {}, self.work, deepcopy(self.report), self.controls)
+                self.assertEqual(result["status"], "completed")
+                self.assertTrue(target.exists())
+                self.assertEqual(self.candidate.exists(), keep)
+                for name in names:
+                    self.assertEqual((self.work / name).exists(), keep, name)
+                for name in preserved:
+                    self.assertTrue((self.work / name).exists(), name)
+
+    def test_index_failure_keeps_retired_media(self):
+        """索引提交失败时保留当前候选和旧媒体，供后续恢复；无返回值。"""
+        self.config["keep_intermediates"] = False
+        retired = self.work / "outer.ts.retired_20261119_011020_123456"
+        retired.write_bytes(b"old media")
+        target = (self.root / "output" / "failed.mp4").resolve()
+        target.parent.mkdir(exist_ok=True)
+        with patch("qsv_local.playback.publication.require_same_metadata"), patch("qsv_local.playback.publication.target_path", return_value=target), patch("qsv_local.playback.publication.PlaybackDirectoryIndex.save", side_effect=OSError("index failed")):
+            with self.assertRaisesRegex(OSError, "index failed"):
+                publish_validated({"main_config": self.root / "main.yaml"}, self.config, self.video, {}, self.work, deepcopy(self.report), self.controls)
+        self.assertTrue(retired.exists())
+        self.assertTrue(self.candidate.exists())
+        self.assertFalse(target.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

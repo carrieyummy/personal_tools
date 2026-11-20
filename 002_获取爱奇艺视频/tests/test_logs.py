@@ -95,6 +95,38 @@ class LogTests(ProjectCase):
             self.assertEqual(first.read_bytes(), before)
         self.assertGreaterEqual(len(list(self.output.glob("*.html"))), 4)
 
+    def test_live_entry_links_resolve_only_when_opened(self):
+        """实时快照不解析文件路径，点击时访问成品并拒绝根目录之外的报告。"""
+        self.source()
+        task = discover(self.config)[0]
+        task.target.parent.mkdir(parents=True)
+        task.target.write_bytes(b"media")
+        with redirect_stdout(self.console), Journal(self.config) as journal:
+            entry = journal.add(task)
+            journal.update(entry, "extracting", output=str(task.target), work_dir=str(self.root))
+            with patch("pathlib.Path.resolve", side_effect=AssertionError("实时快照不应解析文件路径")):
+                state = journal.snapshot(live=True)
+            item = state["runs"][-1]["entries"][0]
+            with urlopen(journal.url.rstrip("/") + item["file_url"]) as response:
+                self.assertEqual(response.read(), b"media")
+            with self.assertRaises(HTTPError) as error:
+                urlopen(journal.url.rstrip("/") + item["report_url"])
+            self.assertEqual(error.exception.code, 404)
+
+    def test_current_state_excludes_history(self):
+        """当前批次轮询只返回最新批次，完整状态仍保留历史记录。"""
+        self.source()
+        with redirect_stdout(self.console), Journal(self.config) as first:
+            first.add(discover(self.config)[0])
+        with redirect_stdout(self.console), Journal(self.config) as second:
+            with urlopen(second.url + "api/state?current=1") as response:
+                current = json.load(response)
+            with urlopen(second.url + "api/state") as response:
+                complete = json.load(response)
+            self.assertEqual(len(current["runs"]), 1)
+            self.assertEqual(len(complete["runs"]), 2)
+            self.assertEqual(current["runs"][0]["id"], complete["runs"][-1]["id"])
+
     def test_log_write_failure_keeps_live_memory(self):
         """日志写盘失败不影响实时 API 和媒体状态；无参数或返回值。"""
         self.source()

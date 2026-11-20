@@ -5,8 +5,9 @@ commit: ''
 # 以下设置适用于清单中的全部链接。
 quality: 1 # 每集单独排名：1 为账号可获取的最高档，2 为次高档；排名不存在时报该集失败，不降档。
 # all-parts: false # 可选：仅下载链接指定一集；未填写时读取主配置 download.all_parts。
+# all-related-parts: true # 可选：覆盖主配置 download.all_related_parts，开启时优先于 all-parts。
 
 # 保留列表与集序顺序；当前剧集派发完后，空闲线程继续后续剧集。
 # 每项填写一个官方链接；网页分组名称自动读取官方剧名。
 download_list:
-  - https://m.v.qq.com/x/m/play?cid=co47xqkusidzo41&vid=f0033dnda04
+  - https://m.v.qq.com/x/m/play?cid=mzc002007sqbpce&vid=w410030jale

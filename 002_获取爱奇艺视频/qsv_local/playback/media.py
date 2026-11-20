@@ -1,6 +1,7 @@
 """有界验证在线播放清单及授权媒体分段，复用项目已有的 TS 和本机 SDK 适配。"""
 
 from pathlib import Path
+from codecs import getincrementaldecoder
 from copy import deepcopy
 from contextlib import contextmanager
 from http.client import HTTPException
@@ -32,7 +33,7 @@ def parse_manifest(body: bytes, base_url: str, host_suffix: str) -> dict:
     text = body.decode("utf-8-sig").strip()
     if not text.startswith("#EXTM3U") or "#EXT-X-ENDLIST" not in text:
         raise ValueError("需要已结束的 HLS 点播媒体清单")
-    segments, methods, duration = [], set(), None
+    segments, methods, duration, discontinuity = [], set(), None, False
     for raw in text.splitlines():
         line = raw.strip()
         if line.startswith(("#EXT-X-STREAM-INF", "#EXT-X-MAP", "#EXT-X-BYTERANGE")):
@@ -42,6 +43,10 @@ def parse_manifest(body: bytes, base_url: str, host_suffix: str) -> dict:
             if not match:
                 raise ValueError("HLS 密钥标记未说明方法")
             methods.add(match[1])
+        elif line == "#EXT-X-DISCONTINUITY":
+            if discontinuity:
+                raise ValueError("HLS 不连续标记之间缺少媒体分段")
+            discontinuity = True
         elif line.startswith("#EXTINF:"):
             if duration is not None:
                 raise ValueError("HLS 分段时长未对应唯一媒体地址")
@@ -53,9 +58,12 @@ def parse_manifest(body: bytes, base_url: str, host_suffix: str) -> dict:
             if (duration is None or parsed.scheme not in ("http", "https") or not parsed.hostname
                     or not parsed.hostname.endswith(host_suffix)):
                 raise ValueError("HLS 媒体地址或时长无效")
-            segments.append({"url": parsed.geturl(), "duration": duration})
-            duration = None
-    if not segments or duration is not None:
+            segment = {"url": parsed.geturl(), "duration": duration}
+            if discontinuity:
+                segment["discontinuity"] = True
+            segments.append(segment)
+            duration, discontinuity = None, False
+    if not segments or duration is not None or discontinuity:
         raise ValueError("HLS 清单为空或存在缺失地址")
     return {"segments": segments, "methods": sorted(methods), "duration": sum(row["duration"] for row in segments)}
 
@@ -96,12 +104,28 @@ def media_config(profile: dict) -> dict:
     return config
 
 
+def has_inline_hls_signatures(source: dict) -> bool:
+    """判断 source 是否由原生响应内嵌 HLS 清单直接提供授权地址；返回是否采用该协议。"""
+    body = source.get("m3u8")
+    return (isinstance(body, str) and body.lstrip("\ufeff \t\r\n").startswith("#EXTM3U")
+            and source.get("mk") is None and source.get("ms") is None)
+
+
 def signed_segment(segment: dict, source: dict) -> str:
-    """对应 segment/source 的调度授权：旧格式按文件读取 mk，新格式按 uea/ms 加清单内 qd_tc；返回内存地址。"""
+    """返回 segment/source 的内存授权地址；内嵌 HLS 使用已签名的原始地址，其余按 mk 或 uea/ms 附加签名。"""
     parsed = urlsplit(segment["url"])
     signatures = source.get("mk")
     signature = signatures.get(Path(parsed.path).name) if isinstance(signatures, dict) else None
     query = parse_qs(parsed.query)
+    if has_inline_hls_signatures(source):
+        fields = ("qd_sc", "qd_tc", "qd_rt", "qd_etd")
+        inline = parse_qs(parsed.query, keep_blank_values=True)
+        tvids = inline.get("qd_tvid", [])
+        # 原生内嵌地址可重复携带同一个节目编号；保留原始参数和签名，不重组地址。
+        if (not all(len(inline.get(name, [])) == 1 and inline[name][0] for name in fields)
+                or not tvids or not tvids[0] or len(set(tvids)) != 1):
+            raise ValueError("内嵌 HLS 分段缺少唯一的原生签名")
+        return segment["url"]
     if (signatures is None and source.get("uea") == 1
             and all(len(query.get(name, [])) == 1 and query[name][0] for name in ("qd_tc", "qd_rt", "qd_etd", "qd_tvid"))):
         signature = source.get("ms")
@@ -163,9 +187,26 @@ def read_response(response, size: int) -> bytes:
         raise MediaNetworkError(f"读取媒体分段失败：{type(error).__name__}") from None
 
 
+def has_dispatch_prefix(prefix: bytes) -> bool:
+    """判断响应首块 prefix 是否具有已适配的 UTF-8 JSON 对象或 var 赋值前缀；返回布尔值。"""
+    # 首块可能截在 UTF-8 字符中间，允许末尾未读完的字符，但拒绝已出现的非法编码或控制字节。
+    try:
+        text = getincrementaldecoder("utf-8-sig")().decode(prefix, final=False)
+    except UnicodeDecodeError:
+        return False
+    if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", text):
+        return False
+    return re.match(r"""^\s*(?:\{\s*["}]|var\s+[$a-zA-Z_][$\w]*\s*=\s*['"{])""", text) is not None
+
+
 @contextmanager
-def segment_response(profile: dict, url: str, headers: dict, maximum: int, range_style: str = "header"):
-    """打开 profile/url 的媒体，公开 headers、maximum 限制边界，range_style 为 header 或完整物理块 whole；提供响应并自动关闭。"""
+def segment_response(profile: dict, url: str, headers: dict, maximum: int, range_style: str = "header",
+                     *, require_content_range: bool = False):
+    """打开 profile/url 的媒体，headers 和 maximum 限定请求，range_style 为 header 或 whole；提供响应并自动关闭。
+
+    require_content_range 为真时要求最终媒体为 HTTP 206 并声明相同范围。
+    通过 HTTP 信息识别媒体，缺少媒体证据时检查调度文本结构；调度和媒体分别使用各自的长度验证。
+    """
     if range_style not in ("header", "whole"):
         raise ValueError("未知的媒体范围协议")
     stages = []
@@ -210,20 +251,30 @@ def segment_response(profile: dict, url: str, headers: dict, maximum: int, range
                 raise ValueError("媒体响应不属于已核验的 CDN 域名")
             shape = {"host": host, "status": response.status, "content_type": response.headers.get("Content-Type"),
                      "content_range": response.headers.get("Content-Range")}
-            prefix = read_response(response, min(32, maximum + 1))
-            stages.append(shape)
-            if prefix.lstrip(b"\xef\xbb\xbf \r\n\t").startswith((b"{", b"var ")):
-                limit = profile["network"]["max_response_bytes"]
-                raw = prefix + read_response(response, max(0, limit + 1 - len(prefix)))
-                if len(raw) > limit:
-                    raise ValueError("媒体调度响应超过配置上限")
-                url = dispatch_address(raw)
-                continue
             if span is not None and shape["content_range"] is not None:
                 match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+|\*)", shape["content_range"])
                 if (match is None or (int(match[1]), int(match[2]) + 1) != span
                         or match[3] != "*" and int(match[3]) < span[1]):
                     raise RuntimeError("媒体服务器返回的 Content-Range 与目标区间不一致")
+            range_confirmed = response.status == 206 and span is not None and shape["content_range"] is not None
+            content_type = (shape["content_type"] or "").partition(";")[0].strip().lower()
+            binary_type = content_type == "application/octet-stream" or content_type.startswith(("audio/", "video/"))
+            content_length = (response.headers.get("Content-Length") or "").strip()
+            binary_with_expected_size = (span is not None and binary_type
+                                         and content_length == str(span[1] - span[0]))
+
+            prefix = read_response(response, min(32, maximum + 1))
+            stages.append(shape)
+            # 完整音轨块可能从码流中间开始，首字节恰好是调度文本的字符。
+            if not (range_confirmed or binary_with_expected_size) and has_dispatch_prefix(prefix):
+                limit = profile["network"]["max_response_bytes"]
+                raw = prefix + read_response(response, max(0, limit + 1 - len(prefix)))
+                if len(raw) > limit:
+                    raise ValueError(f"媒体调度响应超过配置上限（HTTP {response.status}，上限 {limit} 字节）")
+                url = dispatch_address(raw)
+                continue
+            if require_content_range and not range_confirmed:
+                raise RuntimeError("内嵌 HLS 媒体响应缺少 HTTP 206 字节范围证明")
             yield response, prefix, span, {"stages": stages}
             return
         finally:
@@ -254,15 +305,20 @@ def fetch_segment(profile: dict, url: str, headers: dict, maximum: int, *, range
 
 
 def save_segment(profile: dict, url: str, headers: dict, target: Path, expected_bytes: int, buffer_bytes: int,
-                 cancel_event: Event | None = None, *, progress=None, range_style: str = "header") -> dict:
-    """流式保存 profile/url/公开 headers 到 target；expected_bytes/ buffer_bytes 指定长度和块长；响应 cancel_event，progress 接收字节，range_style 选择协议，返回指纹。"""
+                 cancel_event: Event | None = None, *, progress=None, range_style: str = "header",
+                 require_content_range: bool = False) -> dict:
+    """流式保存 profile/url/公开 headers 到 target；expected_bytes/buffer_bytes 指定长度和块长，返回指纹。
+
+    cancel_event 可取消，progress 接收字节，range_style 选择协议，require_content_range 可强制要求 HTTP 范围证明。
+    """
     if expected_bytes <= 0 or buffer_bytes <= 0:
         raise ValueError("完整分段的预期长度和缓冲大小必须为正整数")
     if target.exists():
         raise FileExistsError(f"完整分段目标已经存在：{target}")
     temporary = target.with_name(target.name + "." + uuid.uuid4().hex + ".partial")
     digest, total = hashlib.sha256(), 0
-    with segment_response(profile, url, headers, expected_bytes, range_style) as (response, prefix, span, _):
+    with segment_response(profile, url, headers, expected_bytes, range_style,
+                          require_content_range=require_content_range) as (response, prefix, span, _):
         if span is None or span[1] - span[0] != expected_bytes:
             raise ValueError("完整分段范围与清单预期长度不一致")
         with temporary.open("xb") as stream:

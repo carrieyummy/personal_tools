@@ -5,6 +5,7 @@ commit: ''
 # 以下设置适用于清单中的全部链接。
 quality: 1 # 每集单独排名：1 最高，2 次高；档位不存在时报失败，不降档。
 # all-parts: false # 可选：只下载链接指定集；未填写读取主配置 download.all_parts。
+# all-related-parts: true # 可选：覆盖主配置 download.all_related_parts，开启时优先于 all-parts。
 
 # 保留列表顺序；优先派发当前剧集正片，空闲线程继续后续剧集。
 # 每项填写一个官方链接；网页分组名称自动读取官方剧名。

@@ -135,6 +135,77 @@ class PlaybackDownloadTests(unittest.TestCase):
             self.assertEqual(fingerprint(target, buffer_bytes, force=True), digest)
         self.assertGreater(len(reads), 2)
 
+    def test_binary_segment_with_dispatch_like_prefix_streams_as_media(self):
+        """完整音轨块及范围媒体即使与调度文本有相似开头，也按清单长度保存；无返回值。"""
+        total = self.raw["network"]["max_response_bytes"] + 1
+        buffer_bytes = yaml.safe_load((self.root / "configs/config.yaml").read_text(encoding="utf-8"))["copy_buffer_bytes"]
+        host = "synthetic" + self.raw["playback"]["resource_host_suffix"]
+        url = f"https://{host}/part?start=0&end={total}"
+        cases = [
+            (b'{"\xff', "whole", None, {}),
+            (b'{"l":"maybe text', "whole", None, {"Content-Type": "application/octet-stream", "Content-Length": str(total)}),
+            (b'var videoUrl={code:', "header", f"bytes 0-{total - 1}/{total}", {}),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            for index, (prefix, style, content_range, headers) in enumerate(cases):
+                with self.subTest(style=style, prefix=prefix):
+                    data = prefix.ljust(total, b"x")
+                    response = self.response(data, url, content_range)
+                    response.headers.update(headers)
+                    target = Path(directory) / f"segment_{index}.ts"
+                    with patch("qsv_local.playback.media.open_network", return_value=response) as network:
+                        result = save_segment(self.raw, url, {}, target, total, buffer_bytes, range_style=style)
+                    network.assert_called_once()
+                    self.assertEqual(result["sha256"], hashlib.sha256(data).hexdigest())
+                    self.assertEqual(target.stat().st_size, total)
+
+    def test_segment_follows_json_and_native_text_dispatch(self):
+        """已适配的 JSON 和原生脚本字面量继续完成一次调度；无返回值。"""
+        host = "synthetic" + self.raw["playback"]["resource_host_suffix"]
+        url = f"https://{host}/dispatch?start=0&end=128"
+        resolved = f"https://{host}/media"
+        payloads = (
+            json.dumps({"l": resolved}).encode(),
+            ('var videoUrl={code:"A00000",data:{l:"' + resolved + '"}};').encode(),
+            f'var resolved = "{resolved}";'.encode(),
+        )
+        for dispatch in payloads:
+            with self.subTest(form=dispatch[:4]):
+                data = b"x" * 128
+                responses = [self.response(dispatch, url), self.response(data, resolved)]
+                with patch("qsv_local.playback.media.open_network", side_effect=responses) as network:
+                    actual, _ = fetch_segment(self.raw, url, {}, len(data), range_style="whole")
+                self.assertEqual(actual, data)
+                self.assertEqual(network.call_count, 2)
+                self.assertEqual(network.call_args.args[1].full_url, resolved)
+
+    def test_oversized_dispatch_still_rejected(self):
+        """结构符合调度文本的响应仍受配置字节上限约束；无返回值。"""
+        limit = self.raw["network"]["max_response_bytes"]
+        host = "synthetic" + self.raw["playback"]["resource_host_suffix"]
+        url = f"https://{host}/dispatch?start=0&end=128"
+        response = self.response(b'{"l":"' + b"x" * limit + b'"}', url)
+        with patch("qsv_local.playback.media.open_network", return_value=response) as network:
+            with self.assertRaisesRegex(ValueError, "媒体调度响应超过配置上限"):
+                fetch_segment(self.raw, url, {}, 128, range_style="whole")
+        network.assert_called_once()
+
+    def test_inline_hls_requires_206_range_proof_before_saving_segment(self):
+        """即使收到的长度正确，内嵌 HLS 也须收到对应 HTTP 206 范围才保存分段；无返回值。"""
+        host = "synthetic" + self.raw["playback"]["resource_host_suffix"]
+        url = "https://" + host + "/part.ts?start=10&end=14"
+        main = yaml.safe_load((self.root / "configs/config.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "segment.ts"
+            with patch("qsv_local.playback.media.open_network", return_value=self.response(b"abcd", url)):
+                with self.assertRaisesRegex(RuntimeError, "HTTP 206"):
+                    save_segment(self.raw, url, {}, target, 4, main["copy_buffer_bytes"], require_content_range=True)
+                self.assertFalse(target.exists())
+            with patch("qsv_local.playback.media.open_network", return_value=self.response(b"abcd", url, "bytes 10-13/20")):
+                saved = save_segment(self.raw, url, {}, target, 4, main["copy_buffer_bytes"], require_content_range=True)
+            self.assertEqual(saved["size_bytes"], 4)
+            self.assertEqual(target.read_bytes(), b"abcd")
+
     def test_truncated_segment_is_not_published_or_recorded(self):
         """网络截断时仅保留未完成文件，不能发布有效分段；无返回值。"""
         host = "synthetic" + self.raw["playback"]["resource_host_suffix"]
